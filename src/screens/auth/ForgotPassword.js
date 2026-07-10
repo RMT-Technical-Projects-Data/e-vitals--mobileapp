@@ -205,8 +205,8 @@ const ForgotPassword = ({ navigation }) => {
           <Image
             source={
               showPassword
-                ? require('../../assets/images/eye-open.png')
-                : require('../../assets/images/eye-close.png')
+                ? require('../../assets/images/batch_04/eye-open.png')
+                : require('../../assets/images/batch_04/eye-close.png')
             }
             style={authStyles.eyeIcon}
           />

@@ -103,15 +103,15 @@ export default function GlobalBottomBar({ navigation }) {
           tabBarIcon: ({ focused }) => {
             let iconSource;
             if (route.name === 'Home') {
-              iconSource = require('../../assets/images/home1.png');
+              iconSource = require('../../assets/images/batch_05/home1.png');
             } else if (route.name === 'Readings') {
-              iconSource = require('../../assets/images/chart.png');
+              iconSource = require('../../assets/images/batch_02/chart.png');
             } else if (route.name === 'Chat') {
-              iconSource = require('../../assets/images/chat.png');
+              iconSource = require('../../assets/images/batch_02/chat.png');
             } else if (route.name === 'Agent') {
-              iconSource = require('../../assets/images/ai.png');
+              iconSource = require('../../assets/images/batch_01/ai.png');
             } else if (route.name === 'Settings') {
-              iconSource = require('../../assets/images/settings.png');
+              iconSource = require('../../assets/images/batch_08/settings.png');
             }
 
             return (
@@ -164,15 +164,15 @@ export default function GlobalBottomBar({ navigation }) {
         tabBarIcon: ({ focused }) => {
           let iconSource;
           if (route.name === 'Home') {
-            iconSource = require('../../assets/images/home1.png');
+            iconSource = require('../../assets/images/batch_05/home1.png');
           } else if (route.name === 'Patients') {
-            iconSource = require('../../assets/images/user-2.png');
+            iconSource = require('../../assets/images/batch_08/user-2.png');
           } else if (route.name === 'Chat') {
-            iconSource = require('../../assets/images/chat.png');
+            iconSource = require('../../assets/images/batch_02/chat.png');
           } else if (route.name === 'Schedule') {
-            iconSource = require('../../assets/images/calendar.png');
+            iconSource = require('../../assets/images/batch_02/calendar.png');
           } else if (route.name === 'Settings') {
-            iconSource = require('../../assets/images/settings.png');
+            iconSource = require('../../assets/images/batch_08/settings.png');
           }
 
           return (

@@ -195,8 +195,8 @@ const FollowUp = ({ navigation }) => {
                             <Image 
                               source={
                                 template.isVisible 
-                                  ? require('../../assets/images/eye-open.png')
-                                  : require('../../assets/images/eye-close.png')
+                                  ? require('../../assets/images/batch_04/eye-open.png')
+                                  : require('../../assets/images/batch_04/eye-close.png')
                               } 
                               style={styles.templateActionIcon}
                             />
@@ -206,7 +206,7 @@ const FollowUp = ({ navigation }) => {
                             onPress={() => handleEditTemplate(template.id)}
                           >
                             <Image 
-                              source={require('../../assets/images/edit.png')} 
+                              source={require('../../assets/images/batch_03/edit.png')} 
                               style={styles.templateActionIcon}
                             />
                           </TouchableOpacity>
@@ -215,7 +215,7 @@ const FollowUp = ({ navigation }) => {
                             onPress={() => handleDeleteTemplate(template.id)}
                           >
                             <Image 
-                              source={require('../../assets/images/delete.png')} 
+                              source={require('../../assets/images/batch_02/delete.png')} 
                               style={styles.templateActionIcon}
                             />
                           </TouchableOpacity>

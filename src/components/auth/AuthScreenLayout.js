@@ -50,7 +50,7 @@ const AuthScreenLayout = ({
 
                   {showLogo ? (
                     <Image
-                      source={require('../../assets/images/logo5.png')}
+                      source={require('../../assets/images/batch_06/logo5.png')}
                       style={authStyles.logo}
                       resizeMode="contain"
                     />
@@ -67,7 +67,7 @@ const AuthScreenLayout = ({
               ) : (
                 showLogo && (
                   <Image
-                    source={require('../../assets/images/logo5.png')}
+                    source={require('../../assets/images/batch_06/logo5.png')}
                     style={authStyles.logo}
                     resizeMode="contain"
                   />

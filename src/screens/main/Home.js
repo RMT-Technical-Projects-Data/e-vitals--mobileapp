@@ -27,7 +27,7 @@ const guidelineBaseHeight = 812;
 const scaleWidth = (size) => Math.min((width / guidelineBaseWidth) * size, size * 1.25);
 const scaleHeight = (size) => Math.min((height / guidelineBaseHeight) * size, size * 1.25);
 const scaleFont = (size) => Math.min((width / guidelineBaseWidth) * size, size * 1.2);
-const eVitalsLogo = require('../../assets/images/logo5.png');
+const eVitalsLogo = require('../../assets/images/batch_06/logo5.png');
 const SCREEN_BG_COLORS = ['#fffdfb', '#f7ece7', '#eef1f5'];
 const QUICK_ACCESS_ICON_COLORS = ['#071B34', '#1B2A47'];
 

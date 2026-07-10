@@ -34,7 +34,7 @@ export default function IncomingCallScreen({ navigation }) {
       {/* Profile Image */}
       <View style={styles.imageContainer}>
         <Image
-          source={require('../../assets/images/profile.png')}
+          source={require('../../assets/images/batch_07/profile.png')}
           style={styles.profileImage}
         />
       </View>
@@ -58,7 +58,7 @@ export default function IncomingCallScreen({ navigation }) {
           ]}
         >
           <Image
-            source={require('../../assets/images/telephone.png')}
+            source={require('../../assets/images/batch_08/telephone.png')}
             style={{
               width: 28,
               height: 28,
@@ -84,8 +84,8 @@ export default function IncomingCallScreen({ navigation }) {
           <Image
             source={
               isMuted
-                ? require('../../assets/images/mute.png')
-                : require('../../assets/images/unmute.png')
+                ? require('../../assets/images/batch_06/mute.png')
+                : require('../../assets/images/batch_08/unmute.png')
             }
             style={{
               width: 28,
@@ -110,7 +110,7 @@ export default function IncomingCallScreen({ navigation }) {
           ]}
         >
           <Image
-            source={require('../../assets/images/end.png')}
+            source={require('../../assets/images/batch_03/end.png')}
             style={{
               width: 28,
               height: 28,

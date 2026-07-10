@@ -46,7 +46,7 @@ const PatientEditForm = ({ navigation }) => {
                         }}
                     >
                         <Image
-                            source={require('../../assets/images/back.png')}
+                            source={require('../../assets/images/batch_01/back.png')}
                             style={styles.backIcon}
                         />
                     </TouchableOpacity>
@@ -141,8 +141,8 @@ const PatientEditForm = ({ navigation }) => {
                                         <Image
                                             source={
                                                 showPassword
-                                                    ? require('../../assets/images/eye-open.png')
-                                                    : require('../../assets/images/eye-close.png')
+                                                    ? require('../../assets/images/batch_04/eye-open.png')
+                                                    : require('../../assets/images/batch_04/eye-close.png')
                                             }
                                             style={styles.eyeIcon}
                                         />
@@ -168,8 +168,8 @@ const PatientEditForm = ({ navigation }) => {
                                         <Image
                                             source={
                                                 showConfirmPassword
-                                                    ? require('../../assets/images/eye-open.png')
-                                                    : require('../../assets/images/eye-close.png')
+                                                    ? require('../../assets/images/batch_04/eye-open.png')
+                                                    : require('../../assets/images/batch_04/eye-close.png')
                                             }
                                             style={styles.eyeIcon}
                                         />

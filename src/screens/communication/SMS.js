@@ -59,7 +59,7 @@ export default function MessageScreen({ navigation }) {
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
           <Image
-            source={require('../../assets/images/back.png')}
+            source={require('../../assets/images/batch_01/back.png')}
             style={styles.backIcon}
           />
         </TouchableOpacity>
@@ -117,7 +117,7 @@ export default function MessageScreen({ navigation }) {
           disabled={!message}
         >
           <Image
-            source={require('../../assets/images/send1.png')}
+            source={require('../../assets/images/batch_07/send1.png')}
             style={styles.sendIcon}
           />
         </TouchableOpacity>

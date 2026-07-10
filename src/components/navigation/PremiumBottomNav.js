@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Dimensions, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
+import { resolveUserRole } from '../../utils/resolveUserRole';
 
 const { width, height } = Dimensions.get('window');
 const guidelineBaseWidth = 375;
@@ -27,12 +28,7 @@ export default function PremiumBottomNav({ active, navigation, role }) {
       try {
         const userStr = await AsyncStorage.getItem('user');
         const user = userStr ? JSON.parse(userStr) : null;
-        const roleId = Number(user?.role_id);
-        const nextRole = roleId === 4 || roleId === 8
-          ? 'provider'
-          : roleId === 5 || roleId === 6 || roleId === 7
-            ? 'caregiver'
-            : 'patient';
+        const nextRole = resolveUserRole(user);
         if (mounted) {
           setResolvedRole(nextRole);
         }
@@ -54,11 +50,12 @@ export default function PremiumBottomNav({ active, navigation, role }) {
     }
 
     const tabRoute = routeName;
+    const routeParams = { role: resolvedRole };
     const routeNames = navigation.getState?.().routeNames || [];
     if (routeNames.includes('MainTabs')) {
-      navigation.navigate('MainTabs', { screen: tabRoute });
+      navigation.navigate('MainTabs', { screen: tabRoute, params: routeParams });
     } else {
-      navigation.navigate(tabRoute);
+      navigation.navigate(tabRoute, routeParams);
     }
   }, [navigation, resolvedRole]);
 

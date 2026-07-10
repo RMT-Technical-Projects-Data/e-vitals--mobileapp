@@ -34,35 +34,35 @@ const AI_MODULES = [
         id: 'symptomChecker',
         title: 'Symptom Checker',
         description: 'General health assessment and symptom analysis.',
-        icon: require('../../assets/images/dr.png'),
+        icon: require('../../assets/images/batch_03/dr.png'),
         color: '#4A90E2',
     },
     {
         id: 'predictiveAnalysis',
         title: 'Predictive Analysis',
         description: 'Forecast health trends based on your history.',
-        // icon: require('../../android/app/src/assets/images/bar-chart.png'),
+        // icon: require('../../android/app/src/assets/images/batch_01/bar-chart.png'),
         color: '#50E3C2',
     },
     {
         id: 'anomalyDetection',
         title: 'Anomaly Detection',
         description: 'Identify unusual spikes or patterns in vitals.',
-        // icon: require('../../android/app/src/assets/images/alerts_bg.png'), // Using bg as icon variant
+        // icon: require('../../android/app/src/assets/images/batch_01/alerts_bg.png'), // Using bg as icon variant
         color: '#F5A623',
     },
     {
         id: 'clinicalDecisionSupport',
         title: 'Clinical Decision Support',
         description: 'Guidance based on medical protocols.',
-        // icon: require('../../android/app/src/assets/images/agents.png'),
+        // icon: require('../../android/app/src/assets/images/batch_01/agents.png'),
         color: '#BD10E0',
     },
     {
         id: 'dietRecommendation',
         title: 'Diet Recommendation',
         description: 'Nutritional guidance and meal impacts.',
-        // icon: require('../../android/app/src/assets/images/blood_pressure_bg.png'), // Placeholder
+        // icon: require('../../android/app/src/assets/images/batch_01/blood_pressure_bg.png'), // Placeholder
         color: '#7ED321',
     },
     {
@@ -83,7 +83,7 @@ const AIModulesScreen = ({ navigation }) => {
             id: 'symptomChecker',
             title: 'Symptom Checker',
             description: 'General health assessment and symptom analysis.',
-            icon: require('../../assets/images/dr.png'),
+            icon: require('../../assets/images/batch_03/dr.png'),
             bgColor: '#E3F2FD',
             iconColor: '#1976D2',
             screen: 'Chat'
@@ -92,7 +92,7 @@ const AIModulesScreen = ({ navigation }) => {
             id: 'predictiveAnalysis',
             title: 'Predictive Analysis',
             description: 'Forecast health trends based on your history.',
-            icon: require('../../assets/images/bar-chart.png'),
+            icon: require('../../assets/images/batch_01/bar-chart.png'),
             bgColor: '#E8F5E9',
             iconColor: '#388E3C',
             screen: 'PredictiveAnalysis'

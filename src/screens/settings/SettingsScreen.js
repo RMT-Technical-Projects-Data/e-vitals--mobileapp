@@ -135,7 +135,7 @@ const SettingsScreen = ({ navigation }) => {
           >
             <View style={styles.profileCard}>
               <View style={styles.avatarContainer}>
-                <Image source={require('../../assets/images/user.png')} style={styles.avatarIcon} resizeMode="contain" />
+                <Image source={require('../../assets/images/batch_09/user.png')} style={styles.avatarIcon} resizeMode="contain" />
               </View>
               <View style={styles.profileInfo}>
                 <Text style={styles.profileName}>{userName}</Text>
@@ -151,7 +151,7 @@ const SettingsScreen = ({ navigation }) => {
             {/* Profile Settings */}
             <TouchableOpacity style={styles.settingRow} onPress={() => navigation.navigate('Profile')}>
               <View style={styles.iconBox}>
-                <Image source={require('../../assets/images/user-2.png')} style={{ width: scaleWidth(20), height: scaleWidth(20), tintColor: NAVY_BLUE }} resizeMode="contain" />
+                <Image source={require('../../assets/images/batch_08/user-2.png')} style={{ width: scaleWidth(20), height: scaleWidth(20), tintColor: NAVY_BLUE }} resizeMode="contain" />
               </View>
               <View style={styles.settingTextContainer}>
                 <Text style={styles.settingTitle}>Profile Settings</Text>
@@ -164,7 +164,7 @@ const SettingsScreen = ({ navigation }) => {
             {/* Notifications */}
             <View style={styles.settingRow}>
               <View style={styles.iconBox}>
-                <Image source={require('../../assets/images/notification.png')} style={{ width: scaleWidth(20), height: scaleWidth(20), tintColor: NAVY_BLUE }} resizeMode="contain" />
+                <Image source={require('../../assets/images/batch_06/notification.png')} style={{ width: scaleWidth(20), height: scaleWidth(20), tintColor: NAVY_BLUE }} resizeMode="contain" />
               </View>
               <View style={styles.settingTextContainer}>
                 <Text style={styles.settingTitle}>Notifications</Text>
@@ -185,7 +185,7 @@ const SettingsScreen = ({ navigation }) => {
             // onPress={() => navigation.navigate('PrivacyPolicy')}
             >
               <View style={styles.iconBox}>
-                <Image source={require('../../assets/images/insurance.png')} style={{ width: scaleWidth(18), height: scaleWidth(18), tintColor: NAVY_BLUE }} resizeMode="contain" />
+                <Image source={require('../../assets/images/batch_05/insurance.png')} style={{ width: scaleWidth(18), height: scaleWidth(18), tintColor: NAVY_BLUE }} resizeMode="contain" />
               </View>
               <View style={styles.settingTextContainer}>
                 <Text style={styles.settingTitle}>Privacy Policy</Text>
@@ -198,7 +198,7 @@ const SettingsScreen = ({ navigation }) => {
             {/* Help & Support */}
             <TouchableOpacity style={styles.settingRow} onPress={() => setIsSupportModalVisible(true)}>
               <View style={styles.iconBox}>
-                <Image source={require('../../assets/images/help-web-button.png')} style={{ width: scaleWidth(20), height: scaleWidth(20), tintColor: NAVY_BLUE }} resizeMode="contain" />
+                <Image source={require('../../assets/images/batch_04/help-web-button.png')} style={{ width: scaleWidth(20), height: scaleWidth(20), tintColor: NAVY_BLUE }} resizeMode="contain" />
               </View>
               <View style={styles.settingTextContainer}>
                 <Text style={styles.settingTitle}>Help & Support</Text>
@@ -211,7 +211,7 @@ const SettingsScreen = ({ navigation }) => {
             {/* About App */}
             <TouchableOpacity style={styles.settingRow} onPress={() => navigation.navigate('AboutApp')}>
               <View style={styles.iconBox}>
-                <Image source={require('../../assets/images/information-button.png')} style={{ width: scaleWidth(20), height: scaleWidth(20), tintColor: NAVY_BLUE }} resizeMode="contain" />
+                <Image source={require('../../assets/images/batch_05/information-button.png')} style={{ width: scaleWidth(20), height: scaleWidth(20), tintColor: NAVY_BLUE }} resizeMode="contain" />
               </View>
               <View style={styles.settingTextContainer}>
                 <Text style={styles.settingTitle}>About App</Text>
@@ -225,7 +225,7 @@ const SettingsScreen = ({ navigation }) => {
             {/* Logout */}
             <TouchableOpacity style={styles.settingRow} onPress={handleLogout}>
               <View style={[styles.iconBox]}>
-                <Image source={require('../../assets/images/logout.png')} style={{ width: scaleWidth(20), height: scaleWidth(20), tintColor: "#D32F2F" }} resizeMode="contain" />
+                <Image source={require('../../assets/images/batch_06/logout.png')} style={{ width: scaleWidth(20), height: scaleWidth(20), tintColor: "#D32F2F" }} resizeMode="contain" />
               </View>
               <View style={styles.settingTextContainer}>
                 <Text style={[styles.settingTitle, { color: '#D32F2F' }]}>Logout</Text>

@@ -165,8 +165,8 @@ export default function ChangePassword({ navigation }) {
                       <Image
                         source={
                           showCurrentPassword
-                            ? require('../../assets/images/eye-open.png')
-                            : require('../../assets/images/eye-close.png')
+                            ? require('../../assets/images/batch_04/eye-open.png')
+                            : require('../../assets/images/batch_04/eye-close.png')
                         }
                         style={styles.eyeIcon}
                       />
@@ -191,8 +191,8 @@ export default function ChangePassword({ navigation }) {
                       <Image
                         source={
                           showNewPassword
-                            ? require('../../assets/images/eye-open.png')
-                            : require('../../assets/images/eye-close.png')
+                            ? require('../../assets/images/batch_04/eye-open.png')
+                            : require('../../assets/images/batch_04/eye-close.png')
                         }
                         style={styles.eyeIcon}
                       />
@@ -247,8 +247,8 @@ export default function ChangePassword({ navigation }) {
                       <Image
                         source={
                           showConfirmPassword
-                            ? require('../../assets/images/eye-open.png')
-                            : require('../../assets/images/eye-close.png')
+                            ? require('../../assets/images/batch_04/eye-open.png')
+                            : require('../../assets/images/batch_04/eye-close.png')
                         }
                         style={styles.eyeIcon}
                       />

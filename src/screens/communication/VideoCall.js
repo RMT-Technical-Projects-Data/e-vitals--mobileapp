@@ -20,7 +20,7 @@ export default function VideoCallScreen({ navigation }) {
         onPress={() => navigation.goBack()}
       >
         <Image
-          source={require('../../assets/images/back.png')}
+          source={require('../../assets/images/batch_01/back.png')}
           style={{ width: 30, height: 30 }}
           resizeMode="contain"
         />
@@ -29,14 +29,14 @@ export default function VideoCallScreen({ navigation }) {
       {/* Main Video Feed */}
       {isVideoOn ? (
         <Image
-          source={require('../../assets/images/profile.png')}
+          source={require('../../assets/images/batch_07/profile.png')}
           style={styles.fullscreenVideo}
           resizeMode="cover"
         />
       ) : (
         <View style={[styles.fullscreenVideo, styles.videoOff]}>
           <Image
-            source={require('../../assets/images/profile.png')}
+            source={require('../../assets/images/batch_07/profile.png')}
             style={styles.videoOffIcon}
             resizeMode="contain"
           />
@@ -46,7 +46,7 @@ export default function VideoCallScreen({ navigation }) {
       {/* Your Thumbnail Video */}
       <View style={styles.thumbnailContainer}>
         <Image
-          source={require('../../assets/images/profile.png')}
+          source={require('../../assets/images/batch_07/profile.png')}
           style={styles.thumbnail}
         />
       </View>
@@ -66,8 +66,8 @@ export default function VideoCallScreen({ navigation }) {
           <Image
             source={
               isMuted
-                ? require('../../assets/images/mute.png')
-                : require('../../assets/images/unmute.png')
+                ? require('../../assets/images/batch_06/mute.png')
+                : require('../../assets/images/batch_08/unmute.png')
             }
             style={{ width: 24, height: 24 }}
             resizeMode="contain"
@@ -87,8 +87,8 @@ export default function VideoCallScreen({ navigation }) {
           <Image
             source={
               isVideoOn
-                ? require('../../assets/images/videoon.png')
-                : require('../../assets/images/videooff.png')
+                ? require('../../assets/images/batch_09/videoon.png')
+                : require('../../assets/images/batch_09/videooff.png')
             }
             style={{ width: 24, height: 24 }}
             resizeMode="contain"
@@ -106,7 +106,7 @@ export default function VideoCallScreen({ navigation }) {
           onPressOut={() => setPressedButton(null)}
         >
           <Image
-            source={require('../../assets/images/end.png')}
+            source={require('../../assets/images/batch_03/end.png')}
             style={{ width: 24, height: 24 }}
             resizeMode="contain"
           />

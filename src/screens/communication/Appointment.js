@@ -15,7 +15,8 @@ import {
   Modal,
   StatusBar,
 } from 'react-native';
-import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import { useNavigation, useFocusEffect, useRoute } from '@react-navigation/native';
+import { resolveUserRole } from '../../utils/resolveUserRole';
 import { colors, fonts } from '../../config/globall';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
@@ -41,21 +42,21 @@ const caregivers = [
     name: 'Maria Johnson',
     specialty: 'Home Health Caregiver',
     experience: '6 years',
-    image: require('../../assets/images/profile2.png'),
+    image: require('../../assets/images/batch_07/profile2.png'),
   },
   {
     id: 2,
     name: 'James Wilson',
     specialty: 'Certified Nursing Assistant',
     experience: '4 years',
-    image: require('../../assets/images/profile1.png'),
+    image: require('../../assets/images/batch_07/profile1.png'),
   },
   {
     id: 3,
     name: 'Lisa Thompson',
     specialty: 'Remote Care Coordinator',
     experience: '8 years',
-    image: require('../../assets/images/profile2.png'),
+    image: require('../../assets/images/batch_07/profile2.png'),
   },
 ];
 
@@ -65,21 +66,21 @@ const providers = [
     name: 'Dr. Sarah Johnson',
     specialty: 'General Physician',
     experience: '10 years',
-    image: require('../../assets/images/profile2.png'),
+    image: require('../../assets/images/batch_07/profile2.png'),
   },
   {
     id: 2,
     name: 'Dr. Michael Chen',
     specialty: 'Cardiologist',
     experience: '15 years',
-    image: require('../../assets/images/profile1.png'),
+    image: require('../../assets/images/batch_07/profile1.png'),
   },
   {
     id: 3,
     name: 'Dr. Emily Williams',
     specialty: 'Endocrinologist',
     experience: '8 years',
-    image: require('../../assets/images/profile2.png'),
+    image: require('../../assets/images/batch_07/profile2.png'),
   },
 ];
 
@@ -89,21 +90,21 @@ const patients = [
     name: 'Cyrus Nguyen',
     specialty: 'Patient',
     experience: 'BP & Glucose tracking',
-    image: require('../../assets/images/profile2.png'),
+    image: require('../../assets/images/batch_07/profile2.png'),
   },
   {
     id: 2,
     name: 'Ava Martinez',
     specialty: 'Patient',
     experience: 'Cardiac monitoring',
-    image: require('../../assets/images/profile1.png'),
+    image: require('../../assets/images/batch_07/profile1.png'),
   },
   {
     id: 3,
     name: 'Noah Williams',
     specialty: 'Patient',
     experience: 'Weight management',
-    image: require('../../assets/images/profile2.png'),
+    image: require('../../assets/images/batch_07/profile2.png'),
   },
 ];
 
@@ -123,7 +124,7 @@ const chatData = [
       id: 1,
       name: 'Dr. Sarah Johnson',
       specialty: 'General Physician',
-      image: require('../../assets/images/profile2.png'),
+      image: require('../../assets/images/batch_07/profile2.png'),
       online: true,
     },
     lastMessage: 'Sure, please tell me your concern.',
@@ -140,7 +141,7 @@ const chatData = [
       id: 2,
       name: 'Dr. Michael Chen',
       specialty: 'Cardiologist',
-      image: require('../../assets/images/profile1.png'),
+      image: require('../../assets/images/batch_07/profile1.png'),
       online: false,
     },
     lastMessage: 'Your test results are ready.',
@@ -157,7 +158,7 @@ const chatData = [
       id: 3,
       name: 'Dr. Emily Williams',
       specialty: 'Endocrinologist',
-      image: require('../../assets/images/profile2.png'),
+      image: require('../../assets/images/batch_07/profile2.png'),
       online: true,
     },
     lastMessage: 'Please remember to take your medication.',
@@ -172,9 +173,10 @@ const chatData = [
 
 export default function AppointmentForm() {
   const navigation = useNavigation();
+  const route = useRoute();
   const chatScrollViewRef = useRef(null);
 
-  const [userRole, setUserRole] = useState('patient');
+  const [userRole, setUserRole] = useState(route.params?.role || 'patient');
   const [chatView, setChatView] = useState('list'); // 'list' or 'chat'
   const [selectedChat, setSelectedChat] = useState(null);
 
@@ -224,26 +226,26 @@ export default function AppointmentForm() {
     }
   }, [chatMessages, chatView]);
 
-  useEffect(() => {
-    const loadRole = async () => {
-      try {
-        const userStr = await AsyncStorage.getItem('user');
-        const parsed = userStr ? JSON.parse(userStr) : null;
-        const roleId = Number(parsed?.role_id);
-        if (roleId === 4 || roleId === 8) {
-          setUserRole('provider');
-        } else if (roleId === 5 || roleId === 6 || roleId === 7) {
-          setUserRole('caregiver');
-        } else {
-          setUserRole('patient');
-        }
-      } catch (error) {
-        setUserRole('patient');
-      }
-    };
+  const loadRole = React.useCallback(async () => {
+    if (route.params?.role) {
+      setUserRole(route.params.role);
+      return;
+    }
 
-    loadRole();
-  }, []);
+    try {
+      const userStr = await AsyncStorage.getItem('user');
+      const parsed = userStr ? JSON.parse(userStr) : null;
+      setUserRole(resolveUserRole(parsed));
+    } catch (error) {
+      setUserRole('patient');
+    }
+  }, [route.params?.role]);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      loadRole();
+    }, [loadRole])
+  );
 
   const handleServicePress = (service) => {
     if (service === 'Blood Pressure') {
@@ -719,7 +721,7 @@ export default function AppointmentForm() {
           {chatView === 'chat' && renderChatConversation()}
         </View>
         {chatView !== 'chat' && (
-          <PremiumBottomNav active="appointments" navigation={navigation} />
+          <PremiumBottomNav active="appointments" navigation={navigation} role={userRole} />
         )}
 
         {/* All Modals remain unchanged */}
