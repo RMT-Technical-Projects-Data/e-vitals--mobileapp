@@ -1,0 +1,1630 @@
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+  TextInput,
+  ActivityIndicator,
+  Dimensions,
+  StatusBar,
+  Modal,
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  Keyboard,
+} from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import LinearGradient from 'react-native-linear-gradient';
+import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
+import DateTimePicker from '@react-native-community/datetimepicker';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import apiService from '../../services/apiService';
+import { usePatientSessionTimer } from '../../context/PatientSessionTimerContext';
+import { getDashboardTheme } from '../../constants/dashboardThemes';
+
+const { width, height: screenHeight } = Dimensions.get('window');
+const guidelineBaseWidth = 375;
+const scaleWidth = (size) => Math.min((width / guidelineBaseWidth) * size, size * 1.25);
+const scaleFont = (size) => Math.min((width / guidelineBaseWidth) * size, size * 1.2);
+
+const SCREEN_BG_COLORS = ['#fffdfb', '#f7ece7', '#eef1f5'];
+const PANEL_ACCENT = '#071B34';
+const TEXT_DARK = '#071B34';
+const TEXT_MUTED = '#687382';
+
+const SERVICE_TYPES = ['General', 'Call via others'];
+const FOLLOW_UP_STATUSES = ['Continue follow up', 'No need to follow up'];
+
+const getTodayYmd = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
+const getCurrentTimeHm = () => {
+  const d = new Date();
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+};
+
+const formatTimer = (totalSeconds) => {
+  const mins = Math.floor(totalSeconds / 60);
+  const secs = totalSeconds % 60;
+  return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+};
+
+const formatFollowUpTimerDisplay = (totalSeconds) => {
+  const mins = Math.floor(totalSeconds / 60);
+  const secs = totalSeconds % 60;
+  return `${mins}:${secs.toString().padStart(2, '0')}`;
+};
+
+const FollowUpServiceTimer = React.memo(({ initialSeconds, accentColor, active }) => {
+  const [seconds, setSeconds] = useState(initialSeconds);
+  const [running, setRunning] = useState(true);
+
+  useEffect(() => {
+    if (!active) return;
+    setSeconds(initialSeconds);
+    setRunning(true);
+  }, [active, initialSeconds]);
+
+  useEffect(() => {
+    if (!active || !running) return undefined;
+    const intervalId = setInterval(() => {
+      setSeconds((prev) => prev + 1);
+    }, 1000);
+    return () => clearInterval(intervalId);
+  }, [active, running]);
+
+  return (
+    <View style={styles.serviceTimeRow}>
+      <Text style={[styles.timerPreview, { color: accentColor }]}>
+        {formatFollowUpTimerDisplay(seconds)}
+      </Text>
+      <TouchableOpacity
+        style={[styles.timerPlayBtnSmall, { backgroundColor: accentColor }]}
+        onPress={() => setRunning((prev) => !prev)}
+      >
+        <MaterialIcons
+          name={running ? 'pause' : 'play-arrow'}
+          size={20}
+          color="#fff"
+        />
+      </TouchableOpacity>
+    </View>
+  );
+});
+
+const parseYmdToDate = (ymd) => {
+  const match = String(ymd || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!match) return new Date();
+  const [, year, month, day] = match;
+  return new Date(parseInt(year, 10), parseInt(month, 10) - 1, parseInt(day, 10));
+};
+
+const formatDateToYmd = (date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const parseHmToDate = (hm) => {
+  const match = String(hm || '').match(/^(\d{1,2}):(\d{2})/);
+  const date = new Date();
+  if (!match) return date;
+  date.setHours(parseInt(match[1], 10), parseInt(match[2], 10), 0, 0);
+  return date;
+};
+
+const formatDateToHm = (date) => {
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  return `${hours}:${minutes}`;
+};
+
+const formatDisplayDate = (dateValue) => {
+  if (!dateValue) return '-';
+  const raw = String(dateValue).trim();
+  const isoMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (isoMatch) {
+    const [, year, month, day] = isoMatch;
+    const date = new Date(parseInt(year, 10), parseInt(month, 10) - 1, parseInt(day, 10));
+    if (!Number.isNaN(date.getTime())) {
+      return date.toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' });
+    }
+  }
+  const date = new Date(dateValue);
+  if (Number.isNaN(date.getTime())) return '-';
+  return date.toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' });
+};
+
+const resolveDeviceSerial = (detailsData, meters) => {
+  let serials = [];
+  if (Array.isArray(detailsData?.device_serials)) {
+    serials = detailsData.device_serials.filter(Boolean);
+  } else if (detailsData?.device_serial) {
+    serials = String(detailsData.device_serial)
+      .split(',')
+      .map((serial) => serial.trim())
+      .filter(Boolean);
+  }
+  if (Array.isArray(meters) && meters.length > 0) {
+    const meterSerials = meters
+      .map((meter) => String(meter.serial_number || '').trim())
+      .filter(Boolean);
+    if (meterSerials.length > 0) {
+      serials = [...new Set(meterSerials)];
+    }
+  }
+  return serials.length > 0 ? serials.join(', ') : '-';
+};
+
+const getGenderText = (gender) => {
+  if (gender === 1 || gender === '1' || String(gender).toLowerCase() === 'male') return 'Male';
+  if (gender === 0 || gender === '0' || gender === 2 || gender === '2' || String(gender).toLowerCase() === 'female') {
+    return 'Female';
+  }
+  if (gender === 3 || gender === '3' || String(gender).toLowerCase() === 'other') return 'Other';
+  return 'N/A';
+};
+
+const getStatusLabel = (status) => {
+  const normalized = String(status ?? '').trim().toLowerCase();
+  const numeric = /^\d+$/.test(normalized) ? parseInt(normalized, 10) : null;
+  if (numeric === 2 || normalized === 'active') return 'Active';
+  if (numeric === 3 || normalized === 'pending') return 'Pending';
+  if (numeric === 4 || normalized === 'locked') return 'Locked';
+  if (normalized === 'paused') return 'Paused';
+  return status || 'N/A';
+};
+
+const DetailRow = ({ label, value }) => (
+  <View style={styles.detailRow}>
+    <Text style={styles.detailLabel}>{label}</Text>
+    <Text style={styles.detailValue} numberOfLines={2}>{value || '-'}</Text>
+  </View>
+);
+
+const formatVitalDateParts = (dateValue) => {
+  if (!dateValue) return { date: '--', time: '' };
+  const date = new Date(dateValue);
+  if (Number.isNaN(date.getTime())) return { date: '--', time: '' };
+  return {
+    date: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+    time: date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
+  };
+};
+
+const VitalUploadCard = ({
+  title,
+  icon,
+  dateValue,
+  primary,
+  secondary,
+  unit,
+  onPress,
+  accentColor,
+}) => {
+  const { date, time } = formatVitalDateParts(dateValue);
+
+  const content = (
+    <View style={styles.vitalCard}>
+      <View style={styles.vitalCardTopRow}>
+        <View style={styles.vitalTitleWrap}>
+          <View style={[styles.vitalReadingIcon, { backgroundColor: `${accentColor}14` }]}>
+            <MaterialIcons name={icon} size={19} color={accentColor} />
+          </View>
+          <Text style={styles.vitalCardTitle}>{title}</Text>
+        </View>
+        {onPress ? (
+          <View style={[styles.vitalNavBtn, { backgroundColor: `${accentColor}12` }]}>
+            <MaterialIcons name="chevron-right" size={22} color={accentColor} />
+          </View>
+        ) : null}
+      </View>
+
+      <View style={styles.vitalCardDivider} />
+
+      <View style={styles.vitalCardContent}>
+        <View style={styles.vitalMetaCol}>
+          <Text style={styles.vitalDateText}>{date}</Text>
+          {time ? <Text style={styles.vitalTimeText}>{time}</Text> : null}
+        </View>
+        <View style={styles.vitalValueCol}>
+          <View style={styles.vitalValueRow}>
+            <Text style={styles.vitalCardValue}>{primary}</Text>
+            {unit ? <Text style={styles.vitalCardUnit}>{unit}</Text> : null}
+          </View>
+          {secondary ? <Text style={styles.vitalCardSecondary}>{secondary}</Text> : null}
+        </View>
+      </View>
+    </View>
+  );
+
+  if (!onPress) return content;
+
+  return (
+    <TouchableOpacity onPress={onPress} activeOpacity={0.88}>
+      {content}
+    </TouchableOpacity>
+  );
+};
+
+export default function PatientHubScreen({ navigation, route }) {
+  const {
+    patientId,
+    practiceId: routePracticeId,
+    patientName: routePatientName,
+    dashboardRole = 'provider',
+  } = route.params || {};
+  const theme = getDashboardTheme(dashboardRole);
+  const accentColor = theme.accent;
+  const insets = useSafeAreaInsets();
+
+  const {
+    timer,
+    setTimer,
+    isRunning,
+    setIsRunning,
+    startSession,
+    endSession,
+  } = usePatientSessionTimer();
+
+  const [practiceId, setPracticeId] = useState(routePracticeId || null);
+  const [patientData, setPatientData] = useState(null);
+  const [notes, setNotes] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showFollowUpModal, setShowFollowUpModal] = useState(false);
+  const [submittingFollowUp, setSubmittingFollowUp] = useState(false);
+  const [followUpTemplates, setFollowUpTemplates] = useState([]);
+  const [loadingTemplates, setLoadingTemplates] = useState(false);
+  const [showTemplatePicker, setShowTemplatePicker] = useState(false);
+  const [showFollowUpDatePicker, setShowFollowUpDatePicker] = useState(false);
+  const [showFollowUpTimePicker, setShowFollowUpTimePicker] = useState(false);
+  const followUpScrollRef = useRef(null);
+  const [followUpForm, setFollowUpForm] = useState({
+    serviceType: 'General',
+    followUpStatus: 'Continue follow up',
+    assignTo: '',
+    manualMinutes: '00',
+    manualSeconds: '00',
+    date: getTodayYmd(),
+    time: getCurrentTimeHm(),
+    templateId: '',
+    content: '',
+  });
+  const practiceIsLocked = false;
+
+  useEffect(() => {
+    if (patientId && !practiceIsLocked) {
+      startSession(patientId);
+    }
+  }, [patientId, practiceIsLocked, startSession]);
+
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('beforeRemove', () => {
+      endSession();
+    });
+    return unsubscribe;
+  }, [navigation, endSession]);
+
+  const loadNotes = useCallback(async (pId, pPatientId) => {
+    if (!pId || !pPatientId || String(pPatientId).startsWith('mock')) {
+      setNotes([]);
+      return;
+    }
+    const notesResult = await apiService.getFollowUps(pId, pPatientId).catch(() => null);
+    const noteList = Array.isArray(notesResult?.data) ? notesResult.data : [];
+    setNotes(noteList);
+  }, []);
+
+  const loadFollowUpTemplates = useCallback(async () => {
+    setLoadingTemplates(true);
+    try {
+      const result = await apiService.getFollowUpTemplates();
+      const templates = Array.isArray(result?.data) ? result.data : [];
+      setFollowUpTemplates(templates);
+    } catch (error) {
+      console.warn('Failed to load follow-up templates:', error.message);
+      setFollowUpTemplates([]);
+    } finally {
+      setLoadingTemplates(false);
+    }
+  }, []);
+
+  const fetchHubData = useCallback(async () => {
+    if (!patientId) return;
+    setLoading(true);
+    try {
+      let pId = routePracticeId;
+      if (!pId) {
+        const stored = await AsyncStorage.getItem('practiceId');
+        const userStr = await AsyncStorage.getItem('user');
+        const user = userStr ? JSON.parse(userStr) : null;
+        pId = stored || user?.practice_id;
+      }
+      setPracticeId(pId);
+
+      if (!pId || String(patientId).startsWith('mock')) {
+        setPatientData({
+          patient: {
+            first_name: routePatientName?.split(' ')[0] || 'Patient',
+            last_name: routePatientName?.split(' ').slice(1).join(' ') || '',
+            date_of_birth: '1968-05-12',
+            gender: 'Male',
+            provider_name: 'Dr. Smith',
+            caregiver_name: 'Jane Doe',
+            patient_id: 'P-1001',
+            status: 2,
+          },
+          latest_measurements: {
+            blood_pressure: {
+              systolic_pressure: 142,
+              diastolic_pressure: 90,
+              pulse: 78,
+              measure_new_date_time: new Date().toISOString(),
+            },
+            blood_glucose: {
+              blood_glucose_value_1: 118,
+              measure_new_date_time: new Date().toISOString(),
+            },
+            weight: {
+              weight: 74,
+              measure_new_date_time: new Date().toISOString(),
+            },
+          },
+          device_serial: 'SN-48291',
+        });
+        setNotes([]);
+        return;
+      }
+
+      const [detailsResult, metersResult] = await Promise.all([
+        apiService.getPatientDetailsFast(pId, patientId).catch(() => null),
+        apiService.getPatientMeters(pId, patientId).catch(() => null),
+      ]);
+
+      if (detailsResult?.success && detailsResult.data) {
+        const meters = metersResult?.data || [];
+        const deviceSerial = resolveDeviceSerial(detailsResult.data, meters);
+        setPatientData({
+          ...detailsResult.data,
+          device_serial: deviceSerial === '-' ? null : deviceSerial,
+        });
+      }
+
+      await loadNotes(pId, patientId);
+    } catch (error) {
+      console.warn('Patient hub load error:', error.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [patientId, routePracticeId, routePatientName, loadNotes]);
+
+  useEffect(() => {
+    fetchHubData();
+  }, [fetchHubData]);
+
+  useEffect(() => {
+    if (practiceId) {
+      loadFollowUpTemplates();
+    }
+  }, [practiceId, loadFollowUpTemplates]);
+
+  const closeFollowUpModal = () => {
+    Keyboard.dismiss();
+    setShowTemplatePicker(false);
+    setShowFollowUpDatePicker(false);
+    setShowFollowUpTimePicker(false);
+    setShowFollowUpModal(false);
+  };
+
+  const openVitalList = (dataType) => {
+    navigation.navigate('DataList', {
+      dataType,
+      patientId,
+      practiceId,
+      dashboardRole,
+      fromPatientHub: true,
+    });
+  };
+
+  const openFollowUpModal = () => {
+    setFollowUpForm({
+      serviceType: 'General',
+      followUpStatus: 'Continue follow up',
+      assignTo: '',
+      manualMinutes: '00',
+      manualSeconds: '00',
+      date: getTodayYmd(),
+      time: getCurrentTimeHm(),
+      templateId: '',
+      content: '',
+    });
+    setShowFollowUpModal(true);
+    if (followUpTemplates.length === 0) {
+      loadFollowUpTemplates();
+    }
+  };
+
+  const handleManualTimeChange = (field, value) => {
+    const digitsOnly = String(value ?? '').replace(/\D/g, '').substring(0, 2);
+    const normalizedValue = field === 'manualSeconds'
+      ? (digitsOnly === '' ? '' : String(Math.min(59, parseInt(digitsOnly, 10))))
+      : digitsOnly;
+
+    setFollowUpForm((prev) => ({ ...prev, [field]: normalizedValue }));
+  };
+
+  const handleTemplateSelect = (templateId) => {
+    if (!templateId) {
+      setFollowUpForm((prev) => ({ ...prev, templateId: '', content: '' }));
+      setShowTemplatePicker(false);
+      return;
+    }
+    const selected = followUpTemplates.find((item) => String(item.id) === String(templateId));
+    setFollowUpForm((prev) => ({
+      ...prev,
+      templateId: String(templateId),
+      content: selected?.template || '',
+    }));
+    setShowTemplatePicker(false);
+  };
+
+  const handleFollowUpDateChange = (event, selectedDate) => {
+    if (Platform.OS === 'android') {
+      setShowFollowUpDatePicker(false);
+    }
+    if (event?.type === 'dismissed' || !selectedDate) return;
+    setFollowUpForm((prev) => ({ ...prev, date: formatDateToYmd(selectedDate) }));
+  };
+
+  const handleFollowUpTimeChange = (event, selectedDate) => {
+    if (Platform.OS === 'android') {
+      setShowFollowUpTimePicker(false);
+    }
+    if (event?.type === 'dismissed' || !selectedDate) return;
+    setFollowUpForm((prev) => ({ ...prev, time: formatDateToHm(selectedDate) }));
+  };
+
+  const selectedFollowUpTemplate = useMemo(
+    () => followUpTemplates.find((item) => String(item.id) === String(followUpForm.templateId)),
+    [followUpTemplates, followUpForm.templateId],
+  );
+
+  const handleFollowUpSubmit = async () => {
+    if (!followUpForm.content.trim()) {
+      Alert.alert('Required', 'Please enter follow-up content.');
+      return;
+    }
+
+    if (!practiceId || String(patientId).startsWith('mock')) {
+      setNotes((prev) => [
+        {
+          id: `mock-${Date.now()}`,
+          content: followUpForm.content.trim(),
+          date: followUpForm.date,
+          first_name: 'You',
+          last_name: '',
+        },
+        ...prev,
+      ]);
+      closeFollowUpModal();
+      Alert.alert('Saved', 'Follow-up recorded.');
+      return;
+    }
+
+    setSubmittingFollowUp(true);
+    try {
+      const totalSeconds = (parseInt(followUpForm.manualMinutes || '0', 10) || 0) * 60
+        + Math.min(59, parseInt(followUpForm.manualSeconds || '0', 10) || 0);
+      await apiService.createFollowUp(practiceId, patientId, {
+        content: followUpForm.content.trim(),
+        service_type: followUpForm.serviceType,
+        follow_up_status: followUpForm.followUpStatus.toLowerCase().replace(/\s+/g, '_'),
+        assign_to: followUpForm.assignTo || null,
+        service_time: null,
+        service_time_seconds: totalSeconds,
+        date: followUpForm.date,
+        time: followUpForm.time,
+        template_id: followUpForm.templateId || null,
+      });
+      closeFollowUpModal();
+      await loadNotes(practiceId, patientId);
+      Alert.alert('Saved', 'Follow-up recorded successfully.');
+    } catch (error) {
+      Alert.alert('Error', error.message || 'Failed to save follow-up.');
+    } finally {
+      setSubmittingFollowUp(false);
+    }
+  };
+
+  const patient = patientData?.patient || {};
+  const latest = patientData?.latest_measurements || {};
+  const caregivers = patientData?.caregivers || [];
+  const bp = latest.blood_pressure;
+  const bg = latest.blood_glucose;
+  const wt = latest.weight;
+
+  const displayName = routePatientName
+    || `${patient.first_name || ''} ${patient.last_name || ''}`.trim()
+    || 'Patient';
+
+  return (
+    <LinearGradient colors={SCREEN_BG_COLORS} style={styles.container}>
+      <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent />
+      <SafeAreaView style={styles.safeArea} edges={['top']}>
+        <View style={styles.header}>
+          <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
+            <MaterialIcons name="arrow-back" size={22} color={TEXT_DARK} />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle} numberOfLines={1}>{displayName}</Text>
+          <View style={styles.headerSpacer} />
+        </View>
+
+        {loading ? (
+          <ActivityIndicator size="large" color={PANEL_ACCENT} style={styles.loader} />
+        ) : (
+          <ScrollView
+            style={styles.scroll}
+            contentContainerStyle={[
+              styles.scrollContent,
+              { paddingBottom: Math.max(insets.bottom, scaleWidth(12)) + scaleWidth(16) },
+            ]}
+            showsVerticalScrollIndicator={false}
+          >
+            <View style={styles.card}>
+              <View style={styles.cardTitleRow}>
+                <Text style={styles.cardTitle}>Patient Details</Text>
+                <View style={styles.statusPill}>
+                  <Text style={styles.statusPillText}>{getStatusLabel(patient.status)}</Text>
+                </View>
+              </View>
+              <DetailRow label="DOB" value={formatDisplayDate(patient.date_of_birth)} />
+              <DetailRow label="Gender" value={getGenderText(patient.gender)} />
+              <DetailRow label="Patient ID" value={patient.patient_id} />
+              <DetailRow label="Provider" value={patient.provider_name} />
+              <DetailRow label="Caregiver" value={patient.caregiver_name} />
+              <DetailRow label="Device Serial" value={patientData?.device_serial || '-'} />
+            </View>
+
+            {!practiceIsLocked && (
+              <View style={styles.timerCard}>
+                <View style={styles.timerCardHeader}>
+                  <Text style={styles.timerCardTitle}>Session Timer</Text>
+                  <View style={[styles.timerLivePill, isRunning && styles.timerLivePillActive]}>
+                    <View style={[styles.timerLiveDot, isRunning && { backgroundColor: '#22c55e' }]} />
+                    <Text style={styles.timerLiveText}>{isRunning ? 'Recording' : 'Paused'}</Text>
+                  </View>
+                </View>
+                <View style={styles.timerMainRow}>
+                  <Text style={[styles.timerDisplay, { color: accentColor }]}>{formatTimer(timer)}</Text>
+                  <TouchableOpacity
+                    style={[styles.timerPlayBtn, { backgroundColor: accentColor }]}
+                    onPress={() => setIsRunning((prev) => !prev)}
+                  >
+                    <MaterialIcons
+                      name={isRunning ? 'pause' : 'play-arrow'}
+                      size={28}
+                      color="#fff"
+                    />
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+
+            <View style={styles.sectionBlock}>
+              <Text style={styles.sectionTitle}>Last Upload Data</Text>
+              <View style={styles.vitalsGrid}>
+                <VitalUploadCard
+                  title="Blood Pressure"
+                  icon="favorite-border"
+                  accentColor={accentColor}
+                  onPress={() => openVitalList('bloodPressure')}
+                  dateValue={bp?.measure_new_date_time || bp?.measure_date_time || bp?.created_at}
+                  primary={bp ? `${Math.round(bp.systolic_pressure)}/${Math.round(bp.diastolic_pressure)}` : '-'}
+                  secondary={bp?.pulse ? `Pulse ${Math.round(bp.pulse)}` : null}
+                  unit="mmHg"
+                />
+                <VitalUploadCard
+                  title="Blood Glucose"
+                  icon="opacity"
+                  accentColor={accentColor}
+                  onPress={() => openVitalList('bloodGlucose')}
+                  dateValue={bg?.measure_new_date_time || bg?.measure_date_time || bg?.created_at}
+                  primary={bg?.blood_glucose_value_1 != null ? String(Math.round(bg.blood_glucose_value_1)) : '-'}
+                  unit="mg/dl"
+                />
+                <VitalUploadCard
+                  title="Weight"
+                  icon="monitor-weight"
+                  accentColor={accentColor}
+                  onPress={() => openVitalList('weight')}
+                  dateValue={wt?.measure_new_date_time || wt?.measure_date_time || wt?.created_at}
+                  primary={wt?.weight != null ? parseFloat(wt.weight * 2.20462).toFixed(1) : '-'}
+                  unit="lb"
+                />
+              </View>
+            </View>
+
+            <View style={styles.card}>
+              <View style={styles.notesHeader}>
+                <Text style={styles.cardTitle}>Follow Up Notes</Text>
+                {!practiceIsLocked && (
+                  <TouchableOpacity style={[styles.addFollowUpBtn, { backgroundColor: accentColor }]} onPress={openFollowUpModal}>
+                    <MaterialIcons name="add" size={18} color="#fff" />
+                    <Text style={styles.addFollowUpText}>Add Follow Up</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+              {notes.length === 0 ? (
+                <Text style={styles.emptyNotes}>No notes available</Text>
+              ) : (
+                notes.slice(0, 10).map((note, index) => (
+                  <View key={note.id || index} style={styles.noteItem}>
+                    <Text style={styles.noteAuthor}>
+                      {note.caregiver_name
+                        || `${note.last_name || ''}, ${note.first_name || ''}`.replace(/^,\s*/, '').trim()
+                        || 'System Caregiver'}
+                    </Text>
+                    <Text style={styles.noteDate}>
+                      {formatDisplayDate(note.date || note.created_at)}
+                    </Text>
+                    <Text style={styles.noteText}>{note.content || note.note || ''}</Text>
+                  </View>
+                ))
+              )}
+            </View>
+          </ScrollView>
+        )}
+      </SafeAreaView>
+
+      <Modal
+        visible={showFollowUpModal}
+        animationType="fade"
+        transparent
+        onRequestClose={closeFollowUpModal}
+        statusBarTranslucent
+        presentationStyle="overFullScreen"
+      >
+        <View style={styles.modalRoot}>
+          <Pressable style={styles.modalDimLayer} onPress={closeFollowUpModal} />
+          <View style={styles.modalCenterWrap} pointerEvents="box-none">
+            <KeyboardAvoidingView
+              style={styles.modalKeyboardWrap}
+              behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+              keyboardVerticalOffset={Platform.OS === 'ios' ? scaleWidth(8) : 0}
+              pointerEvents="box-none"
+            >
+              <View style={styles.modalCardOuter}>
+              <View style={styles.modalCard}>
+                <View style={styles.modalHeader}>
+                  <Text style={styles.modalTitle}>Add Follow Up</Text>
+                  <TouchableOpacity onPress={closeFollowUpModal}>
+                    <MaterialIcons name="close" size={22} color={TEXT_DARK} />
+                  </TouchableOpacity>
+                </View>
+                <Text style={styles.modalPatientName}>{displayName}</Text>
+
+                <ScrollView
+                  ref={followUpScrollRef}
+                  style={styles.modalScroll}
+                  contentContainerStyle={styles.modalScrollContent}
+                  keyboardShouldPersistTaps="handled"
+                  keyboardDismissMode="on-drag"
+                  showsVerticalScrollIndicator
+                  nestedScrollEnabled
+                  bounces
+                >
+              <Text style={styles.fieldLabel}>Service Type</Text>
+              <View style={styles.optionRow}>
+                {SERVICE_TYPES.map((opt) => (
+                  <TouchableOpacity
+                    key={opt}
+                    style={[
+                      styles.optionChip,
+                      followUpForm.serviceType === opt && { backgroundColor: accentColor },
+                    ]}
+                    onPress={() => setFollowUpForm((prev) => ({ ...prev, serviceType: opt }))}
+                  >
+                    <Text style={[
+                      styles.optionChipText,
+                      followUpForm.serviceType === opt && styles.optionChipTextActive,
+                    ]}>
+                      {opt}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <Text style={styles.fieldLabel}>Follow Up Status</Text>
+              <View style={styles.optionRow}>
+                {FOLLOW_UP_STATUSES.map((opt) => (
+                  <TouchableOpacity
+                    key={opt}
+                    style={[
+                      styles.optionChip,
+                      followUpForm.followUpStatus === opt && { backgroundColor: accentColor },
+                    ]}
+                    onPress={() => setFollowUpForm((prev) => ({ ...prev, followUpStatus: opt }))}
+                  >
+                    <Text style={[
+                      styles.optionChipText,
+                      followUpForm.followUpStatus === opt && styles.optionChipTextActive,
+                    ]}>
+                      {opt}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <Text style={styles.fieldLabel}>Assign To</Text>
+              <View style={styles.optionRow}>
+                <TouchableOpacity
+                  style={[
+                    styles.optionChip,
+                    !followUpForm.assignTo && { backgroundColor: accentColor },
+                  ]}
+                  onPress={() => setFollowUpForm((prev) => ({ ...prev, assignTo: '' }))}
+                >
+                  <Text style={[
+                    styles.optionChipText,
+                    !followUpForm.assignTo && styles.optionChipTextActive,
+                  ]}>
+                    Select...
+                  </Text>
+                </TouchableOpacity>
+                {caregivers.map((caregiver) => (
+                  <TouchableOpacity
+                    key={caregiver.id}
+                    style={[
+                      styles.optionChip,
+                      String(followUpForm.assignTo) === String(caregiver.id) && { backgroundColor: accentColor },
+                    ]}
+                    onPress={() => setFollowUpForm((prev) => ({ ...prev, assignTo: String(caregiver.id) }))}
+                  >
+                    <Text style={[
+                      styles.optionChipText,
+                      String(followUpForm.assignTo) === String(caregiver.id) && styles.optionChipTextActive,
+                    ]}>
+                      {caregiver.full_name || caregiver.name || `Caregiver ${caregiver.id}`}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <Text style={styles.fieldLabel}>Service Time *</Text>
+              <FollowUpServiceTimer
+                active={showFollowUpModal}
+                initialSeconds={timer}
+                accentColor={accentColor}
+              />
+
+              <View style={styles.manualTimeRow}>
+                <View style={styles.manualTimeField}>
+                  <Text style={styles.fieldLabel}>Manual Min(s) *</Text>
+                  <TextInput
+                    style={styles.fieldInput}
+                    value={followUpForm.manualMinutes}
+                    onChangeText={(value) => handleManualTimeChange('manualMinutes', value)}
+                    placeholder="00"
+                    placeholderTextColor={TEXT_MUTED}
+                    keyboardType="number-pad"
+                    maxLength={2}
+                  />
+                </View>
+                <View style={styles.manualTimeField}>
+                  <Text style={styles.fieldLabel}>Manual Sec(s) *</Text>
+                  <TextInput
+                    style={styles.fieldInput}
+                    value={followUpForm.manualSeconds}
+                    onChangeText={(value) => handleManualTimeChange('manualSeconds', value)}
+                    placeholder="00"
+                    placeholderTextColor={TEXT_MUTED}
+                    keyboardType="number-pad"
+                    maxLength={2}
+                  />
+                </View>
+              </View>
+
+              <View style={styles.dateTimeRow}>
+                <View style={styles.dateTimeField}>
+                  <Text style={styles.fieldLabel}>Date</Text>
+                  <TouchableOpacity
+                    style={styles.selectField}
+                    onPress={() => {
+                      setShowFollowUpTimePicker(false);
+                      setShowFollowUpDatePicker(true);
+                    }}
+                  >
+                    <Text style={styles.selectFieldText} numberOfLines={1}>
+                      {formatDisplayDate(followUpForm.date)}
+                    </Text>
+                    <MaterialIcons name="event" size={18} color={TEXT_MUTED} />
+                  </TouchableOpacity>
+                </View>
+                <View style={styles.dateTimeField}>
+                  <Text style={styles.fieldLabel}>Time</Text>
+                  <TouchableOpacity
+                    style={styles.selectField}
+                    onPress={() => {
+                      setShowFollowUpDatePicker(false);
+                      setShowFollowUpTimePicker(true);
+                    }}
+                  >
+                    <Text style={styles.selectFieldText} numberOfLines={1}>
+                      {parseHmToDate(followUpForm.time).toLocaleTimeString('en-US', {
+                        hour: 'numeric',
+                        minute: '2-digit',
+                      })}
+                    </Text>
+                    <MaterialIcons name="schedule" size={18} color={TEXT_MUTED} />
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              <Text style={styles.fieldLabel}>Template</Text>
+              <TouchableOpacity
+                style={styles.selectField}
+                onPress={() => setShowTemplatePicker(true)}
+              >
+                <Text style={[
+                  styles.selectFieldText,
+                  !selectedFollowUpTemplate && styles.selectFieldPlaceholder,
+                ]}>
+                  {selectedFollowUpTemplate?.name || 'Please Choose a Template'}
+                </Text>
+                {loadingTemplates ? (
+                  <ActivityIndicator size="small" color={accentColor} />
+                ) : (
+                  <MaterialIcons name="arrow-drop-down" size={24} color={TEXT_MUTED} />
+                )}
+              </TouchableOpacity>
+
+              <Text style={styles.fieldLabel}>Content *</Text>
+              <TextInput
+                style={[styles.fieldInput, styles.contentInput]}
+                value={followUpForm.content}
+                onChangeText={(value) => setFollowUpForm((prev) => ({ ...prev, content: value }))}
+                placeholder="Enter follow-up note..."
+                placeholderTextColor={TEXT_MUTED}
+                multiline
+                textAlignVertical="top"
+                onFocus={() => {
+                  setTimeout(() => {
+                    followUpScrollRef.current?.scrollToEnd({ animated: true });
+                  }, 250);
+                }}
+              />
+
+              <View style={styles.modalActions}>
+                <TouchableOpacity
+                  style={styles.cancelBtn}
+                  onPress={closeFollowUpModal}
+                >
+                  <Text style={styles.cancelBtnText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.saveBtn, { backgroundColor: accentColor }, submittingFollowUp && styles.saveBtnDisabled]}
+                  onPress={handleFollowUpSubmit}
+                  disabled={submittingFollowUp}
+                >
+                  <Text style={styles.saveBtnText}>
+                    {submittingFollowUp ? 'Saving...' : 'Save'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+                </ScrollView>
+
+                {showFollowUpDatePicker && Platform.OS === 'ios' ? (
+                  <View style={styles.iosPickerSheet}>
+                    <View style={styles.iosPickerHeader}>
+                      <Text style={styles.iosPickerTitle}>Select Date</Text>
+                      <TouchableOpacity onPress={() => setShowFollowUpDatePicker(false)}>
+                        <Text style={[styles.iosPickerDone, { color: accentColor }]}>Done</Text>
+                      </TouchableOpacity>
+                    </View>
+                    <DateTimePicker
+                      value={parseYmdToDate(followUpForm.date)}
+                      mode="date"
+                      display="spinner"
+                      onChange={handleFollowUpDateChange}
+                    />
+                  </View>
+                ) : null}
+
+                {showFollowUpTimePicker && Platform.OS === 'ios' ? (
+                  <View style={styles.iosPickerSheet}>
+                    <View style={styles.iosPickerHeader}>
+                      <Text style={styles.iosPickerTitle}>Select Time</Text>
+                      <TouchableOpacity onPress={() => setShowFollowUpTimePicker(false)}>
+                        <Text style={[styles.iosPickerDone, { color: accentColor }]}>Done</Text>
+                      </TouchableOpacity>
+                    </View>
+                    <DateTimePicker
+                      value={parseHmToDate(followUpForm.time)}
+                      mode="time"
+                      is24Hour={false}
+                      display="spinner"
+                      onChange={handleFollowUpTimeChange}
+                    />
+                  </View>
+                ) : null}
+              </View>
+              </View>
+            </KeyboardAvoidingView>
+          </View>
+        </View>
+      </Modal>
+
+      {showFollowUpDatePicker && Platform.OS === 'android' ? (
+          <DateTimePicker
+            value={parseYmdToDate(followUpForm.date)}
+            mode="date"
+            display="default"
+            onChange={handleFollowUpDateChange}
+          />
+        ) : null}
+
+        {showFollowUpTimePicker && Platform.OS === 'android' ? (
+          <DateTimePicker
+            value={parseHmToDate(followUpForm.time)}
+            mode="time"
+            is24Hour={false}
+            display="default"
+            onChange={handleFollowUpTimeChange}
+          />
+        ) : null}
+
+      <Modal
+        visible={showTemplatePicker}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setShowTemplatePicker(false)}
+        statusBarTranslucent
+        presentationStyle="overFullScreen"
+      >
+        <Pressable style={styles.templatePickerBackdrop} onPress={() => setShowTemplatePicker(false)}>
+          <Pressable style={styles.templatePickerSheet} onPress={(e) => e.stopPropagation()}>
+              <View style={styles.templatePickerHeader}>
+                <Text style={styles.templatePickerTitle}>Choose Template</Text>
+                <TouchableOpacity onPress={() => setShowTemplatePicker(false)}>
+                  <MaterialIcons name="close" size={22} color={TEXT_DARK} />
+                </TouchableOpacity>
+              </View>
+              <ScrollView style={styles.templatePickerList} bounces={false}>
+                <TouchableOpacity
+                  style={styles.templatePickerItem}
+                  onPress={() => handleTemplateSelect('')}
+                >
+                  <Text style={styles.templatePickerItemText}>Please Choose a Template</Text>
+                </TouchableOpacity>
+                {followUpTemplates.length === 0 ? (
+                  <Text style={styles.templatePickerEmpty}>
+                    {loadingTemplates ? 'Loading templates...' : 'No templates available'}
+                  </Text>
+                ) : (
+                  followUpTemplates.map((template) => (
+                    <TouchableOpacity
+                      key={template.id}
+                      style={[
+                        styles.templatePickerItem,
+                        String(followUpForm.templateId) === String(template.id) && styles.templatePickerItemActive,
+                      ]}
+                      onPress={() => handleTemplateSelect(template.id)}
+                    >
+                      <Text style={[
+                        styles.templatePickerItemText,
+                        String(followUpForm.templateId) === String(template.id) && styles.templatePickerItemTextActive,
+                      ]}>
+                        {template.name || `Template ${template.id}`}
+                      </Text>
+                      {String(followUpForm.templateId) === String(template.id) ? (
+                        <MaterialIcons name="check" size={20} color={accentColor} />
+                      ) : null}
+                    </TouchableOpacity>
+                  ))
+                )}
+              </ScrollView>
+          </Pressable>
+        </Pressable>
+      </Modal>
+    </LinearGradient>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1 },
+  safeArea: { flex: 1 },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: scaleWidth(12),
+    paddingBottom: scaleWidth(10),
+    paddingTop: scaleWidth(4),
+  },
+  backBtn: {
+    width: scaleWidth(40),
+    height: scaleWidth(40),
+    borderRadius: scaleWidth(12),
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.86)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.78)',
+  },
+  headerTitle: {
+    flex: 1,
+    textAlign: 'center',
+    color: TEXT_DARK,
+    fontSize: scaleFont(18),
+    fontWeight: '800',
+  },
+  headerSpacer: { width: scaleWidth(40) },
+  loader: { marginTop: scaleWidth(40) },
+  scroll: { flex: 1 },
+  scrollContent: {
+    padding: scaleWidth(16),
+    gap: scaleWidth(12),
+  },
+  sectionBlock: {
+    gap: scaleWidth(10),
+  },
+  sectionTitle: {
+    fontSize: scaleFont(16),
+    fontWeight: '800',
+    color: TEXT_DARK,
+    paddingHorizontal: scaleWidth(2),
+  },
+  card: {
+    backgroundColor: 'rgba(255,255,255,0.92)',
+    borderRadius: scaleWidth(20),
+    padding: scaleWidth(16),
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.78)',
+    shadowColor: PANEL_ACCENT,
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.06,
+    shadowRadius: 20,
+    elevation: 2,
+  },
+  cardTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: scaleWidth(10),
+  },
+  cardTitle: {
+    fontSize: scaleFont(16),
+    fontWeight: '800',
+    color: TEXT_DARK,
+    marginBottom: scaleWidth(8),
+  },
+  statusPill: {
+    backgroundColor: '#d0f0e0',
+    paddingHorizontal: scaleWidth(10),
+    paddingVertical: scaleWidth(4),
+    borderRadius: 999,
+  },
+  statusPillText: {
+    fontSize: scaleFont(10),
+    fontWeight: '800',
+    color: '#0a6b3f',
+  },
+  detailRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: scaleWidth(6),
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(7,27,52,0.06)',
+    gap: scaleWidth(12),
+  },
+  detailLabel: {
+    fontSize: scaleFont(12),
+    color: TEXT_MUTED,
+    fontWeight: '600',
+    flex: 0.9,
+  },
+  detailValue: {
+    fontSize: scaleFont(12),
+    color: TEXT_DARK,
+    fontWeight: '700',
+    flex: 1.1,
+    textAlign: 'right',
+  },
+  timerCard: {
+    backgroundColor: 'rgba(255,255,255,0.95)',
+    borderRadius: scaleWidth(18),
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.78)',
+    padding: scaleWidth(16),
+    shadowColor: PANEL_ACCENT,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.06,
+    shadowRadius: 18,
+    elevation: 2,
+  },
+  timerCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: scaleWidth(10),
+  },
+  timerCardTitle: {
+    fontSize: scaleFont(15),
+    fontWeight: '800',
+    color: TEXT_DARK,
+  },
+  timerLivePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scaleWidth(6),
+    paddingHorizontal: scaleWidth(10),
+    paddingVertical: scaleWidth(5),
+    borderRadius: 999,
+    backgroundColor: 'rgba(7,27,52,0.06)',
+  },
+  timerLivePillActive: {
+    backgroundColor: 'rgba(34,197,94,0.12)',
+  },
+  timerLiveDot: {
+    width: scaleWidth(8),
+    height: scaleWidth(8),
+    borderRadius: scaleWidth(4),
+    backgroundColor: TEXT_MUTED,
+  },
+  timerLiveText: {
+    fontSize: scaleFont(10),
+    fontWeight: '800',
+    color: TEXT_DARK,
+  },
+  timerMainRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  timerDisplay: {
+    fontSize: scaleFont(36),
+    fontWeight: '800',
+    letterSpacing: 1.5,
+    fontVariant: ['tabular-nums'],
+  },
+  timerPlayBtn: {
+    width: scaleWidth(56),
+    height: scaleWidth(56),
+    borderRadius: scaleWidth(18),
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  vitalsGrid: { gap: scaleWidth(10) },
+  vitalCard: {
+    backgroundColor: 'rgba(255,255,255,0.94)',
+    borderRadius: scaleWidth(20),
+    padding: scaleWidth(14),
+    borderWidth: 1,
+    borderColor: 'rgba(7,27,52,0.07)',
+    shadowColor: PANEL_ACCENT,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.05,
+    shadowRadius: 16,
+    elevation: 2,
+  },
+  vitalCardTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: scaleWidth(10),
+  },
+  vitalTitleWrap: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scaleWidth(8),
+    minWidth: 0,
+  },
+  vitalReadingIcon: {
+    width: scaleWidth(32),
+    height: scaleWidth(32),
+    borderRadius: scaleWidth(13),
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  vitalCardTitle: {
+    fontSize: scaleFont(16),
+    fontWeight: '800',
+    color: TEXT_DARK,
+    flexShrink: 1,
+  },
+  vitalNavBtn: {
+    width: scaleWidth(36),
+    height: scaleWidth(36),
+    borderRadius: scaleWidth(12),
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  vitalCardDivider: {
+    height: 1,
+    backgroundColor: 'rgba(7,27,52,0.06)',
+    marginVertical: scaleWidth(12),
+  },
+  vitalCardContent: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    gap: scaleWidth(14),
+  },
+  vitalMetaCol: {
+    flex: 1,
+    minWidth: 0,
+  },
+  vitalDateText: {
+    fontSize: scaleFont(13),
+    color: TEXT_DARK,
+    fontWeight: '700',
+    lineHeight: scaleFont(18),
+  },
+  vitalTimeText: {
+    fontSize: scaleFont(12),
+    color: TEXT_MUTED,
+    fontWeight: '600',
+    marginTop: scaleWidth(3),
+  },
+  vitalValueCol: {
+    flexShrink: 0,
+    alignItems: 'flex-end',
+    maxWidth: '52%',
+  },
+  vitalValueRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: scaleWidth(5),
+    flexWrap: 'wrap',
+    justifyContent: 'flex-end',
+  },
+  vitalCardValue: {
+    fontSize: scaleFont(26),
+    fontWeight: '800',
+    color: TEXT_DARK,
+    fontVariant: ['tabular-nums'],
+  },
+  vitalCardSecondary: {
+    fontSize: scaleFont(12),
+    color: TEXT_MUTED,
+    marginTop: scaleWidth(5),
+    fontWeight: '700',
+    textAlign: 'right',
+  },
+  vitalCardUnit: {
+    fontSize: scaleFont(12),
+    color: TEXT_MUTED,
+    fontWeight: '700',
+  },
+  notesHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: scaleWidth(8),
+  },
+  addFollowUpBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scaleWidth(4),
+    paddingHorizontal: scaleWidth(10),
+    paddingVertical: scaleWidth(8),
+    borderRadius: scaleWidth(12),
+  },
+  addFollowUpText: {
+    color: '#fff',
+    fontSize: scaleFont(11),
+    fontWeight: '800',
+  },
+  emptyNotes: {
+    fontSize: scaleFont(13),
+    color: TEXT_MUTED,
+    fontWeight: '600',
+  },
+  noteItem: {
+    paddingVertical: scaleWidth(10),
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(7,27,52,0.06)',
+  },
+  noteAuthor: {
+    fontSize: scaleFont(12),
+    fontWeight: '800',
+    color: TEXT_DARK,
+  },
+  noteDate: {
+    fontSize: scaleFont(10),
+    color: TEXT_MUTED,
+    marginTop: scaleWidth(2),
+    fontWeight: '600',
+  },
+  noteText: {
+    fontSize: scaleFont(12),
+    color: TEXT_DARK,
+    marginTop: scaleWidth(6),
+    lineHeight: scaleFont(18),
+    fontWeight: '500',
+  },
+  modalRoot: {
+    flex: 1,
+  },
+  modalDimLayer: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0, 0, 0, 0.58)',
+  },
+  modalCenterWrap: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: scaleWidth(20),
+    paddingVertical: scaleWidth(14),
+  },
+  modalKeyboardWrap: {
+    width: '100%',
+    maxWidth: scaleWidth(380),
+    maxHeight: screenHeight * 0.9,
+    justifyContent: 'center',
+    alignSelf: 'center',
+  },
+  modalCardOuter: {
+    width: '100%',
+    backgroundColor: '#ffffff',
+    borderRadius: scaleWidth(20),
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 18 },
+    shadowOpacity: 0.38,
+    shadowRadius: 32,
+    elevation: 28,
+  },
+  modalCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: scaleWidth(20),
+    maxHeight: screenHeight * 0.88,
+    borderWidth: 1,
+    borderColor: 'rgba(7, 27, 52, 0.1)',
+    overflow: 'hidden',
+  },
+  modalScroll: {
+    maxHeight: screenHeight * 0.64,
+  },
+  modalScrollContent: {
+    paddingHorizontal: scaleWidth(20),
+    paddingBottom: scaleWidth(20),
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: scaleWidth(20),
+    paddingTop: scaleWidth(20),
+    marginBottom: scaleWidth(8),
+  },
+  modalTitle: {
+    fontSize: scaleFont(18),
+    fontWeight: '800',
+    color: TEXT_DARK,
+  },
+  modalPatientName: {
+    fontSize: scaleFont(14),
+    fontWeight: '700',
+    color: TEXT_MUTED,
+    paddingHorizontal: scaleWidth(20),
+    marginBottom: scaleWidth(10),
+  },
+  fieldLabel: {
+    fontSize: scaleFont(12),
+    fontWeight: '700',
+    color: TEXT_DARK,
+    marginBottom: scaleWidth(6),
+    marginTop: scaleWidth(8),
+  },
+  fieldInput: {
+    borderWidth: 1,
+    borderColor: 'rgba(7,27,52,0.12)',
+    borderRadius: scaleWidth(12),
+    paddingHorizontal: scaleWidth(12),
+    paddingVertical: scaleWidth(10),
+    fontSize: scaleFont(13),
+    color: TEXT_DARK,
+    backgroundColor: '#fff',
+  },
+  contentInput: {
+    minHeight: scaleWidth(100),
+  },
+  optionRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: scaleWidth(8),
+  },
+  optionChip: {
+    paddingHorizontal: scaleWidth(12),
+    paddingVertical: scaleWidth(8),
+    borderRadius: scaleWidth(12),
+    backgroundColor: 'rgba(7,27,52,0.06)',
+  },
+  optionChipActive: {
+    backgroundColor: PANEL_ACCENT,
+  },
+  optionChipText: {
+    fontSize: scaleFont(11),
+    fontWeight: '700',
+    color: TEXT_MUTED,
+  },
+  optionChipTextActive: {
+    color: '#fff',
+  },
+  timerPreview: {
+    fontSize: scaleFont(24),
+    fontWeight: '800',
+    color: TEXT_DARK,
+    letterSpacing: 1,
+  },
+  serviceTimeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scaleWidth(12),
+    marginBottom: scaleWidth(4),
+  },
+  timerPlayBtnSmall: {
+    width: scaleWidth(40),
+    height: scaleWidth(40),
+    borderRadius: scaleWidth(12),
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  manualTimeRow: {
+    flexDirection: 'row',
+    gap: scaleWidth(10),
+  },
+  manualTimeField: {
+    flex: 1,
+  },
+  dateTimeRow: {
+    flexDirection: 'row',
+    gap: scaleWidth(10),
+    alignItems: 'flex-start',
+  },
+  dateTimeField: {
+    flex: 1,
+    minWidth: 0,
+  },
+  iosPickerSheet: {
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(7,27,52,0.08)',
+    paddingBottom: scaleWidth(8),
+  },
+  iosPickerHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: scaleWidth(4),
+    paddingVertical: scaleWidth(10),
+  },
+  iosPickerTitle: {
+    fontSize: scaleFont(14),
+    fontWeight: '800',
+    color: TEXT_DARK,
+  },
+  iosPickerDone: {
+    fontSize: scaleFont(14),
+    fontWeight: '800',
+  },
+  selectField: {
+    borderWidth: 1,
+    borderColor: 'rgba(7,27,52,0.12)',
+    borderRadius: scaleWidth(12),
+    paddingHorizontal: scaleWidth(12),
+    paddingVertical: scaleWidth(12),
+    backgroundColor: '#fff',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: scaleWidth(8),
+  },
+  selectFieldText: {
+    flex: 1,
+    fontSize: scaleFont(13),
+    color: TEXT_DARK,
+    fontWeight: '600',
+  },
+  selectFieldPlaceholder: {
+    color: TEXT_MUTED,
+    fontWeight: '500',
+  },
+  templatePickerBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.58)',
+    justifyContent: 'flex-end',
+  },
+  templatePickerSheet: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: scaleWidth(20),
+    borderTopRightRadius: scaleWidth(20),
+    maxHeight: '55%',
+    paddingBottom: scaleWidth(20),
+  },
+  templatePickerHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: scaleWidth(20),
+    paddingVertical: scaleWidth(16),
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(7,27,52,0.08)',
+  },
+  templatePickerTitle: {
+    fontSize: scaleFont(16),
+    fontWeight: '800',
+    color: TEXT_DARK,
+  },
+  templatePickerList: {
+    paddingHorizontal: scaleWidth(12),
+  },
+  templatePickerItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: scaleWidth(12),
+    paddingVertical: scaleWidth(14),
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(7,27,52,0.06)',
+  },
+  templatePickerItemActive: {
+    backgroundColor: 'rgba(7,27,52,0.04)',
+    borderRadius: scaleWidth(10),
+  },
+  templatePickerItemText: {
+    fontSize: scaleFont(14),
+    color: TEXT_DARK,
+    fontWeight: '600',
+    flex: 1,
+  },
+  templatePickerItemTextActive: {
+    color: PANEL_ACCENT,
+    fontWeight: '800',
+  },
+  templatePickerEmpty: {
+    fontSize: scaleFont(13),
+    color: TEXT_MUTED,
+    textAlign: 'center',
+    paddingVertical: scaleWidth(24),
+  },
+  modalActions: {
+    flexDirection: 'row',
+    gap: scaleWidth(10),
+    marginTop: scaleWidth(18),
+  },
+  cancelBtn: {
+    flex: 1,
+    paddingVertical: scaleWidth(12),
+    borderRadius: scaleWidth(12),
+    borderWidth: 1,
+    borderColor: 'rgba(7,27,52,0.12)',
+    alignItems: 'center',
+  },
+  cancelBtnText: {
+    fontSize: scaleFont(14),
+    fontWeight: '700',
+    color: TEXT_DARK,
+  },
+  saveBtn: {
+    flex: 1,
+    paddingVertical: scaleWidth(12),
+    borderRadius: scaleWidth(12),
+    alignItems: 'center',
+  },
+  saveBtnDisabled: {
+    opacity: 0.6,
+  },
+  saveBtnText: {
+    fontSize: scaleFont(14),
+    fontWeight: '800',
+    color: '#fff',
+  },
+});
