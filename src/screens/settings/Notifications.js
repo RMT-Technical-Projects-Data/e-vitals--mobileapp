@@ -25,7 +25,7 @@ const scaleWidth = size => (width / guidelineBaseWidth) * size;
 const scaleHeight = size => (height / guidelineBaseHeight) * size;
 const scaleFont = size => scaleWidth(size);
 
-const SCREEN_BG_COLORS = ['#fffdfb', '#edf1f6', '#eef1f5'];
+const SCREEN_BG_COLORS = ['#ffffff', '#ffffff', '#ffffff'];
 const PRIMARY_ACCENT = '#071B34';
 const SECONDARY_ACCENT = colors.secondaryButton || '#D9E0F5';
 
@@ -683,15 +683,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    backgroundColor: colors.backgroundLight,
+    backgroundColor: '#ffffff',
     borderRadius: scaleWidth(10),
     paddingHorizontal: scaleWidth(16),
     paddingVertical: scaleHeight(12),
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
-    elevation: 2,
+    shadowColor: '#071B34',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    elevation: 4,
+    borderWidth: 1,
+    borderColor: '#e8ecf0',
     borderLeftWidth: scaleWidth(4),
     borderLeftColor: SECONDARY_ACCENT,
     marginBottom: scaleHeight(10),

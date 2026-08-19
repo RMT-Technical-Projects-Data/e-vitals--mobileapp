@@ -10,6 +10,7 @@ import {
   Dimensions,
   ActivityIndicator,
   Image,
+  Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
@@ -28,12 +29,29 @@ const scaleWidth = (size) => Math.min((width / guidelineBaseWidth) * size, size 
 const scaleHeight = (size) => Math.min((height / guidelineBaseHeight) * size, size * 1.25);
 const scaleFont = (size) => Math.min((width / guidelineBaseWidth) * size, size * 1.2);
 const eVitalsLogo = require('../../assets/images/batch_06/logo5.png');
-const SCREEN_BG_COLORS = ['#fffdfb', '#f7ece7', '#eef1f5'];
+const SCREEN_BG_COLORS = ['#ffffff', '#ffffff', '#ffffff'];
 const QUICK_ACCESS_ICON_COLORS = ['#071B34', '#1B2A47'];
 
 const toSafeNumber = (value, fallback = 0) => {
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
+};
+
+const getNormalizedStatus = (p) => {
+  const raw = p?.status ?? p?.status_id ?? p?.patient_status ?? p?.status_numeric ?? null;
+  if (raw === null || raw === undefined || raw === '' || raw === 0 || raw === '0') return 2;
+  if (typeof raw === 'number') {
+    if (raw === 1) return 4;
+    if (raw === 3) return 3;
+    if (raw === 4) return 4;
+    return 2;
+  }
+  const txt = String(raw).trim().toLowerCase();
+  if (txt === 'inactive' || txt === '1' || txt === 'i') return 4;
+  if (txt === 'pending' || txt === '3' || txt === 'p') return 3;
+  if (txt === 'locked' || txt === 'lock' || txt === '4' || txt === 'l' || txt === 'lost') return 4;
+  if (txt === 'active' || txt === '2' || txt === 'a') return 2;
+  return 2;
 };
 
 const getCptPercent = (count, total) => {
@@ -62,20 +80,57 @@ const Sparkline = ({ points, color }) => {
   );
 };
 
-const AppHeader = ({ color, onNotifications }) => (
+const AppHeader = ({ color, onNotifications, onMenuPress }) => (
   <View style={st.evTopbar}>
     <Image source={eVitalsLogo} style={st.evLogo} resizeMode="contain" />
-    <TouchableOpacity style={st.evIconButton} onPress={onNotifications} accessibilityRole="button" accessibilityLabel="Open notifications">
-      <MaterialIcons name="notifications-none" size={21} color={color} />
-      <View style={st.notifBadge} />
-    </TouchableOpacity>
+    <View style={st.topbarActions}>
+      <TouchableOpacity style={st.evIconButton} onPress={onNotifications} accessibilityRole="button" accessibilityLabel="Notifications">
+        <MaterialIcons name="notifications-none" size={21} color={color} />
+        <View style={st.notifBadge} />
+      </TouchableOpacity>
+      <TouchableOpacity style={st.evIconButton} onPress={onMenuPress} accessibilityRole="button" accessibilityLabel="Open menu">
+        <MaterialIcons name="more-vert" size={21} color={color} />
+      </TouchableOpacity>
+    </View>
   </View>
 );
 
-const RoleIntro = ({ eyebrow, title, subtitle, color }) => (
+const ThreeDotMenu = ({ visible, onClose, onLookupPatient, onFollowUp }) => (
+  <Modal transparent animationType="fade" visible={visible} onRequestClose={onClose}>
+    <TouchableOpacity style={st.menuOverlay} activeOpacity={1} onPress={onClose}>
+      <View style={st.menuDropdown}>
+        <TouchableOpacity
+          style={st.menuItem}
+          onPress={() => { onClose(); onLookupPatient(); }}
+          activeOpacity={0.75}
+        >
+          <MaterialIcons name="search" size={18} color="#071B34" style={st.menuItemIcon} />
+          <Text style={st.menuItemText}>Look up Patient</Text>
+        </TouchableOpacity>
+        <View style={st.menuDivider} />
+        <TouchableOpacity
+          style={st.menuItem}
+          onPress={() => { onClose(); onFollowUp(); }}
+          activeOpacity={0.75}
+        >
+          <MaterialIcons name="assignment" size={18} color="#071B34" style={st.menuItemIcon} />
+          <Text style={st.menuItemText}>Follow Up</Text>
+        </TouchableOpacity>
+      </View>
+    </TouchableOpacity>
+  </Modal>
+);
+
+const RoleIntro = ({ eyebrow, title, practiceName, subtitle, color }) => (
   <View style={st.evIntro}>
     <Text style={[st.evEyebrow, { color }]}>{eyebrow}</Text>
     <Text style={st.evTitle}>{title}</Text>
+    {!!practiceName && (
+      <View style={st.practiceRow}>
+        <MaterialIcons name="business" size={13} color={color} />
+        <Text style={[st.practiceName, { color }]}>{practiceName}</Text>
+      </View>
+    )}
     {!!subtitle && <Text style={st.evSubtitle}>{subtitle}</Text>}
   </View>
 );
@@ -161,13 +216,20 @@ const PanelHero = ({ theme = 'care', title, subtitle, total, active, pending, lo
   );
 };
 
-const MiniCountCard = ({ icon, value, label, color = '#1b2a47' }) => (
+const MiniCountCard = ({ title, value, color = '#1b2a47', onViewPress }) => (
   <View style={st.miniCountCard}>
-    <View style={[st.miniCountIcon, { backgroundColor: `${color}14` }]}>
-      <MaterialIcons name={icon} size={18} color={color} />
-    </View>
-    <Text style={st.miniCountValue}>{value}</Text>
-    <Text style={st.miniCountLabel}>{label}</Text>
+    <Text style={st.miniCountTitle} numberOfLines={1}>{title}</Text>
+    <Text style={[st.miniCountValue, { color }]}>{value}</Text>
+    <TouchableOpacity
+      style={st.miniCountViewBtn}
+      onPress={onViewPress}
+      activeOpacity={0.7}
+      accessibilityRole="button"
+      accessibilityLabel={`View ${title}`}
+    >
+      <Text style={st.miniCountViewText}>View</Text>
+      <MaterialIcons name="chevron-right" size={16} color="#2F5F8F" />
+    </TouchableOpacity>
   </View>
 );
 
@@ -196,30 +258,99 @@ const CriticalAlertRow = ({ icon = 'warning-amber', name, detail, severity = 'Hi
   );
 };
 
-const CptEligibilityCard = ({ rows, theme = 'care' }) => (
-  <View style={st.cptCard}>
-    <View style={st.cptHeader}>
-      <Text style={st.cptHeaderTitle}>{theme === 'provider' ? 'Provider attestation readiness' : 'RPM code readiness'}</Text>
-      <Text style={st.cptHeaderMeta}>eligible patients</Text>
-    </View>
-    {rows.map((row) => (
-      <View key={row.code} style={st.cptRow}>
-        <View style={st.cptMeta}>
-          <Text style={st.cptCode}>{row.code}</Text>
-          <Text style={st.cptCount}>{row.count} patients</Text>
-        </View>
-        <View style={st.cptTrack}>
-          <LinearGradient
-            colors={row.variant === 'warn' ? ['#c98a1a', '#dec07d'] : row.variant === 'navy' ? ['#071B34', '#315272'] : theme === 'provider' ? ['#9B1230', '#d2778a'] : ['#2f5f8f', '#8da1b8']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-            style={[st.cptFill, { width: `${Math.min(Math.max(row.percent, 8), 100)}%` }]}
-          />
+// CPT code metadata matching the web's programAnalyticsConfig.js
+const CPT_CODE_META = {
+  '99453': { desc: 'Device setup & education' },
+  '99445': { desc: 'Device supply 2-15 readings/days' },
+  '99454': { desc: 'Device supply ≥16 readings/days' },
+  '99470': { desc: 'Monitoring mgmt 10-19 min' },
+  '99457': { desc: 'Monitoring mgmt ≥20 min' },
+  '99458': { desc: "Monitoring mgmt add'l 20 min" },
+};
+
+/**
+ * CPT Eligibility Card — matches the web's ppa-cpt-tile-grid.
+ * Each row shows: code pill | description | Elig count (green) | Inelig count (red) | fill bar.
+ */
+const CptEligibilityCard = ({ rows, theme = 'care', onCptPress }) => {
+  const themeAccent = theme === 'provider' ? '#1B2A47' : '#1B2A47';
+  return (
+    <View style={st.cptCard}>
+      {/* Header */}
+      <View style={st.cptHeader}>
+        <Text style={st.cptHeaderTitle}>
+          {theme === 'provider' ? 'Provider attestation readiness' : 'RPM code readiness'}
+        </Text>
+        <View style={st.cptHeaderLegend}>
+          <View style={st.cptLegendDot} />
+          <Text style={[st.cptLegendLabel, { color: '#2e7d32' }]}>Elig</Text>
+          <View style={[st.cptLegendDot, { backgroundColor: '#c62828', marginLeft: scaleWidth(10) }]} />
+          <Text style={[st.cptLegendLabel, { color: '#c62828' }]}>Inelig</Text>
         </View>
       </View>
-    ))}
-  </View>
-);
+
+      {/* CPT rows */}
+      {rows.map((row) => {
+        const meta = CPT_CODE_META[row.code] || {};
+        const eligible = typeof row.eligible === 'number' ? row.eligible : row.count || 0;
+        const ineligible = typeof row.ineligible === 'number' ? row.ineligible : 0;
+        const total = eligible + ineligible;
+        const fillPct = total > 0 ? Math.round((eligible / total) * 100) : 0;
+        const barColors = row.variant === 'warn'
+          ? ['#c98a1a', '#dec07d']
+          : row.variant === 'navy'
+            ? ['#071B34', '#315272']
+            : theme === 'provider'
+              ? ['#9B1230', '#d2778a']
+              : ['#2f5f8f', '#8da1b8'];
+
+        const rowContent = (
+          <View key={row.code} style={st.cptRow}>
+            {/* Left: code pill + description */}
+            <View style={st.cptMeta}>
+              <View style={[st.cptCodePill, { backgroundColor: themeAccent }]}>
+                <Text style={st.cptCodePillText}>{row.code}</Text>
+              </View>
+              <Text style={st.cptDesc} numberOfLines={2}>{meta.desc || `CPT ${row.code}`}</Text>
+            </View>
+
+            {/* Right: counts + bar */}
+            <View style={st.cptRight}>
+              <View style={st.cptCounts}>
+                <View style={st.cptCountCol}>
+                  <Text style={[st.cptCountNum, { color: '#2e7d32' }]}>{eligible}</Text>
+                  <Text style={st.cptCountLabel}>Elig</Text>
+                </View>
+                <View style={[st.cptCountCol, { marginLeft: scaleWidth(12) }]}>
+                  <Text style={[st.cptCountNum, { color: '#c62828' }]}>{ineligible}</Text>
+                  <Text style={st.cptCountLabel}>Inelig</Text>
+                </View>
+              </View>
+              <View style={st.cptTrack}>
+                <LinearGradient
+                  colors={barColors}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={[st.cptFill, { width: `${Math.min(Math.max(fillPct, 4), 100)}%` }]}
+                />
+              </View>
+            </View>
+          </View>
+        );
+
+        if (onCptPress) {
+          return (
+            <TouchableOpacity key={row.code} onPress={() => onCptPress(row.code)} activeOpacity={0.75}>
+              {rowContent}
+            </TouchableOpacity>
+          );
+        }
+
+        return rowContent;
+      })}
+    </View>
+  );
+};
 
 const MultiLineTrendChart = () => {
   const chartWidth = Math.min(width - scaleWidth(58), scaleWidth(340));
@@ -376,6 +507,8 @@ const fallbackProviderPatients = [
 
 export default function Home({ navigation }) {
   const [userRole, setUserRole] = useState(null); // 'patient', 'caregiver', 'provider'
+  const [practiceName, setPracticeName] = useState('');
+  const [showMenu, setShowMenu] = useState(false);
   const [patientName, setPatientName] = useState('');
   const [measurements, setMeasurements] = useState({
     bloodPressure: null,
@@ -457,27 +590,48 @@ export default function Home({ navigation }) {
       const pId = (await AsyncStorage.getItem('practiceId')) || userObj.practice_id;
       if (pId) {
         setPracticeId(pId);
-        const [totalResult, listResult, statsResult] = await Promise.all([
-          apiService.getTotalPatients(pId).catch(() => null),
+        // Use the same program-analytics API the web frontend uses. It returns
+        // summary.{ total, active, pending, locked, recent, missed, abnormal }
+        // which are the correct counts for the panel hero card.
+        const [listResult, analyticsResult] = await Promise.all([
           apiService.getPatients(pId, {
             limit: 1000,
             page: 1,
             includeDashboardEnrichment: true,
+            caregiverId: userObj.id,
           }).catch(() => null),
-          apiService.getPatients(pId, {
-            statsOnly: true,
-            includeDashboardStats: true,
-          }).catch(() => null),
+          apiService.getProgramAnalytics(pId, 'rpm').catch(() => null),
         ]);
 
+        // analytics.summary is { total, active, pending, locked, recent, missed, abnormal }
+        const analyticsSummary = analyticsResult?.data?.summary || null;
+        const analyticsCpt = analyticsResult?.data?.cpt || null;
+        const analyticsPeriod = analyticsResult?.data?.billing_period || null;
         setCaregiverDashboardStats(
-          statsResult?.data?.dashboard_stats
-          || listResult?.data?.dashboard_stats
-          || null
+          analyticsSummary
+            ? {
+              // Map to the field names the render function expects
+              total_patients: analyticsSummary.total,
+              active_patients: analyticsSummary.active,
+              pending_patients: analyticsSummary.pending,
+              locked_patients: analyticsSummary.locked,
+              recent_uploads: analyticsSummary.recent,
+              missed_uploads: analyticsSummary.missed,
+              abnormal_measurements: analyticsSummary.abnormal,
+              billing_period_label: analyticsPeriod?.label || '',
+              cpt99453: analyticsCpt?.cpt99453 ?? 0,
+              cpt99445: analyticsCpt?.cpt99445 ?? 0,
+              cpt99454: analyticsCpt?.cpt99454 ?? 0,
+              cpt99470: analyticsCpt?.cpt99470 ?? 0,
+              cpt99457: analyticsCpt?.cpt99457 ?? 0,
+              cpt99458: analyticsCpt?.cpt99458 ?? 0,
+            }
+            : null
         );
 
-        if (totalResult?.success && totalResult?.data?.pagination?.total != null) {
-          setTotalPatientCount(totalResult.data.pagination.total);
+        const analyticsTotal = analyticsSummary?.total;
+        if (analyticsTotal != null) {
+          setTotalPatientCount(analyticsTotal);
         }
         const patientList = listResult?.data?.patients || [];
         if (patientList.length > 0) {
@@ -504,7 +658,7 @@ export default function Home({ navigation }) {
           setCaregiverFollowUps(followUpArrays.flat());
         } else {
           setCaregiverPatients(fallbackCaregiverPatients);
-          if (totalResult == null) {
+          if (analyticsSummary == null) {
             setTotalPatientCount(fallbackCaregiverPatients.length);
           }
           setCaregiverFollowUps([]);
@@ -532,25 +686,46 @@ export default function Home({ navigation }) {
       const pId = (await AsyncStorage.getItem('practiceId')) || userObj.practice_id;
       if (pId) {
         setPracticeId(pId);
-        const [totalResult, listResult, statsResult] = await Promise.all([
-          apiService.getTotalPatients(pId).catch(() => null),
+        // Use the same program-analytics API the web frontend uses. It returns
+        // summary.{ total, active, pending, locked, recent, missed, abnormal }
+        const [listResult, analyticsResult] = await Promise.all([
           apiService.getPatients(pId, {
             limit: 1000,
             page: 1,
             includeDashboardEnrichment: true,
+            providerId: userObj.id,
           }).catch(() => null),
-          apiService.getPatients(pId, {
-            statsOnly: true,
-            includeDashboardStats: true,
-          }).catch(() => null),
+          apiService.getProgramAnalytics(pId, 'rpm').catch(() => null),
         ]);
-        if (totalResult?.success && totalResult?.data?.pagination?.total != null) {
-          setTotalProviderPatients(totalResult.data.pagination.total);
+
+        // analytics.summary is { total, active, pending, locked, recent, missed, abnormal }
+        const analyticsSummary = analyticsResult?.data?.summary || null;
+        const analyticsCpt = analyticsResult?.data?.cpt || null;
+        const analyticsPeriod = analyticsResult?.data?.billing_period || null;
+
+        if (analyticsSummary?.total != null) {
+          setTotalProviderPatients(analyticsSummary.total);
         }
         setProviderDashboardStats(
-          statsResult?.data?.dashboard_stats
-          || listResult?.data?.dashboard_stats
-          || null
+          analyticsSummary
+            ? {
+              // Map to the field names the render function expects
+              total_patients: analyticsSummary.total,
+              active_patients: analyticsSummary.active,
+              pending_patients: analyticsSummary.pending,
+              locked_patients: analyticsSummary.locked,
+              recent_uploads: analyticsSummary.recent,
+              missed_uploads: analyticsSummary.missed,
+              abnormal_measurements: analyticsSummary.abnormal,
+              billing_period_label: analyticsPeriod?.label || '',
+              cpt99453: analyticsCpt?.cpt99453 ?? 0,
+              cpt99445: analyticsCpt?.cpt99445 ?? 0,
+              cpt99454: analyticsCpt?.cpt99454 ?? 0,
+              cpt99470: analyticsCpt?.cpt99470 ?? 0,
+              cpt99457: analyticsCpt?.cpt99457 ?? 0,
+              cpt99458: analyticsCpt?.cpt99458 ?? 0,
+            }
+            : null
         );
 
         const patientList = listResult?.data?.patients || [];
@@ -578,6 +753,10 @@ export default function Home({ navigation }) {
       if (userStr) {
         const user = JSON.parse(userStr);
         const roleId = Number(user.role_id);
+        // Set practice name from user object (returned by auth API)
+        if (user.practice_name) {
+          setPracticeName(user.practice_name);
+        }
         if (roleId === 4) {
           setUserRole('provider');
           setPatientName(user.first_name ? `Dr. ${user.first_name} ${user.last_name}` : user.name || 'Elena Reyes');
@@ -642,7 +821,12 @@ export default function Home({ navigation }) {
     practiceId: practiceId || undefined,
     patientId: patientTableId || undefined,
   });
-  const openNotifications = () => navigation.navigate('Notifications');
+
+  const openLookupPatient = () => navigation.navigate('LookupPatient');
+  const openLookupRPM = () => navigation.navigate('LookupPatientRPM');
+  const openLookupCCM = () => navigation.navigate('LookupPatientCCM');
+
+  const openFollowUp = () => navigation.navigate('FollowUp');
 
   const openPatientHub = (patient, dashboardRole) => {
     const resolvedPatientId = patient.patient_table_id || patient.id;
@@ -675,22 +859,35 @@ export default function Home({ navigation }) {
     const wtTime = formatLastTime(measurements.weight?.date);
 
     return (
-      <View style={{ flex: 1, backgroundColor: '#fffdfb' }}>
+      <View style={{ flex: 1, backgroundColor: '#ffffff' }}>
         <LinearGradient
           colors={SCREEN_BG_COLORS}
           style={st.fullGradient}
         >
           <SafeAreaView style={{ flex: 1 }} edges={['top']}>
-            <ScrollView 
-              contentContainerStyle={st.scrollContainer} 
+            <ScrollView
+              contentContainerStyle={st.scrollContainer}
               showsVerticalScrollIndicator={false}
               bounces={true}
               overScrollMode="never"
             >
-              <AppHeader color="#071B34" onNotifications={openNotifications} />
+              <ThreeDotMenu
+                visible={showMenu}
+                onClose={() => setShowMenu(false)}
+                onLookupPatient={openLookupPatient}
+                onLookupRPM={openLookupRPM}
+                onLookupCCM={openLookupCCM}
+                onFollowUp={openFollowUp}
+              />
+              <AppHeader
+                color="#071B34"
+                onNotifications={() => navigation.navigate('Notifications')}
+                onMenuPress={() => setShowMenu(true)}
+              />
               <RoleIntro
-                eyebrow="Patient dashboard"
-                title={`Good morning, ${patientName.split(' ')[0] || 'there'}.`}
+
+                title={patientName || 'Dashboard'}
+                practiceName={practiceName}
                 subtitle="Your latest readings and alerts are ready."
                 color="#071B34"
               />
@@ -752,7 +949,7 @@ export default function Home({ navigation }) {
               <SectionTitle title="Trends" />
               <MultiLineTrendChart />
 
-              <SectionTitle title="Alerts" subtitle="Care team signals" actionLabel="See all" actionColor="#071B34" onPress={openNotifications} />
+              <SectionTitle title="Alerts" subtitle="Care team signals" actionLabel="See all" actionColor="#071B34" onPress={() => navigation.navigate('Notifications')} />
 
               <View style={[st.alertCard, st.alertYellow]}>
                 <View style={[st.alertDot, { backgroundColor: '#fbc02d' }]} />
@@ -820,42 +1017,71 @@ export default function Home({ navigation }) {
       stats.total_patients,
       totalPatientCount != null ? totalPatientCount : caregiverPatients.length || displayList.length
     );
-    const criticalPatients = displayList.filter(
-      (p) => p.status === 'Critical' || p.status === 'Locked' || p.has_abnormal_measurement
+    const activeCount = toSafeNumber(
+      stats.active_patients,
+      displayList.filter((p) => getNormalizedStatus(p) === 2).length
     );
-    const activeCount = Math.max(totalPanel - criticalPatients.length - caregiverFollowUps.length, 0);
-    const pendingCount = caregiverFollowUps.length || Math.min(21, Math.max(displayList.length - criticalPatients.length, 0));
-    const lockedCount = displayList.filter((p) => p.status === 'Locked').length || Math.min(7, criticalPatients.length);
+    const pendingCount = toSafeNumber(
+      stats.pending_patients,
+      displayList.filter((p) => getNormalizedStatus(p) === 3).length
+    );
+    const lockedCount = toSafeNumber(
+      stats.locked_patients,
+      displayList.filter((p) => getNormalizedStatus(p) === 4).length
+    );
+    const criticalPatients = displayList.filter(
+      (p) => getNormalizedStatus(p) === 4 || p.status === 'Critical' || p.has_abnormal_measurement
+    );
     const recentUploads = displayList.slice(0, 4);
     const missedUploadsCount = toSafeNumber(stats.missed_uploads, Math.max(0, totalPanel - activeCount));
     const abnormalCount = toSafeNumber(stats.abnormal_measurements, criticalPatients.length);
     const recentUploadsCount = toSafeNumber(stats.recent_uploads, recentUploads.length);
+    // Build CPT rows matching the web's 6 RPM codes with eligible + ineligible counts.
+    // The web uses: activeCount as the base for ineligible = active - eligible.
+    const buildCptRow = (code, rawCount, variant) => {
+      const eligible = toSafeNumber(rawCount, 0);
+      const ineligible = Math.max(0, activeCount - eligible);
+      return { code, eligible, ineligible, count: eligible, percent: getCptPercent(rawCount, totalPanel), variant };
+    };
     const cptRows = [
-      { code: '99453', count: toSafeNumber(stats.cpt99453, 0), percent: getCptPercent(stats.cpt99453, totalPanel), variant: 'navy' },
-      { code: '99454', count: toSafeNumber(stats.cpt99454, 0), percent: getCptPercent(stats.cpt99454, totalPanel) },
-      { code: '99457', count: toSafeNumber(stats.cpt99457, 0), percent: getCptPercent(stats.cpt99457, totalPanel), variant: 'warn' },
-      { code: '99458', count: toSafeNumber(stats.cpt99458, 0), percent: getCptPercent(stats.cpt99458, totalPanel) },
-      { code: '99470', count: 0, percent: 0, variant: 'navy' },
-      { code: '99091', count: 0, percent: 0, variant: 'warn' },
+      buildCptRow('99453', stats.cpt99453, 'navy'),
+      buildCptRow('99445', stats.cpt99445, undefined),
+      buildCptRow('99454', stats.cpt99454, undefined),
+      buildCptRow('99470', stats.cpt99470, 'navy'),
+      buildCptRow('99457', stats.cpt99457, 'warn'),
+      buildCptRow('99458', stats.cpt99458, undefined),
     ];
 
     return (
-      <View style={{ flex: 1, backgroundColor: '#fffdfb' }}>
+      <View style={{ flex: 1, backgroundColor: '#ffffff' }}>
         <LinearGradient
           colors={SCREEN_BG_COLORS}
           style={st.fullGradient}
         >
           <SafeAreaView style={{ flex: 1 }} edges={['top']}>
-            <ScrollView 
-              contentContainerStyle={st.scrollContainer} 
+            <ScrollView
+              contentContainerStyle={st.scrollContainer}
               showsVerticalScrollIndicator={false}
               bounces={true}
               overScrollMode="never"
             >
-              <AppHeader color="#1B2A47" onNotifications={openNotifications} />
+              <ThreeDotMenu
+                visible={showMenu}
+                onClose={() => setShowMenu(false)}
+                onLookupPatient={openLookupPatient}
+                onLookupRPM={openLookupRPM}
+                onLookupCCM={openLookupCCM}
+                onFollowUp={openFollowUp}
+              />
+              <AppHeader
+                color="#1B2A47"
+                onNotifications={() => navigation.navigate('Notifications')}
+                onMenuPress={() => setShowMenu(true)}
+              />
               <RoleIntro
-                eyebrow="Caregiver dashboard"
-                title={`Good morning, ${patientName.split(' ')[0] || 'there'}.`}
+
+                title={patientName || 'Dashboard'}
+                practiceName={practiceName}
                 subtitle="Your assigned patient panel is prioritized by uploads, alerts, and billing readiness."
                 color="#1B2A47"
               />
@@ -919,14 +1145,40 @@ export default function Home({ navigation }) {
 
               <SectionTitle title="Dashboard Counts" subtitle="Today" />
               <View style={st.countGrid}>
-                <MiniCountCard icon="chat-bubble-outline" value={missedUploadsCount} label="missed uploads requiring patient outreach" color="#2F5F8F" />
-                <MiniCountCard icon="calendar-today" value={caregiverFollowUps.length || 5} label="calendar appointments scheduled for today" color="#C98A1A" />
-                <MiniCountCard icon="warning-amber" value={abnormalCount} label="abnormal measurements awaiting triage note" color="#C62828" />
-                <MiniCountCard icon="settings-input-antenna" value={recentUploadsCount} label="recent uploads received in the last 24 hours" color="#2F5F8F" />
+                <MiniCountCard
+                  title="Appointments"
+                  value={caregiverFollowUps.length || 5}
+                  color="#C98A1A"
+                  onViewPress={() => navigation.navigate('Patients', { filterTitle: 'Appointments' })}
+                />
+                <MiniCountCard
+                  title="Missed Uploads"
+                  value={missedUploadsCount}
+                  color="#64748b"
+                  onViewPress={() => navigation.navigate('Patients', { dashboardFilter: 'missedUploads', filterTitle: 'Missed Uploads' })}
+                />
+                <MiniCountCard
+                  title="Abnormal Readings"
+                  value={abnormalCount}
+                  color="#d32f2f"
+                  onViewPress={() => navigation.navigate('Patients', { dashboardFilter: 'abnormalMeasurements', filterTitle: 'Abnormal Readings' })}
+                />
+                <MiniCountCard
+                  title="Recent Uploads"
+                  value={recentUploadsCount}
+                  color="#15803d"
+                  onViewPress={() => navigation.navigate('Patients', { dashboardFilter: 'recentUploads', filterTitle: 'Recent Uploads' })}
+                />
               </View>
 
-              <SectionTitle title="CPT Eligibility" subtitle="Billing cycle" />
-              <CptEligibilityCard rows={cptRows} />
+              <SectionTitle
+                title="CPT Eligibility"
+                subtitle={stats?.billing_period_label ? `Billing cycle (${stats.billing_period_label})` : 'Billing cycle'}
+              />
+              <CptEligibilityCard
+                rows={cptRows}
+                onCptPress={(code) => navigation.navigate('Patients', { dashboardFilter: `cpt${code}`, filterTitle: `CPT ${code}` })}
+              />
 
               <View style={{ height: scaleHeight(20) }} />
             </ScrollView>
@@ -951,39 +1203,69 @@ export default function Home({ navigation }) {
       stats.total_patients,
       totalProviderPatients != null ? totalProviderPatients : providerPatients.length || displayList.length
     );
-    const criticalPatients = displayList.filter((p) => p.status === 'Critical' || p.status === 'Locked' || p.has_abnormal_measurement);
-    const activeCount = Math.max(totalPanel - criticalPatients.length, 0);
-    const pendingCount = Math.max(criticalPatients.length + 4, 1);
-    const lockedCount = displayList.filter((p) => p.status === 'Locked').length || Math.min(7, criticalPatients.length);
+    const activeCount = toSafeNumber(
+      stats.active_patients,
+      displayList.filter((p) => getNormalizedStatus(p) === 2).length
+    );
+    const pendingCount = toSafeNumber(
+      stats.pending_patients,
+      displayList.filter((p) => getNormalizedStatus(p) === 3).length
+    );
+    const lockedCount = toSafeNumber(
+      stats.locked_patients,
+      displayList.filter((p) => getNormalizedStatus(p) === 4).length
+    );
+    const criticalPatients = displayList.filter(
+      (p) => getNormalizedStatus(p) === 4 || p.status === 'Critical' || p.has_abnormal_measurement
+    );
     const missedUploadsCount = toSafeNumber(stats.missed_uploads, Math.max(14, totalPanel - activeCount));
     const abnormalCount = toSafeNumber(stats.abnormal_measurements, criticalPatients.length || 9);
     const recentUploadsCount = toSafeNumber(stats.recent_uploads, 0);
+    // Build CPT rows matching the web's 6 RPM codes with eligible + ineligible counts.
+    const buildCptRow = (code, rawCount, variant) => {
+      const eligible = toSafeNumber(rawCount, 0);
+      const ineligible = Math.max(0, activeCount - eligible);
+      return { code, eligible, ineligible, count: eligible, percent: getCptPercent(rawCount, totalPanel), variant };
+    };
     const cptRows = [
-      { code: '99453', count: toSafeNumber(stats.cpt99453, 0), percent: getCptPercent(stats.cpt99453, totalPanel), variant: 'navy' },
-      { code: '99454', count: toSafeNumber(stats.cpt99454, 0), percent: getCptPercent(stats.cpt99454, totalPanel) },
-      { code: '99457', count: toSafeNumber(stats.cpt99457, 0), percent: getCptPercent(stats.cpt99457, totalPanel), variant: 'warn' },
-      { code: '99458', count: toSafeNumber(stats.cpt99458, 0), percent: getCptPercent(stats.cpt99458, totalPanel) },
-      { code: '99470', count: 0, percent: 0, variant: 'navy' },
-      { code: '99091', count: 0, percent: 0, variant: 'warn' },
+      buildCptRow('99453', stats.cpt99453, 'navy'),
+      buildCptRow('99445', stats.cpt99445, undefined),
+      buildCptRow('99454', stats.cpt99454, undefined),
+      buildCptRow('99470', stats.cpt99470, 'navy'),
+      buildCptRow('99457', stats.cpt99457, 'warn'),
+      buildCptRow('99458', stats.cpt99458, undefined),
     ];
 
     return (
-      <View style={{ flex: 1, backgroundColor: '#fffdfb' }}>
+      <View style={{ flex: 1, backgroundColor: '#ffffff' }}>
         <LinearGradient
           colors={SCREEN_BG_COLORS}
           style={st.fullGradient}
         >
           <SafeAreaView style={{ flex: 1 }} edges={['top']}>
-            <ScrollView 
-              contentContainerStyle={st.scrollContainer} 
+            <ScrollView
+              contentContainerStyle={st.scrollContainer}
               showsVerticalScrollIndicator={false}
               bounces={true}
               overScrollMode="never"
             >
-              <AppHeader color="#071B34" onNotifications={openNotifications} />
+              <ThreeDotMenu
+                visible={showMenu}
+                onClose={() => setShowMenu(false)}
+                onLookupPatient={openLookupPatient}
+                onLookupRPM={openLookupRPM}
+                onLookupCCM={openLookupCCM}
+                onFollowUp={openFollowUp}
+              />
+              <AppHeader
+                color="#071B34"
+                onNotifications={() => navigation.navigate('Notifications')}
+                onMenuPress={() => setShowMenu(true)}
+              />
               <RoleIntro
-                eyebrow="Provider dashboard"
-                title={`Good morning, ${patientName || 'Doctor'}.`}
+
+                title={patientName || 'Dashboard'}
+                practiceName={practiceName}
                 subtitle="Your patient panel is organized by review urgency, uploads, alerts, appointments, and billing readiness."
                 color="#9B1230"
               />
@@ -1071,14 +1353,41 @@ export default function Home({ navigation }) {
 
               <SectionTitle title="Dashboard Counts" subtitle="Today" />
               <View style={st.countGrid}>
-                <MiniCountCard icon="calendar-today" value={8} label="appointments scheduled for clinical review today" color="#9B1230" />
-                <MiniCountCard icon="cloud-off" value={missedUploadsCount} label="patients missing readings tied to active RPM orders" color="#071B34" />
-                <MiniCountCard icon="warning-amber" value={abnormalCount} label="measurements outside provider configured thresholds" color="#C62828" />
-                <MiniCountCard icon="settings-input-antenna" value={recentUploadsCount} label="new patient readings awaiting trend review" color="#071B34" />
+                <MiniCountCard
+                  title="Appointments"
+                  value={8}
+                  color="#9B1230"
+                  onViewPress={() => navigation.navigate('Patients', { filterTitle: 'Appointments' })}
+                />
+                <MiniCountCard
+                  title="Missed Uploads"
+                  value={missedUploadsCount}
+                  color="#64748b"
+                  onViewPress={() => navigation.navigate('Patients', { dashboardFilter: 'missedUploads', filterTitle: 'Missed Uploads' })}
+                />
+                <MiniCountCard
+                  title="Abnormal Readings"
+                  value={abnormalCount}
+                  color="#d32f2f"
+                  onViewPress={() => navigation.navigate('Patients', { dashboardFilter: 'abnormalMeasurements', filterTitle: 'Abnormal Readings' })}
+                />
+                <MiniCountCard
+                  title="Recent Uploads"
+                  value={recentUploadsCount}
+                  color="#15803d"
+                  onViewPress={() => navigation.navigate('Patients', { dashboardFilter: 'recentUploads', filterTitle: 'Recent Uploads' })}
+                />
               </View>
 
-              <SectionTitle title="CPT Eligibility" subtitle="Billing cycle" />
-              <CptEligibilityCard rows={cptRows} theme="provider" />
+              <SectionTitle
+                title="CPT Eligibility"
+                subtitle={stats?.billing_period_label ? `Billing cycle (${stats.billing_period_label})` : 'Billing cycle'}
+              />
+              <CptEligibilityCard
+                rows={cptRows}
+                theme="provider"
+                onCptPress={(code) => navigation.navigate('Patients', { dashboardFilter: `cpt${code}`, filterTitle: `CPT ${code}` })}
+              />
 
               <View style={{ height: scaleHeight(20) }} />
             </ScrollView>
@@ -1129,6 +1438,20 @@ const st = StyleSheet.create({
     paddingTop: scaleHeight(4),
     paddingBottom: scaleHeight(14),
   },
+  topbarActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scaleWidth(8),
+  },
+  notifBadge: {
+    position: 'absolute',
+    top: scaleHeight(9),
+    right: scaleWidth(9),
+    width: scaleWidth(7),
+    height: scaleWidth(7),
+    borderRadius: scaleWidth(4),
+    backgroundColor: '#d32f2f',
+  },
   evLogo: {
     width: Math.min(scaleWidth(152), 172),
     height: scaleHeight(42),
@@ -1139,14 +1462,14 @@ const st = StyleSheet.create({
     borderRadius: scaleWidth(14),
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.84)',
+    backgroundColor: '#ffffff',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.72)',
+    borderColor: '#e8ecf0',
     shadowColor: '#071B34',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.08,
-    shadowRadius: 22,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    elevation: 4,
   },
   evIntro: {
     paddingBottom: scaleHeight(12),
@@ -1170,6 +1493,56 @@ const st = StyleSheet.create({
     fontSize: scaleFont(13),
     lineHeight: scaleHeight(20),
     fontWeight: '600',
+  },
+  practiceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: scaleHeight(4),
+    gap: scaleWidth(4),
+  },
+  practiceName: {
+    fontSize: scaleFont(12),
+    fontWeight: '700',
+    opacity: 0.75,
+  },
+  menuOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.18)',
+  },
+  menuDropdown: {
+    position: 'absolute',
+    top: scaleHeight(64),
+    right: Math.max(scaleWidth(16), 16),
+    backgroundColor: '#ffffff',
+    borderRadius: scaleWidth(14),
+    minWidth: scaleWidth(180),
+    borderWidth: 1,
+    borderColor: '#e8ecf0',
+    shadowColor: '#071B34',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.14,
+    shadowRadius: 20,
+    elevation: 8,
+    overflow: 'hidden',
+  },
+  menuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: scaleHeight(14),
+    paddingHorizontal: scaleWidth(16),
+  },
+  menuItemIcon: {
+    marginRight: scaleWidth(10),
+  },
+  menuItemText: {
+    fontSize: scaleFont(14),
+    fontWeight: '700',
+    color: '#071B34',
+  },
+  menuDivider: {
+    height: 1,
+    backgroundColor: '#e8ecf0',
+    marginHorizontal: scaleWidth(12),
   },
   evSectionHeader: {
     flexDirection: 'row',
@@ -1259,16 +1632,16 @@ const st = StyleSheet.create({
     fontWeight: '700',
   },
   uploadList: {
-    backgroundColor: 'rgba(255,255,255,0.84)',
+    backgroundColor: '#ffffff',
     borderRadius: scaleWidth(24),
     paddingHorizontal: scaleWidth(16),
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.78)',
+    borderColor: '#e8ecf0',
     shadowColor: '#071B34',
-    shadowOffset: { width: 0, height: 16 },
-    shadowOpacity: 0.08,
-    shadowRadius: 34,
-    elevation: 4,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    elevation: 5,
   },
   uploadRow: {
     minHeight: scaleHeight(60),
@@ -1321,14 +1694,14 @@ const st = StyleSheet.create({
   criticalCard: {
     borderRadius: scaleWidth(24),
     paddingHorizontal: scaleWidth(16),
-    backgroundColor: 'rgba(255,255,255,0.9)',
+    backgroundColor: '#ffffff',
     borderWidth: 1,
     borderColor: 'rgba(198,40,40,0.18)',
     shadowColor: '#071B34',
-    shadowOffset: { width: 0, height: 16 },
-    shadowOpacity: 0.08,
-    shadowRadius: 34,
-    elevation: 4,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    elevation: 5,
   },
   criticalRow: {
     minHeight: scaleHeight(68),
@@ -1404,60 +1777,81 @@ const st = StyleSheet.create({
     flexGrow: 1,
     flexBasis: '46%',
     minWidth: scaleWidth(140),
-    minHeight: scaleHeight(110),
-    borderRadius: scaleWidth(24),
+    borderRadius: scaleWidth(20),
     padding: scaleWidth(14),
-    backgroundColor: 'rgba(255,255,255,0.86)',
+    backgroundColor: '#ffffff',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.78)',
+    borderColor: '#e8ecf0',
+    justifyContent: 'space-between',
     shadowColor: '#071B34',
-    shadowOffset: { width: 0, height: 16 },
-    shadowOpacity: 0.08,
-    shadowRadius: 34,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
     elevation: 4,
   },
-  miniCountIcon: {
-    width: scaleWidth(36),
-    height: scaleWidth(36),
-    borderRadius: scaleWidth(14),
-    alignItems: 'center',
-    justifyContent: 'center',
+  miniCountTitle: {
+    color: '#687382',
+    fontSize: scaleFont(12),
+    fontWeight: '800',
+    marginBottom: scaleHeight(4),
   },
   miniCountValue: {
-    marginTop: scaleHeight(12),
-    color: '#071B34',
-    fontSize: scaleFont(24),
-    fontWeight: '800',
+    fontSize: scaleFont(26),
+    fontWeight: '900',
+    marginVertical: scaleHeight(4),
   },
-  miniCountLabel: {
-    marginTop: scaleHeight(5),
-    color: '#687382',
-    fontSize: scaleFont(11),
-    lineHeight: scaleHeight(15),
+  miniCountViewBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    marginTop: scaleHeight(6),
+    paddingVertical: scaleHeight(2),
+    gap: scaleWidth(2),
+  },
+  miniCountViewText: {
+    color: '#2F5F8F',
+    fontSize: scaleFont(12),
     fontWeight: '800',
   },
   cptCard: {
     borderRadius: scaleWidth(24),
     padding: scaleWidth(16),
-    backgroundColor: 'rgba(255,255,255,0.86)',
+    backgroundColor: '#ffffff',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.78)',
+    borderColor: '#e8ecf0',
     shadowColor: '#071B34',
-    shadowOffset: { width: 0, height: 16 },
-    shadowOpacity: 0.08,
-    shadowRadius: 34,
-    elevation: 4,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    elevation: 5,
   },
   cptHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    gap: scaleWidth(12),
-    marginBottom: scaleHeight(12),
+    alignItems: 'center',
+    marginBottom: scaleHeight(14),
   },
   cptHeaderTitle: {
     color: '#071B34',
     fontSize: scaleFont(14),
     fontWeight: '800',
+    flex: 1,
+    marginRight: scaleWidth(8),
+  },
+  cptHeaderLegend: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scaleWidth(4),
+  },
+  cptLegendDot: {
+    width: scaleWidth(8),
+    height: scaleWidth(8),
+    borderRadius: scaleWidth(4),
+    backgroundColor: '#2e7d32',
+  },
+  cptLegendLabel: {
+    fontSize: scaleFont(11),
+    fontWeight: '700',
   },
   cptHeaderMeta: {
     color: '#687382',
@@ -1465,14 +1859,35 @@ const st = StyleSheet.create({
     fontWeight: '800',
   },
   cptRow: {
-    marginBottom: scaleHeight(12),
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: scaleHeight(14),
+    gap: scaleWidth(10),
   },
   cptMeta: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'baseline',
-    gap: scaleWidth(10),
-    marginBottom: scaleHeight(6),
+    flex: 1,
+    flexDirection: 'column',
+    gap: scaleHeight(4),
+    minWidth: 0,
+  },
+  cptCodePill: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: scaleWidth(8),
+    paddingVertical: scaleHeight(3),
+    borderRadius: scaleWidth(6),
+    marginBottom: scaleHeight(2),
+  },
+  cptCodePillText: {
+    color: '#ffffff',
+    fontSize: scaleFont(11),
+    fontWeight: '800',
+    letterSpacing: 0.3,
+  },
+  cptDesc: {
+    color: '#687382',
+    fontSize: scaleFont(11),
+    fontWeight: '600',
+    lineHeight: scaleFont(15),
   },
   cptCode: {
     color: '#071B34',
@@ -1484,28 +1899,55 @@ const st = StyleSheet.create({
     fontSize: scaleFont(11),
     fontWeight: '800',
   },
+  cptRight: {
+    flexDirection: 'column',
+    alignItems: 'flex-end',
+    gap: scaleHeight(6),
+    minWidth: scaleWidth(80),
+  },
+  cptCounts: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  cptCountCol: {
+    alignItems: 'center',
+    minWidth: scaleWidth(34),
+  },
+  cptCountNum: {
+    fontSize: scaleFont(15),
+    fontWeight: '900',
+    lineHeight: scaleFont(18),
+  },
+  cptCountLabel: {
+    color: '#9ba5b4',
+    fontSize: scaleFont(9),
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+  },
   cptTrack: {
-    height: scaleHeight(10),
+    height: scaleHeight(8),
     borderRadius: 999,
     overflow: 'hidden',
     backgroundColor: 'rgba(7,27,52,0.08)',
+    width: '100%',
   },
   cptFill: {
     height: '100%',
     borderRadius: 999,
   },
   trendCard: {
-    backgroundColor: 'rgba(255,255,255,0.88)',
+    backgroundColor: '#ffffff',
     borderRadius: scaleWidth(24),
     padding: scaleWidth(16),
     marginBottom: scaleHeight(2),
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.78)',
+    borderColor: '#e8ecf0',
     shadowColor: '#071B34',
-    shadowOffset: { width: 0, height: 16 },
-    shadowOpacity: 0.08,
-    shadowRadius: 34,
-    elevation: 4,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    elevation: 5,
   },
   legendRow: {
     flexDirection: 'row',

@@ -31,8 +31,8 @@ const scaleWidth = (size) => Math.min((width / guidelineBaseWidth) * size, size 
 const scaleHeight = (size) => Math.min((height / guidelineBaseHeight) * size, size * 1.25);
 const scaleFont = (size) => Math.min((width / guidelineBaseWidth) * size, size * 1.2);
 
-const PATIENT_SCREEN_BG_COLORS = ['#fffdfb', '#edf1f6', '#eef1f5'];
-const DEFAULT_SCREEN_BG_COLORS = ['#fffdfb', '#f7ece7', '#eef1f5'];
+const PATIENT_SCREEN_BG_COLORS = ['#ffffff', '#ffffff', '#ffffff'];
+const DEFAULT_SCREEN_BG_COLORS = ['#ffffff', '#ffffff', '#ffffff'];
 const TEXT_DARK = '#071B34';
 const TEXT_MUTED = '#687382';
 const WHITE = '#FFFFFF';
@@ -59,7 +59,14 @@ const formatDateForDisplay = (date) => date.toLocaleDateString('en-US', {
 
 
 /* ──────────────────────  DROPDOWN OPTIONS  ────────────────────── */
-const periodOptions = ['All', 'Last 7 days', 'Last 2 weeks', 'Last month', 'Last 3 months', 'Last 6 months', 'Last year', 'Custom range'];
+const periodOptions = [
+  'Last 30 days',
+  'Last 7 days',
+  'Last 14 days',
+  'Last 60 days',
+  'Last 90 days',
+  'All',
+];
 const sortOptions = {
   bloodPressure: ['Date (newest first)', 'Date (oldest first)', 'Systolic (high-low)', 'Diastolic (high-low)', 'Pulse (high-low)'],
   bloodGlucose: ['Date (newest first)', 'Date (oldest first)', 'Glucose (high-low)', 'Glucose (low-high)'],
@@ -101,6 +108,111 @@ const dropdownStyles = StyleSheet.create({
   },
 });
 
+const extractWallClockDateYmd = (value) => {
+  if (value == null || value === '') return '';
+  const match = String(value).trim().match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return match ? `${match[1]}-${match[2]}-${match[3]}` : '';
+};
+
+const extractWallClockTimeHms = (value) => {
+  if (value == null || value === '') return '';
+  const raw = String(value).trim();
+  if (/AM|PM/i.test(raw)) return raw;
+
+  const isoMatch = raw.match(/T(\d{2}):(\d{2})(?::(\d{2}))?/);
+  if (isoMatch) {
+    return `${isoMatch[1]}:${isoMatch[2]}:${isoMatch[3] || '00'}`;
+  }
+
+  const spaceTime = raw.includes(' ')
+    ? raw.split(/\s+/).slice(1).join(' ')
+    : raw;
+  const timeMatch = spaceTime.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+  if (!timeMatch) return '';
+  return `${String(timeMatch[1]).padStart(2, '0')}:${timeMatch[2]}:${timeMatch[3] || '00'}`;
+};
+
+const getMeasurementWallClockDateYmd = (measurement) =>
+  extractWallClockDateYmd(measurement?.measurement_date) ||
+  extractWallClockDateYmd(measurement?.measure_date_time) ||
+  extractWallClockDateYmd(measurement?.measure_new_date_time) ||
+  extractWallClockDateYmd(measurement?.created_at) ||
+  '';
+
+const getMeasurementWallClockTimeHms = (measurement) =>
+  extractWallClockTimeHms(measurement?.measurement_time) ||
+  extractWallClockTimeHms(measurement?.measure_date_time) ||
+  extractWallClockTimeHms(measurement?.measure_new_date_time) ||
+  extractWallClockTimeHms(measurement?.created_at) ||
+  '';
+
+const formatMeasurementTableDate = (dateString) => {
+  const ymd = extractWallClockDateYmd(dateString);
+  if (!ymd) return dateString || '';
+  const [year, month, day] = ymd.split('-');
+  return `${month}-${day}-${year}`;
+};
+
+const formatMeasurementTableTime = (timeString) => {
+  if (timeString == null || timeString === '') return '';
+  const raw = String(timeString).trim();
+  if (/AM|PM/i.test(raw)) return raw;
+
+  const hms = extractWallClockTimeHms(raw);
+  if (!hms) return '';
+  const [hStr, mStr] = hms.split(':');
+  const h = Number(hStr);
+  if (!Number.isFinite(h)) return '';
+  const period = h >= 12 ? 'PM' : 'AM';
+  const displayHours = h % 12 || 12;
+  return `${displayHours}:${mStr} ${period}`;
+};
+
+const getVitalColor = (val, min, max) => {
+  if (val == null || val === '' || val === '--' || val === 'N/A') return '#071B34';
+  const num = Number(val);
+  if (Number.isNaN(num) || num <= 0) return '#071B34';
+  if (num > max) return '#d32f2f'; // High / Red
+  if (num < min) return '#f57c00'; // Low / Orange
+  return '#15803d'; // Normal / Green
+};
+
+const PERIOD_TIME_WINDOWS = {
+  bloodPressure: {
+    'Wake-up': '06:01 AM – 08:00 AM',
+    Morning: '08:01 AM – 11:00 AM',
+    Noon: '11:01 AM – 02:00 PM',
+    Afternoon: '02:01 PM – 06:00 PM',
+    Evening: '06:01 PM – 06:00 AM',
+  },
+  bloodGlucose: {
+    'Wake up': '06:00 AM – 07:00 AM',
+    'Wake-up Time': '06:00 AM – 07:00 AM',
+    'Before-Breakfast': '07:01 AM – 09:00 AM',
+    'After-Breakfast': '09:01 AM – 11:00 AM',
+    'Before-Lunch': '11:01 AM – 01:00 PM',
+    'After-Lunch': '01:01 PM – 05:00 PM',
+    'Before-Dinner': '05:01 PM – 07:00 PM',
+    'After-Dinner': '07:01 PM – 08:29 PM',
+    Bedtime: '08:30 PM – 09:59 PM',
+    Midnight: '10:00 PM – 05:59 AM',
+  },
+  weight: {
+    Morning: '06:00 AM – 11:59 AM',
+    Afternoon: '12:00 PM – 05:59 PM',
+    Evening: '06:00 PM – 05:59 AM',
+  },
+};
+
+const getPeriodTimeWindow = (periodName, type) => {
+  if (!periodName || periodName === 'All') return '';
+  const typeMap = PERIOD_TIME_WINDOWS[type] || {};
+  if (typeMap[periodName]) return typeMap[periodName];
+  const lower = String(periodName).toLowerCase();
+  const matchKey = Object.keys(typeMap).find((k) => k.toLowerCase() === lower);
+  return matchKey ? typeMap[matchKey] : '';
+};
+
 const CustomDropdown = ({ visible, options, onSelect, onClose }) => {
   if (!visible) return null;
   return (
@@ -141,7 +253,8 @@ const DataList = ({ navigation, route }) => {
     return Math.floor(width - contentPadding * 2 - cardPadding * 2);
   }, []);
 
-  const [selectedPeriod, setSelectedPeriod] = useState('All'); // Default to 'All' to fetch all records
+  const [selectedPeriod, setSelectedPeriod] = useState('7 days'); // Default to '7 days'
+  const [selectedSlotFilter, setSelectedSlotFilter] = useState('All');
   const [sortBy, setSortBy] = useState('Date (newest first)');
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
@@ -158,6 +271,114 @@ const DataList = ({ navigation, route }) => {
   const [showDatePicker, setShowDatePicker] = useState('from'); // 'from' or 'to'
   const [showChartModal, setShowChartModal] = useState(false);
   const [activeTab, setActiveTab] = useState('Data List');
+
+  const getPeriodListForType = (type) => {
+    if (type === 'bloodPressure') {
+      return ['Wake-up', 'Morning', 'Noon', 'Afternoon', 'Evening'];
+    }
+    if (type === 'bloodGlucose') {
+      return [
+        'Wake up',
+        'Before-Breakfast',
+        'After-Breakfast',
+        'Before-Lunch',
+        'After-Lunch',
+        'Before-Dinner',
+        'After-Dinner',
+        'Bedtime',
+        'Midnight',
+      ];
+    }
+    if (type === 'weight') {
+      return ['Morning', 'Afternoon', 'Evening'];
+    }
+    return ['Morning', 'Afternoon', 'Evening'];
+  };
+
+  const getPeriodOptionsForType = (type) => ['All', ...getPeriodListForType(type)];
+
+  const convertTimeToMinutes = (timeStr) => {
+    if (!timeStr) return null;
+    const str = String(timeStr).trim();
+    if (str.includes('AM') || str.includes('PM')) {
+      const match = str.match(/(\d{1,2}):(\d{2})\s*(AM|PM)?/i);
+      if (!match) return null;
+      let hh = parseInt(match[1], 10);
+      const mm = parseInt(match[2], 10);
+      const meridiem = match[3] ? match[3].toUpperCase() : null;
+      if (meridiem === 'PM' && hh < 12) hh += 12;
+      if (meridiem === 'AM' && hh === 12) hh = 0;
+      return hh * 60 + mm;
+    }
+    const match2 = str.match(/(\d{1,2}):(\d{2})/);
+    if (!match2) return null;
+    const h = parseInt(match2[1], 10);
+    const m = parseInt(match2[2], 10);
+    return h * 60 + m;
+  };
+
+  const getPeriodNameForMeasurement = (item, type) => {
+    const rawPeriod = item.period_name || item.period || item.measure_note || item.note || '';
+    if (rawPeriod) {
+      const pLower = String(rawPeriod).toLowerCase().replace(/[^a-z0-9]/g, '');
+      if (type === 'bloodPressure') {
+        if (pLower.includes('wakeup') || pLower.includes('wake')) return 'Wake-up';
+        if (pLower.includes('aftern')) return 'Afternoon';
+        if (pLower.includes('morn')) return 'Morning';
+        if (pLower.includes('noon')) return 'Noon';
+        if (pLower.includes('even')) return 'Evening';
+      } else if (type === 'bloodGlucose') {
+        if (pLower.includes('wakeup') || pLower.includes('wake')) return 'Wake up';
+        if (pLower.includes('before') && pLower.includes('break')) return 'Before-Breakfast';
+        if (pLower.includes('after') && pLower.includes('break')) return 'After-Breakfast';
+        if (pLower.includes('before') && pLower.includes('lunch')) return 'Before-Lunch';
+        if (pLower.includes('after') && pLower.includes('lunch')) return 'After-Lunch';
+        if (pLower.includes('before') && pLower.includes('dinn')) return 'Before-Dinner';
+        if (pLower.includes('after') && pLower.includes('dinn')) return 'After-Dinner';
+        if (pLower.includes('bed')) return 'Bedtime';
+        if (pLower.includes('midn') || pLower.includes('night')) return 'Midnight';
+      } else if (type === 'weight') {
+        if (pLower.includes('aftern')) return 'Afternoon';
+        if (pLower.includes('morn')) return 'Morning';
+        if (pLower.includes('noon')) return 'Afternoon';
+        if (pLower.includes('even') || pLower.includes('night')) return 'Evening';
+      }
+    }
+
+    // Exact Web Time Windows (matching web measurementPeriodUtils.js)
+    const timeStr = item.timeHms || getMeasurementWallClockTimeHms(item) || item.time || item.created_at || '';
+    const current = convertTimeToMinutes(timeStr);
+
+    if (current != null) {
+      if (type === 'bloodPressure') {
+        if (current >= 361 && current <= 480) return 'Wake-up'; // 06:01 AM - 08:00 AM
+        if (current >= 481 && current <= 660) return 'Morning'; // 08:01 AM - 11:00 AM
+        if (current >= 661 && current <= 840) return 'Noon';    // 11:01 AM - 02:00 PM
+        if (current >= 841 && current <= 1080) return 'Afternoon'; // 02:01 PM - 06:00 PM
+        return 'Evening'; // 06:01 PM - 06:00 AM (Overnight)
+      }
+
+      if (type === 'bloodGlucose') {
+        if (current >= 360 && current <= 420) return 'Wake up'; // 06:00 AM - 07:00 AM
+        if (current >= 421 && current <= 540) return 'Before-Breakfast'; // 07:01 AM - 09:00 AM
+        if (current >= 541 && current <= 660) return 'After-Breakfast';  // 09:01 AM - 11:00 AM
+        if (current >= 661 && current <= 780) return 'Before-Lunch';     // 11:01 AM - 01:00 PM
+        if (current >= 781 && current <= 1020) return 'After-Lunch';    // 01:01 PM - 05:00 PM
+        if (current >= 1021 && current <= 1140) return 'Before-Dinner'; // 05:01 PM - 07:00 PM
+        if (current >= 1141 && current <= 1229) return 'After-Dinner';  // 07:01 PM - 08:29 PM
+        if (current >= 1230 && current <= 1319) return 'Bedtime';       // 08:30 PM - 09:59 PM
+        return 'Midnight'; // 10:00 PM - 05:59 AM (Overnight)
+      }
+
+      if (type === 'weight') {
+        if (current >= 360 && current <= 719) return 'Morning';   // 06:00 AM - 11:59 AM
+        if (current >= 720 && current <= 1079) return 'Afternoon'; // 12:00 PM - 05:59 PM
+        return 'Evening'; // 06:00 PM - 05:59 AM (Overnight)
+      }
+    }
+
+    return type === 'bloodGlucose' ? 'Wake up' : 'Morning';
+  };
 
 
   /* ───── DATE FILTER LOGIC ───── */
@@ -183,27 +404,12 @@ const DataList = ({ navigation, route }) => {
       return { start, end };
     }
 
-    if (selectedPeriod === 'All') {
-      // For "All", set a very old date to get all records
+    if (selectedPeriod === 'All' || String(selectedPeriod).toUpperCase() === 'ALL') {
       start = new Date('2000-01-01');
       end = new Date('2099-12-31');
-    } else if (selectedPeriod === 'Last 7 days') {
-      start.setDate(now.getDate() - 7);
-      start.setHours(0, 0, 0, 0);
-    } else if (selectedPeriod === 'Last 2 weeks') {
-      start.setDate(now.getDate() - 14);
-      start.setHours(0, 0, 0, 0);
-    } else if (selectedPeriod === 'Last month') {
-      start.setMonth(now.getMonth() - 1);
-      start.setHours(0, 0, 0, 0);
-    } else if (selectedPeriod === 'Last 3 months') {
-      start.setMonth(now.getMonth() - 3);
-      start.setHours(0, 0, 0, 0);
-    } else if (selectedPeriod === 'Last 6 months') {
-      start.setMonth(now.getMonth() - 6);
-      start.setHours(0, 0, 0, 0);
-    } else if (selectedPeriod === 'Last year') {
-      start.setFullYear(now.getFullYear() - 1);
+    } else {
+      const days = parseInt(String(selectedPeriod).replace(/\D/g, ''), 10) || 30;
+      start.setDate(now.getDate() - days);
       start.setHours(0, 0, 0, 0);
     }
 
@@ -352,19 +558,27 @@ const DataList = ({ navigation, route }) => {
         const measurements = extractMeasurements(result);
 
         measurements.forEach((bp) => {
-          const date = new Date(bp.measure_new_date_time || bp.measure_date_time || bp.created_at);
-          // Only filter by date if date range is specified
-          if (!fromDateStr || !toDateStr || (date >= start && date <= end)) {
-            rawList.push({
-              id: bp.id || bp.measure_new_date_time || Date.now(),
-              timestamp: date.getTime(),
-              date: formatDate(bp.measure_new_date_time || bp.measure_date_time || bp.created_at),
-              time: formatTime(bp.measure_new_date_time || bp.measure_date_time || bp.created_at),
-              systolic: parseFloat(bp.systolic_pressure || bp.systolic || 0),
-              diastolic: parseFloat(bp.diastolic_pressure || bp.diastolic || 0),
-              pulse: parseFloat(bp.pulse || bp.heart_rate || 0),
-            });
-          }
+          const ymd = getMeasurementWallClockDateYmd(bp);
+          const hms = getMeasurementWallClockTimeHms(bp);
+          const dateLabel = formatDate(ymd || bp.measure_date_time || bp.created_at);
+          const timeLabel = formatTime(hms || bp.measure_date_time || bp.created_at);
+
+          const rawDateStr = bp.measure_new_date_time || bp.measure_date_time || bp.created_at;
+          const parsedDate = new Date(String(rawDateStr).replace(' ', 'T'));
+          const ts = !isNaN(parsedDate.getTime()) ? parsedDate.getTime() : Date.now();
+
+          rawList.push({
+            id: bp.id || bp.measure_new_date_time || Date.now(),
+            timestamp: ts,
+            date: dateLabel,
+            time: timeLabel,
+            timeHms: hms,
+            period_name: bp.period_name || bp.period || bp.measure_note || bp.note || '',
+            period: bp.period || bp.period_name || '',
+            systolic: parseFloat(bp.systolic_pressure || bp.systolic || 0),
+            diastolic: parseFloat(bp.diastolic_pressure || bp.diastolic || 0),
+            pulse: parseFloat(bp.pulse || bp.heart_rate || 0),
+          });
         });
       } else if (dataType === 'bloodGlucose') {
         result = await apiService.getBloodGlucose(practiceId, patientId, {
@@ -375,17 +589,25 @@ const DataList = ({ navigation, route }) => {
         const measurements = extractMeasurements(result);
 
         measurements.forEach((bg) => {
-          const date = new Date(bg.measure_new_date_time || bg.measure_date_time || bg.created_at);
-          // Only filter by date if date range is specified
-          if (!fromDateStr || !toDateStr || (date >= start && date <= end)) {
-            rawList.push({
-              id: bg.id || bg.measure_new_date_time || Date.now(),
-              timestamp: date.getTime(),
-              date: formatDate(bg.measure_new_date_time || bg.measure_date_time || bg.created_at),
-              time: formatTime(bg.measure_new_date_time || bg.measure_date_time || bg.created_at),
-              glucose: parseFloat(bg.blood_glucose_value_1 || bg.blood_glucose_value || bg.value || 0),
-            });
-          }
+          const ymd = getMeasurementWallClockDateYmd(bg);
+          const hms = getMeasurementWallClockTimeHms(bg);
+          const dateLabel = formatDate(ymd || bg.measure_date_time || bg.created_at);
+          const timeLabel = formatTime(hms || bg.measure_date_time || bg.created_at);
+
+          const rawDateStr = bg.measure_new_date_time || bg.measure_date_time || bg.created_at;
+          const parsedDate = new Date(String(rawDateStr).replace(' ', 'T'));
+          const ts = !isNaN(parsedDate.getTime()) ? parsedDate.getTime() : Date.now();
+
+          rawList.push({
+            id: bg.id || bg.measure_new_date_time || Date.now(),
+            timestamp: ts,
+            date: dateLabel,
+            time: timeLabel,
+            timeHms: hms,
+            period_name: bg.period_name || bg.period || bg.measure_note || bg.note || '',
+            period: bg.period || bg.period_name || '',
+            glucose: parseFloat(bg.blood_glucose_value_1 || bg.blood_glucose_value || bg.value || 0),
+          });
         });
       } else if (dataType === 'weight') {
         result = await apiService.getWeight(practiceId, patientId, {
@@ -396,23 +618,33 @@ const DataList = ({ navigation, route }) => {
         const measurements = extractMeasurements(result);
 
         measurements.forEach((w) => {
-          const date = new Date(w.measure_new_date_time || w.measure_date_time || w.created_at);
-          // Only filter by date if date range is specified
-          if (!fromDateStr || !toDateStr || (date >= start && date <= end)) {
-            let value = parseFloat(w.weight || w.weight_value || w.value || 0);
-            // Convert kg to lbs for display (weight is stored in kg in database)
-            if (value > 0) {
-              value = parseFloat((value * 2.20462).toFixed(1));
-            }
-            rawList.push({
-              id: w.id || w.measure_new_date_time || Date.now(),
-              timestamp: date.getTime(),
-              date: formatDate(w.measure_new_date_time || w.measure_date_time || w.created_at),
-              time: formatTime(w.measure_new_date_time || w.measure_date_time || w.created_at),
-              weight: value,
-              unit: 'lb',
-            });
+          const ymd = getMeasurementWallClockDateYmd(w);
+          const hms = getMeasurementWallClockTimeHms(w);
+          const dateLabel = formatDate(ymd || w.measure_date_time || w.created_at);
+          const timeLabel = formatTime(hms || w.measure_date_time || w.created_at);
+
+          const rawDateStr = w.measure_new_date_time || w.measure_date_time || w.created_at;
+          const parsedDate = new Date(String(rawDateStr).replace(' ', 'T'));
+          const ts = !isNaN(parsedDate.getTime()) ? parsedDate.getTime() : Date.now();
+          let rawVal = parseFloat(w.weight || w.weight_value || w.value || 0);
+          let weightInLbs = 0;
+          if (rawVal > 0) {
+            // Web uses 2.2 multiplier for kg to lb
+            const isKg = (w.unit && String(w.unit).toLowerCase() === 'kg') || rawVal < 150;
+            weightInLbs = isKg ? parseFloat((rawVal * 2.2).toFixed(1)) : parseFloat(rawVal.toFixed(1));
           }
+
+          rawList.push({
+            id: w.id || w.measure_new_date_time || Date.now(),
+            timestamp: ts,
+            date: dateLabel,
+            time: timeLabel,
+            timeHms: hms,
+            period_name: w.period_name || w.period || w.measure_note || w.note || '',
+            period: w.period || w.period_name || '',
+            weight: weightInLbs,
+            unit: 'lb',
+          });
         });
       }
 
@@ -430,18 +662,27 @@ const DataList = ({ navigation, route }) => {
   }, [fetchPatientData]);
 
   /* ───── HELPERS ───── */
-  const formatDate = (iso) => {
-    if (!iso) return '--';
-    const d = new Date(iso);
-    return `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear().toString().slice(2)}`;
+  const formatDate = (val) => {
+    if (!val) return '--';
+    const ymd = typeof val === 'object' ? getMeasurementWallClockDateYmd(val) : (extractWallClockDateYmd(val) || (val.includes('-') ? val : ''));
+    if (ymd) {
+      const [year, month, day] = ymd.split('-');
+      return `${parseInt(month, 10)}/${parseInt(day, 10)}/${year.slice(2)}`;
+    }
+    const d = new Date(val);
+    if (!isNaN(d.getTime())) {
+      return `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear().toString().slice(2)}`;
+    }
+    return String(val);
   };
 
-  const formatTime = (iso) => {
-    if (!iso) return '--';
-    const d = new Date(iso);
-    const h = d.getHours() % 12 || 12;
-    const m = d.getMinutes().toString().padStart(2, '0');
-    return `${h}:${m} ${d.getHours() >= 12 ? 'PM' : 'AM'}`;
+  const formatTime = (val) => {
+    if (!val) return '--';
+    const hms = typeof val === 'object' ? getMeasurementWallClockTimeHms(val) : (extractWallClockTimeHms(val) || val);
+    if (hms) {
+      return formatMeasurementTableTime(hms);
+    }
+    return String(val);
   };
 
   /* ───── ADD Chnages ───── */
@@ -587,54 +828,164 @@ const DataList = ({ navigation, route }) => {
 
   const typeMeta = getTypeMeta();
 
+  const displayMeasurements = useMemo(() => {
+    let list = [...rawMeasurements];
+    if (sortBy === 'Date (newest first)') {
+      list.sort((a, b) => b.timestamp - a.timestamp);
+    } else if (sortBy === 'Date (oldest first)') {
+      list.sort((a, b) => a.timestamp - b.timestamp);
+    }
+
+    if (selectedSlotFilter && selectedSlotFilter !== 'All') {
+      const normSelected = selectedSlotFilter.toLowerCase().replace(/[^a-z0-9]/g, '');
+      list = list.filter((item) => {
+        const p = getPeriodNameForMeasurement(item, dataType);
+        const normP = p.toLowerCase().replace(/[^a-z0-9]/g, '');
+        return normP === normSelected;
+      });
+    }
+
+    return list;
+  }, [rawMeasurements, sortBy, selectedSlotFilter, dataType]);
+
+  const getReadingStatusMeta = (row, type) => {
+    if (type === 'bloodPressure') {
+      const sys = Number(row.systolic);
+      const dia = Number(row.diastolic);
+      if ((!Number.isNaN(sys) && sys > 140) || (!Number.isNaN(dia) && dia > 90)) {
+        return { label: 'High', bg: '#FDE8E8', color: '#d32f2f' };
+      }
+      if ((!Number.isNaN(sys) && sys < 100) || (!Number.isNaN(dia) && dia < 60)) {
+        return { label: 'Low', bg: '#FEF3C7', color: '#D97706' };
+      }
+      return { label: 'Normal', bg: '#DDF8DD', color: '#15803d' };
+    }
+    if (type === 'bloodGlucose') {
+      const bgNum = Number(row.glucose);
+      if (!Number.isNaN(bgNum) && bgNum > 110) {
+        return { label: 'High', bg: '#FDE8E8', color: '#d32f2f' };
+      }
+      if (!Number.isNaN(bgNum) && bgNum < 60) {
+        return { label: 'Low', bg: '#FEF3C7', color: '#D97706' };
+      }
+      return { label: 'Normal', bg: '#DDF8DD', color: '#15803d' };
+    }
+    if (type === 'weight') {
+      const wtNum = Number(row.weight);
+      const wtLbs = row.unit === 'kg' && !Number.isNaN(wtNum) ? wtNum * 2.20462 : wtNum;
+      if (!Number.isNaN(wtLbs) && wtLbs > 220) {
+        return { label: 'High', bg: '#FDE8E8', color: '#d32f2f' };
+      }
+      if (!Number.isNaN(wtLbs) && wtLbs < 66) {
+        return { label: 'Low', bg: '#FEF3C7', color: '#D97706' };
+      }
+      return { label: 'Normal', bg: '#DDF8DD', color: '#15803d' };
+    }
+    return { label: 'Normal', bg: '#DDF8DD', color: '#15803d' };
+  };
+
+  const matrixData = useMemo(() => {
+    const periodList = getPeriodListForType(dataType);
+    const dateMap = {};
+
+    rawMeasurements.forEach((m) => {
+      const dateStr = m.date || 'Unknown';
+      const period = getPeriodNameForMeasurement(m, dataType);
+      if (!dateMap[dateStr]) {
+        dateMap[dateStr] = {};
+        periodList.forEach((p) => { dateMap[dateStr][p] = []; });
+      }
+      if (!dateMap[dateStr][period]) {
+        dateMap[dateStr][period] = [];
+      }
+      dateMap[dateStr][period].push(m);
+    });
+
+    const dates = Object.keys(dateMap);
+    if (sortBy === 'Date (newest first)') {
+      dates.sort((a, b) => {
+        const tA = dateMap[a][periodList[0]]?.[0]?.timestamp || 0;
+        const tB = dateMap[b][periodList[0]]?.[0]?.timestamp || 0;
+        return tB - tA;
+      });
+    } else {
+      dates.sort((a, b) => {
+        const tA = dateMap[a][periodList[0]]?.[0]?.timestamp || 0;
+        const tB = dateMap[b][periodList[0]]?.[0]?.timestamp || 0;
+        return tA - tB;
+      });
+    }
+
+    return { dates, dateMap, periodList };
+  }, [rawMeasurements, dataType, sortBy]);
+
   /* ───── CHART DATA ───── */
-  const getChartDataForDisplay = (limitToFive = false) => {
+  const getChartDataForDisplay = () => {
     if (measurements.length === 0) return { labels: [], datasets: [] };
 
-    const dataToUse = limitToFive ? measurements.slice(-5) : measurements;
-    const period = getEffectivePeriod();
-    let targetCount = limitToFive ? 5 : 10;
+    // Trend charts must always run chronologically (oldest -> newest left-to-right)
+    const chronologicalData = [...measurements].sort((a, b) => a.timestamp - b.timestamp);
 
-    const step = Math.max(1, Math.ceil(dataToUse.length / targetCount));
+    // For smooth visual display without horizontal scrolling:
+    // If readings count is small, show all. If large (>12), sample up to ~12 points across the dataset.
+    let dataToUse = chronologicalData;
+    if (chronologicalData.length > 12) {
+      const step = (chronologicalData.length - 1) / 11;
+      dataToUse = [];
+      for (let i = 0; i < 12; i++) {
+        const idx = Math.min(Math.round(i * step), chronologicalData.length - 1);
+        dataToUse.push(chronologicalData[idx]);
+      }
+    }
+
+    const period = getEffectivePeriod();
+    const targetCount = 6;
+    const labelStep = Math.max(1, Math.ceil(dataToUse.length / targetCount));
 
     const labels = dataToUse.map((m, index) => {
-      // Only show labels at specific intervals to avoid congestion
-      if (index % step === 0 || index === dataToUse.length - 1) {
+      if (index % labelStep === 0 || index === dataToUse.length - 1) {
         return getFormattedLabel(m.date, period);
       }
       return "";
     });
+
+    const systolicColor = '#d32f2f'; // Web App Systolic Red
+    const diastolicColor = '#1976d2'; // Web App Diastolic Blue
 
     return {
       labels: labels,
       datasets:
         dataType === 'bloodPressure'
           ? [
-            { data: dataToUse.map(m => m.systolic), strokeWidth: 3, color: () => themePrimary },
-            { data: dataToUse.map(m => m.diastolic), strokeWidth: 3, color: () => typeMeta.chartSecondary },
+            { data: dataToUse.map(m => Number(m.systolic) || 0), strokeWidth: 2, color: () => systolicColor },
+            { data: dataToUse.map(m => Number(m.diastolic) || 0), strokeWidth: 2, color: () => diastolicColor },
           ]
           : [
             {
-              data: dataToUse.map(m => dataType === 'bloodGlucose' ? m.glucose : m.weight),
+              data: dataToUse.map(m => Number(dataType === 'bloodGlucose' ? m.glucose : m.weight) || 0),
               color: () => themePrimary,
-              strokeWidth: 3,
+              strokeWidth: 2,
             },
           ],
     };
   };
 
-  const chartData = getChartDataForDisplay(true); // Inline chart limited to 5
-  const fullChartData = getChartDataForDisplay(false); // Full chart for modal
+  const chartData = getChartDataForDisplay();
 
   const chartConfig = {
     backgroundGradientFrom: WHITE,
     backgroundGradientTo: WHITE,
+    fillShadowGradientFromOpacity: 0,
+    fillShadowGradientToOpacity: 0,
+    fillShadowGradientOpacity: 0,
     decimalPlaces: 0,
-    color: () => themePrimary,
+    color: (opacity = 1) => `rgba(0, 0, 0, ${opacity})`,
     labelColor: () => TEXT_MUTED,
-    propsForDots: { r: '5', strokeWidth: '2', stroke: themePrimary },
+    propsForDots: { r: '4', strokeWidth: '1.5', stroke: WHITE },
+    propsForBackgroundLines: { stroke: '#E5E7EB', strokeWidth: 1 },
     propsForLabels: { fontSize: 10 },
-    paddingRight: scaleWidth(12),
+    paddingLeft: scaleWidth(0),
+    paddingRight: scaleWidth(16),
   };
 
   /* ───── CALENDAR HANDLER ───── */
@@ -798,100 +1149,130 @@ const DataList = ({ navigation, route }) => {
             {activeTab === 'Graph List' && measurements.length > 0 && (
               <View style={styles.card}>
                 <Text style={styles.cardTitle}>Trend</Text>
-                {measurements.length <= 5 ? (
-                  <>
-                    <View style={styles.chartContainer}>
-                      <LineChart
-                        data={chartData}
-                        width={trendChartWidth}
-                        height={180}
-                        chartConfig={chartConfig}
-                        bezier
-                        style={styles.chart}
-                        withHorizontalLines={true}
-                        withVerticalLines={false}
-                        fromZero={false}
-                      />
+                <View style={styles.chartContainer}>
+                  <LineChart
+                    data={chartData}
+                    width={trendChartWidth}
+                    height={220}
+                    chartConfig={chartConfig}
+                    bezier
+                    style={styles.chart}
+                    withHorizontalLines={true}
+                    withVerticalLines={false}
+                    fromZero={false}
+                  />
+                </View>
+                {dataType === 'bloodPressure' && (
+                  <View style={styles.legend}>
+                    <View style={styles.legendItem}>
+                      <View style={[styles.legendDot, { backgroundColor: '#d32f2f' }]} />
+                      <Text style={styles.legendText}>Systolic</Text>
                     </View>
-                    {dataType === 'bloodPressure' && (
-                      <View style={styles.legend}>
-                        <View style={styles.legendItem}>
-                          <View style={[styles.legendDot, { backgroundColor: themePrimary }]} />
-                          <Text style={styles.legendText}>Systolic</Text>
-                        </View>
-                        <View style={styles.legendItem}>
-                          <View style={[styles.legendDot, { backgroundColor: typeMeta.chartSecondary }]} />
-                          <Text style={styles.legendText}>Diastolic</Text>
-                        </View>
-                      </View>
-                    )}
-                  </>
-                ) : (
-                  <TouchableOpacity
-                    style={styles.viewChartButton}
-                    onPress={handleOpenChartModal}
-                  >
-                    <Text style={styles.viewChartButtonText}>📊 View Full Chart ({measurements.length} readings)</Text>
-                  </TouchableOpacity>
+                    <View style={styles.legendItem}>
+                      <View style={[styles.legendDot, { backgroundColor: '#1976d2' }]} />
+                      <Text style={styles.legendText}>Diastolic</Text>
+                    </View>
+                  </View>
                 )}
               </View>
             )}
 
-            {/* Table */}
+            {/* Vertical Fixed-Width Table */}
             {activeTab === 'Data List' && (
               <View style={styles.card}>
                 <Text style={styles.cardTitle}>{getTitle()}</Text>
                 <Text style={styles.subtitle}>Date Range: {getDateRangeLabel()}</Text>
 
+                {/* Time Slot Period Filter Bar */}
+                <View style={styles.vSlotFilterWrap}>
+                  <Text style={styles.vSlotFilterLabel}>Filter Period Slot:</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.vSlotFilterScroll}>
+                    {getPeriodOptionsForType(dataType).map((slot) => {
+                      const isSelected = selectedSlotFilter === slot || (slot === 'All' && !selectedSlotFilter);
+                      return (
+                        <TouchableOpacity
+                          key={slot}
+                          style={[styles.vSlotChip, isSelected && styles.vSlotChipActive]}
+                          onPress={() => setSelectedSlotFilter(slot)}
+                          activeOpacity={0.8}
+                        >
+                          <Text style={[styles.vSlotChipText, isSelected && styles.vSlotChipTextActive]}>
+                            {slot}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </ScrollView>
+                </View>
+
                 {loading ? (
                   <ActivityIndicator size="large" color={themePrimary} style={{ marginVertical: 30 }} />
-                ) : error || measurements.length === 0 ? (
-                  <Text style={styles.emptyText}>No data available</Text>
+                ) : displayMeasurements.length === 0 ? (
+                  <Text style={styles.emptyText}>No measurement data available for the selected period</Text>
                 ) : (
-                  <View style={styles.table}>
-                    <View style={styles.tableHeader}>
-                      <Text style={[styles.th, styles.colDate]}>Date</Text>
-                      <Text style={[styles.th, styles.colTime]}>Time</Text>
-                      {dataType === 'bloodPressure' ? (
-                        <>
-                          <Text style={[styles.th, styles.colValue]}>Sys</Text>
-                          <Text style={[styles.th, styles.colValue]}>Dia</Text>
-                          <Text style={[styles.th, styles.colValue]}>Pulse</Text>
-                        </>
-                      ) : (
-                        <>
-                          <Text style={[styles.th, styles.colValue]}>{dataType === 'bloodGlucose' ? 'Glucose' : 'Weight'}</Text>
-                          <Text style={[styles.th, styles.colUnit]}>Unit</Text>
-                        </>
-                      )}
+                  <View style={styles.vTable}>
+                    {/* Navy Blue Table Header */}
+                    <View style={styles.vTableHeader}>
+                      <Text style={[styles.vTh, { flex: 2.8, paddingLeft: scaleWidth(8) }]}>Date / Time</Text>
+                      <Text style={[styles.vTh, { flex: 3.8, textAlign: 'center' }]}>Period</Text>
+                      <Text style={[styles.vTh, { flex: 3.4, textAlign: 'center' }]}>Reading</Text>
                     </View>
 
-                    {measurements.map((item) => (
-                      <View key={item.id} style={styles.tableRow}>
-                        <Text style={[styles.td, styles.colDate]}>{item.date}</Text>
-                        <Text style={[styles.td, styles.colTime]}>{item.time}</Text>
-                        {dataType === 'bloodPressure' ? (
-                          <>
-                            <Text style={[styles.td, styles.colValue, item.systolic > 140 && styles.danger]}>
-                              {item.systolic}
-                            </Text>
-                            <Text style={[styles.td, styles.colValue, item.diastolic > 90 && styles.danger]}>
-                              {item.diastolic}
-                            </Text>
-                            <Text style={[styles.td, styles.colValue]}>{item.pulse}</Text>
-                          </>
-                        ) : (
-                          <>
-                            <Text style={[styles.td, styles.colValue]}>
-                              {dataType === 'bloodGlucose' ? item.glucose : item.weight}
-                            </Text>
-                            <Text style={[styles.td, styles.colUnit]}>
-                              {dataType === 'bloodGlucose' ? 'mg/dL' : item.unit || 'lb'}
-                            </Text>
-                          </>
-                        )}
-                      </View>
-                    ))}
+                    {/* Vertical Rows */}
+                    {displayMeasurements.map((item, index) => {
+                      const isEven = index % 2 === 1;
+                      const periodName = getPeriodNameForMeasurement(item, dataType);
+                      const timeWindow = getPeriodTimeWindow(periodName, dataType);
+
+                      const sysColor = getVitalColor(item.systolic, 100, 140);
+                      const diaColor = getVitalColor(item.diastolic, 60, 90);
+                      const pulseColor = item.pulse != null ? getVitalColor(item.pulse, 60, 100) : '#687382';
+                      const bgValColor = getVitalColor(item.glucose, 60, 110);
+                      const wtLbs = item.unit === 'kg' && item.weight ? Number(item.weight) * 2.20462 : item.weight;
+                      const wtValColor = getVitalColor(wtLbs, 66, 220);
+
+                      return (
+                        <View key={item.id || index} style={[styles.vTableRow, isEven ? styles.vTableRowEven : styles.vTableRowOdd]}>
+                          {/* Date & Time */}
+                          <View style={{ flex: 2.8, paddingLeft: scaleWidth(8) }}>
+                            <Text style={styles.vTdDate}>{item.date}</Text>
+                            <Text style={styles.vTdTime}>{item.time}</Text>
+                          </View>
+
+                          {/* Period Tag with Time Window */}
+                          <View style={{ flex: 3.8, alignItems: 'center' }}>
+                            <View style={styles.vPeriodPill}>
+                              <Text style={styles.vPeriodPillText}>{periodName}</Text>
+                              {timeWindow ? <Text style={styles.vPeriodPillSubText}>{timeWindow}</Text> : null}
+                            </View>
+                          </View>
+
+                          {/* Reading Values */}
+                          <View style={{ flex: 3.4, alignItems: 'center' }}>
+                            {dataType === 'bloodPressure' ? (
+                              <View style={{ alignItems: 'center' }}>
+                                <View style={styles.vBpRow}>
+                                  <Text style={[styles.vValText, { color: sysColor }]}>{item.systolic}</Text>
+                                  <Text style={styles.vValSep}>/</Text>
+                                  <Text style={[styles.vValText, { color: diaColor }]}>{item.diastolic}</Text>
+                                </View>
+                                {item.pulse != null && item.pulse !== '' ? (
+                                  <Text style={[styles.vPulseText, { color: pulseColor }]}>P{item.pulse}</Text>
+                                ) : null}
+                              </View>
+                            ) : dataType === 'bloodGlucose' ? (
+                              <Text style={[styles.vValTextSingle, { color: bgValColor }]}>
+                                {item.glucose} <Text style={styles.vUnitText}>mg/dL</Text>
+                              </Text>
+                            ) : (
+                              <Text style={[styles.vValTextSingle, { color: wtValColor }]}>
+                                {item.weight} <Text style={styles.vUnitText}>lb</Text>
+                              </Text>
+                            )}
+                          </View>
+                        </View>
+                      );
+                    })}
                   </View>
                 )}
               </View>
@@ -1005,16 +1386,16 @@ const createStyles = (themePrimary, themeSoft) => StyleSheet.create({
   },
   tabBar: {
     flexDirection: 'row',
-    backgroundColor: 'rgba(255,255,255,0.88)',
+    backgroundColor: '#ffffff',
     borderRadius: scaleWidth(20),
     padding: scaleWidth(4),
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.78)',
+    borderColor: '#e8ecf0',
     shadowColor: '#071B34',
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.06,
-    shadowRadius: 24,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    elevation: 4,
   },
   tabButton: {
     flex: 1,
@@ -1041,16 +1422,16 @@ const createStyles = (themePrimary, themeSoft) => StyleSheet.create({
     paddingBottom: scaleHeight(28),
   },
   card: {
-    backgroundColor: 'rgba(255,255,255,0.88)',
+    backgroundColor: '#ffffff',
     borderRadius: scaleWidth(24),
     padding: scaleWidth(16),
     marginBottom: scaleHeight(14),
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.78)',
+    borderColor: '#e8ecf0',
     shadowColor: '#071B34',
-    shadowOffset: { width: 0, height: 16 },
-    shadowOpacity: 0.08,
-    shadowRadius: 34,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
     elevation: 4,
   },
   cardTitle: {
@@ -1173,12 +1554,12 @@ const createStyles = (themePrimary, themeSoft) => StyleSheet.create({
   chartContainer: {
     width: '100%',
     overflow: 'hidden',
-    alignItems: 'center',
+    alignItems: 'flex-start',
+    marginLeft: -scaleWidth(16),
   },
   chart: {
     borderRadius: scaleWidth(16),
     marginVertical: scaleHeight(8),
-    alignSelf: 'center',
   },
   legend: {
     flexDirection: 'row',
@@ -1201,36 +1582,228 @@ const createStyles = (themePrimary, themeSoft) => StyleSheet.create({
     color: TEXT_MUTED,
     fontWeight: '700',
   },
-  table: {
-    borderWidth: 1,
-    borderColor: BORDER_SOFT,
-    borderRadius: scaleWidth(18),
-    overflow: 'hidden',
-    backgroundColor: 'rgba(255,255,255,0.92)',
+  vSlotFilterWrap: {
+    marginBottom: scaleHeight(12),
   },
-  tableHeader: {
-    flexDirection: 'row',
-    backgroundColor: themeSoft,
-    paddingVertical: scaleHeight(10),
-    borderBottomWidth: 1,
-    borderBottomColor: BORDER_SOFT,
-  },
-  tableRow: {
-    flexDirection: 'row',
-    paddingVertical: scaleHeight(12),
-    borderBottomWidth: 1,
-    borderColor: BORDER_SOFT,
-    backgroundColor: 'rgba(255,255,255,0.92)',
-  },
-  th: {
-    fontWeight: '800',
-    fontSize: scaleFont(11),
-    color: TEXT_DARK,
-  },
-  td: {
+  vSlotFilterLabel: {
     fontSize: scaleFont(12),
-    color: TEXT_DARK,
+    fontWeight: '800',
+    color: '#071B34',
+    marginBottom: scaleHeight(6),
+  },
+  vSlotFilterScroll: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scaleWidth(6),
+    paddingRight: scaleWidth(10),
+  },
+  vSlotChip: {
+    paddingHorizontal: scaleWidth(10),
+    paddingVertical: scaleHeight(5),
+    borderRadius: scaleWidth(12),
+    backgroundColor: 'rgba(7, 27, 52, 0.05)',
+    borderWidth: 1,
+    borderColor: '#e8ecf0',
+  },
+  vSlotChipActive: {
+    backgroundColor: '#071B34',
+    borderColor: '#071B34',
+  },
+  vSlotChipText: {
+    fontSize: scaleFont(11),
     fontWeight: '700',
+    color: '#687382',
+  },
+  vSlotChipTextActive: {
+    color: '#ffffff',
+    fontWeight: '800',
+  },
+  vTable: {
+    borderWidth: 1,
+    borderColor: '#e8ecf0',
+    borderRadius: scaleWidth(14),
+    overflow: 'hidden',
+    backgroundColor: '#ffffff',
+    shadowColor: '#071B34',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 3,
+    width: '100%',
+  },
+  vTableHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#071B34',
+    paddingVertical: scaleHeight(10),
+    paddingHorizontal: scaleWidth(4),
+  },
+  vTh: {
+    fontSize: scaleFont(11),
+    fontWeight: '800',
+    color: '#ffffff',
+    textTransform: 'uppercase',
+  },
+  vTableRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: scaleHeight(10),
+    paddingHorizontal: scaleWidth(4),
+    borderBottomWidth: 1,
+    borderColor: '#e8ecf0',
+  },
+  vTableRowEven: {
+    backgroundColor: 'rgba(7, 27, 52, 0.025)',
+  },
+  vTableRowOdd: {
+    backgroundColor: '#ffffff',
+  },
+  vTdDate: {
+    fontSize: scaleFont(12),
+    fontWeight: '800',
+    color: '#071B34',
+  },
+  vTdTime: {
+    fontSize: scaleFont(10),
+    fontWeight: '700',
+    color: '#64748b',
+    marginTop: 1,
+  },
+  vValTextRow: {
+    fontSize: scaleFont(12),
+    fontWeight: '800',
+  },
+  vUnitTextRow: {
+    fontSize: scaleFont(12),
+    fontWeight: '700',
+    color: '#64748b',
+  },
+  vPeriodPill: {
+    paddingHorizontal: scaleWidth(6),
+    paddingVertical: scaleHeight(3),
+    borderRadius: scaleWidth(8),
+    backgroundColor: 'rgba(7, 27, 52, 0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(7, 27, 52, 0.10)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  vPeriodPillText: {
+    fontSize: scaleFont(10),
+    fontWeight: '800',
+    color: '#071B34',
+    textAlign: 'center',
+  },
+  vPeriodPillSubText: {
+    fontSize: scaleFont(8),
+    fontWeight: '700',
+    color: '#475569',
+    marginTop: scaleHeight(1),
+    textAlign: 'center',
+  },
+  vBpRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  vValText: {
+    fontSize: scaleFont(13),
+    fontWeight: '800',
+  },
+  vValSep: {
+    fontSize: scaleFont(12),
+    color: '#64748b',
+    marginHorizontal: 1,
+  },
+  vValTextSingle: {
+    fontSize: scaleFont(12),
+    fontWeight: '800',
+  },
+  vUnitText: {
+    fontSize: scaleFont(10),
+    fontWeight: '700',
+    color: '#64748b',
+  },
+  vPulseText: {
+    fontSize: scaleFont(10),
+    fontWeight: '700',
+    marginTop: 1,
+  },
+  vStatusPill: {
+    paddingHorizontal: scaleWidth(8),
+    paddingVertical: scaleHeight(3),
+    borderRadius: scaleWidth(8),
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  vStatusPillText: {
+    fontSize: scaleFont(10),
+    fontWeight: '900',
+  },
+  matrixRowEven: {
+    backgroundColor: 'rgba(7, 27, 52, 0.025)',
+  },
+  matrixRowOdd: {
+    backgroundColor: '#ffffff',
+  },
+  matrixTdDate: {
+    width: scaleWidth(88),
+    paddingLeft: scaleWidth(10),
+    fontSize: scaleFont(11),
+    fontWeight: '800',
+    color: '#071B34',
+  },
+  matrixTdCell: {
+    width: scaleWidth(115),
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: scaleHeight(6),
+  },
+  matrixTdCellActive: {
+    width: scaleWidth(115),
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: scaleHeight(6),
+    paddingHorizontal: scaleWidth(2),
+  },
+  matrixEmptyText: {
+    fontSize: scaleFont(14),
+    color: '#a0aab4',
+    fontWeight: '600',
+  },
+  matrixBpValueRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  matrixValText: {
+    fontSize: scaleFont(13),
+    fontWeight: '800',
+  },
+  matrixValSep: {
+    fontSize: scaleFont(12),
+    color: '#64748b',
+    marginHorizontal: 1,
+  },
+  matrixValTextSingle: {
+    fontSize: scaleFont(12),
+    fontWeight: '800',
+  },
+  matrixPulseText: {
+    fontSize: scaleFont(10),
+    fontWeight: '700',
+    marginTop: 1,
+  },
+  matrixTimeText: {
+    fontSize: scaleFont(9),
+    fontWeight: '700',
+    color: '#64748b',
+    marginTop: 2,
+  },
+  matrixReadingsCount: {
+    fontSize: scaleFont(8),
+    fontWeight: '800',
+    color: '#2F5F8F',
+    marginBottom: 1,
   },
   colDate: {
     width: '22%',
@@ -1272,12 +1845,12 @@ const createStyles = (themePrimary, themeSoft) => StyleSheet.create({
     maxHeight: scaleHeight(300),
     padding: scaleWidth(8),
     borderWidth: 1,
-    borderColor: BORDER_SOFT,
+    borderColor: '#e8ecf0',
     shadowColor: '#071B34',
-    shadowOffset: { width: 0, height: 12 },
+    shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.12,
-    shadowRadius: 24,
-    elevation: 8,
+    shadowRadius: 16,
+    elevation: 5,
   },
   dropdownItem: {
     padding: scaleHeight(14),

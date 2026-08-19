@@ -34,7 +34,7 @@ const scaleFont = size => scaleWidth(size);
 const NAVY_BLUE = colors.primaryButton || '#293d55';
 const WHITE = '#FFFFFF';
 const LIGHT_GREY = '#F4F7F9';
-const SCREEN_BG_COLORS = ['#fffdfb', '#f7ece7', '#eef1f5'];
+const SCREEN_BG_COLORS = ['#ffffff', '#ffffff', '#ffffff'];
 
 const PatientProfileScreen = ({ navigation }) => {
   const [userData, setUserData] = useState({
@@ -721,16 +721,16 @@ const styles = StyleSheet.create({
   // Info Box (Common for both sections)
   infoBox: {
     width: '100%',
-    backgroundColor: 'rgba(255,255,255,0.88)',
+    backgroundColor: '#ffffff',
     borderRadius: scaleWidth(24),
     padding: scaleWidth(16),
     shadowColor: '#071B34',
-    shadowOffset: { width: 0, height: 16 },
-    shadowOpacity: 0.08,
-    shadowRadius: 34,
-    elevation: 4,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    elevation: 5,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.78)',
+    borderColor: '#e8ecf0',
   },
 
   // Info Field Rows

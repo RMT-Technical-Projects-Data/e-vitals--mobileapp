@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   Image,
   Alert,
+  Keyboard,
 } from 'react-native';
 import AuthScreenLayout from '../../components/auth/AuthScreenLayout';
 import AuthButton from '../../components/auth/AuthButton';
@@ -28,6 +29,21 @@ const ForgotPassword = ({ navigation }) => {
   const [confirmPasswordFocused, setConfirmPasswordFocused] = useState(false);
   const [feedback, setFeedback] = useState('');
   const [feedbackTone, setFeedbackTone] = useState('error');
+  const [isKeyboardVisible, setKeyboardVisible] = useState(false);
+
+  useEffect(() => {
+    const showSubscription = Keyboard.addListener('keyboardDidShow', () => {
+      setKeyboardVisible(true);
+    });
+    const hideSubscription = Keyboard.addListener('keyboardDidHide', () => {
+      setKeyboardVisible(false);
+    });
+
+    return () => {
+      showSubscription.remove();
+      hideSubscription.remove();
+    };
+  }, []);
 
   const showMessage = (message, tone = 'error') => {
     setFeedback(message);
@@ -41,12 +57,11 @@ const ForgotPassword = ({ navigation }) => {
   const getPasswordStrength = password => {
     const trimmedPassword = password.trim();
     return {
-      hasMinLength: trimmedPassword.length >= 7,
-      hasLetter: /[a-zA-Z]/.test(trimmedPassword),
-      hasNumber: /[0-9]/.test(trimmedPassword),
-      isAlphanumericOnly: /^[a-zA-Z0-9]+$/.test(trimmedPassword),
+      hasMinLength: trimmedPassword.length >= 8,
+      hasLowercase: /[a-z]/.test(trimmedPassword),
       hasUppercase: /[A-Z]/.test(trimmedPassword),
-      hasSpecialChar: /[!@#$%^&*(),.?":{}|<>]/.test(trimmedPassword),
+      hasNumber: /[0-9]/.test(trimmedPassword),
+      hasSpecialChar: /[!@#$%^&*]/.test(trimmedPassword),
     };
   };
 
@@ -73,12 +88,12 @@ const ForgotPassword = ({ navigation }) => {
     } catch (error) {
       let errorMessage = error.message || 'Something went wrong. Try again.';
 
-      if (error.message?.includes('not available on this server')) {
-        errorMessage =
-          'The OTP endpoint is not available on this server. Please contact your administrator.';
-      } else if (error.message?.includes('not found')) {
-        errorMessage =
-          'The forgot password endpoint is not available. Please contact support.';
+      if (
+        error.message?.includes('not available on this server') ||
+        error.message?.includes('not found') ||
+        error.message?.includes('Not Found')
+      ) {
+        errorMessage = 'No account was found for this email address. Please try again.';
       }
 
       showMessage(errorMessage);
@@ -120,18 +135,28 @@ const ForgotPassword = ({ navigation }) => {
     const trimmedConfirmPassword = confirmPassword.trim();
     const strength = getPasswordStrength(trimmedNewPassword);
 
-    if (trimmedNewPassword.length < 7) {
-      showMessage('Password must be at least 7 characters long.');
+    if (trimmedNewPassword.length < 8) {
+      showMessage('Password must be at least 8 characters long.');
       return;
     }
 
-    if (!strength.hasLetter || !strength.hasNumber) {
-      showMessage('Password must contain both letters and numbers.');
+    if (!strength.hasUppercase) {
+      showMessage('Password must contain at least one uppercase letter.');
       return;
     }
 
-    if (!strength.isAlphanumericOnly) {
-      showMessage('Password can only contain letters and numbers.');
+    if (!strength.hasLowercase) {
+      showMessage('Password must contain at least one lowercase letter.');
+      return;
+    }
+
+    if (!strength.hasNumber) {
+      showMessage('Password must contain at least one number.');
+      return;
+    }
+
+    if (!strength.hasSpecialChar) {
+      showMessage('Password must contain at least one special character (!@#$%^&*).');
       return;
     }
 
@@ -220,6 +245,8 @@ const ForgotPassword = ({ navigation }) => {
       onBack={() => navigation.goBack()}
       showLogo={false}
       headerTitle="Forgot Password"
+      showBackButton={false}
+      scrollEnabled={step !== 3 || isKeyboardVisible}
     >
       {renderStepIndicator()}
 
@@ -304,7 +331,7 @@ const ForgotPassword = ({ navigation }) => {
           <Text style={authStyles.eyebrow}>New Password</Text>
           <Text style={authStyles.title}>Create a secure password.</Text>
           <Text style={authStyles.subheading}>
-            Use at least 7 characters with letters and numbers only.
+            Use at least 8 characters with uppercase, lowercase, a number, and a special character.
           </Text>
 
           {renderPasswordField({
@@ -316,51 +343,53 @@ const ForgotPassword = ({ navigation }) => {
             focused: newPasswordFocused,
             onFocus: () => setNewPasswordFocused(true),
             onBlur: () => setNewPasswordFocused(false),
-            placeholder: 'New password',
+            placeholder: 'Enter password',
           })}
 
-          <View style={authStyles.strengthBox}>
-            <Text
-              style={[
-                authStyles.strengthText,
-                passwordStrength.hasMinLength && authStyles.strengthTextDone,
-              ]}
-            >
-              {passwordStrength.hasMinLength ? '✓' : '○'} At least 7 characters
-            </Text>
-            <Text
-              style={[
-                authStyles.strengthText,
-                passwordStrength.hasLetter && authStyles.strengthTextDone,
-              ]}
-            >
-              {passwordStrength.hasLetter ? '✓' : '○'} Contains letters
-            </Text>
-            <Text
-              style={[
-                authStyles.strengthText,
-                passwordStrength.hasNumber && authStyles.strengthTextDone,
-              ]}
-            >
-              {passwordStrength.hasNumber ? '✓' : '○'} Contains numbers
-            </Text>
-            <Text
-              style={[
-                authStyles.strengthText,
-                passwordStrength.isAlphanumericOnly &&
-                !passwordStrength.hasSpecialChar &&
-                authStyles.strengthTextDone,
-                passwordStrength.hasSpecialChar && authStyles.strengthTextError,
-              ]}
-            >
-              {passwordStrength.isAlphanumericOnly && !passwordStrength.hasSpecialChar
-                ? '✓'
-                : passwordStrength.hasSpecialChar
-                  ? '✗'
-                  : '○'}{' '}
-              Only letters and numbers
-            </Text>
-          </View>
+          {newPassword.length > 0 && (
+            <View style={authStyles.strengthBox}>
+              <Text
+                style={[
+                  authStyles.strengthText,
+                  passwordStrength.hasMinLength && authStyles.strengthTextDone,
+                ]}
+              >
+                {passwordStrength.hasMinLength ? '✓' : '○'} At least 8 characters
+              </Text>
+              <Text
+                style={[
+                  authStyles.strengthText,
+                  passwordStrength.hasUppercase && authStyles.strengthTextDone,
+                ]}
+              >
+                {passwordStrength.hasUppercase ? '✓' : '○'} Contains uppercase letter
+              </Text>
+              <Text
+                style={[
+                  authStyles.strengthText,
+                  passwordStrength.hasLowercase && authStyles.strengthTextDone,
+                ]}
+              >
+                {passwordStrength.hasLowercase ? '✓' : '○'} Contains lowercase letter
+              </Text>
+              <Text
+                style={[
+                  authStyles.strengthText,
+                  passwordStrength.hasNumber && authStyles.strengthTextDone,
+                ]}
+              >
+                {passwordStrength.hasNumber ? '✓' : '○'} Contains numbers
+              </Text>
+              <Text
+                style={[
+                  authStyles.strengthText,
+                  passwordStrength.hasSpecialChar && authStyles.strengthTextDone,
+                ]}
+              >
+                {passwordStrength.hasSpecialChar ? '✓' : '○'} Contains special character
+              </Text>
+            </View>
+          )}
 
           {renderPasswordField({
             label: 'Confirm Password',
@@ -371,7 +400,7 @@ const ForgotPassword = ({ navigation }) => {
             focused: confirmPasswordFocused,
             onFocus: () => setConfirmPasswordFocused(true),
             onBlur: () => setConfirmPasswordFocused(false),
-            placeholder: 'Confirm new password',
+            placeholder: 'Enter password',
           })}
 
           <AuthFeedback message={feedback} tone={feedbackTone} />
@@ -387,7 +416,7 @@ const ForgotPassword = ({ navigation }) => {
         onPress={() => navigation.navigate('Login')}
         style={{ marginTop: 18, alignItems: 'center' }}
       >
-        <Text style={authStyles.mutedLink}>← Back to Login</Text>
+        
       </TouchableOpacity>
 
       <Text style={authStyles.finePrint}>

@@ -1,5 +1,5 @@
 import { API_CONFIG, API_ENDPOINTS } from '../config/api';
-import { getSessionCookie, buildCookieHeader, setSessionCookie, extractCookieFromResponse } from '../utils/cookieHelper';
+import { getSessionCookie, setSessionCookie, extractCookieFromResponse } from '../utils/cookieHelper';
 import { isSessionExpired, handleApiError, safeParseResponse } from '../utils/errorHandler';
 
 /**
@@ -29,13 +29,17 @@ const apiRequest = async (endpoint, options = {}) => {
   const headers = {
     'Content-Type': 'application/json',
     'Accept': 'application/json',
+    // Do not rely on the native User-Agent: it differs between iOS and Android.
+    // The API uses this to return the session id in JSON for React Native.
+    'X-Mobile-Client': 'true',
     ...options.headers,
   };
 
-  // Add cookie header if session exists
-  // Format: evitals_session=<session_id>
+  // React Native stores the raw session ID returned by the API. Express-session
+  // expects a signed cookie, so send the raw ID in a dedicated header; the
+  // backend converts it to its signed session cookie before loading the session.
   if (sessionCookie) {
-    headers['Cookie'] = buildCookieHeader(sessionCookie);
+    headers['X-EVitals-Session-Id'] = sessionCookie;
   }
 
   // Prepare fetch options
@@ -175,7 +179,7 @@ const apiService = {
       method: 'POST',
       body: JSON.stringify({
         otp,
-        mobile_client: true // Flag for mobile client
+        mobile_client: true, // Flag for mobile client
       }),
     });
 
@@ -235,6 +239,19 @@ const apiService = {
 
     // Check for session expiry
     return readApiResponse(response, 'Failed to get user data');
+  },
+
+  /** Check whether the persisted mobile session is still valid. */
+  checkSession: async () => {
+    const response = await apiRequest(API_ENDPOINTS.SESSION_STATUS, {
+      method: 'GET',
+    });
+
+    const data = await safeParseResponse(response);
+    if (!response.ok) {
+      throw new Error(handleApiError(response, 'Failed to verify session', data));
+    }
+    return data;
   },
 
   /**
@@ -467,24 +484,17 @@ const apiService = {
 
     const response = await apiRequest(endpoint, {
       method: 'POST',
-      body: JSON.stringify({ email }),
+      body: JSON.stringify({ email, mobile_client: true }),
     });
 
 
     const data = await safeParseResponse(response);
 
-
     if (!response.ok) {
-      // If 404, provide specific error message about missing endpoint
+      // A registered-email lookup also returns 404. Preserve its useful API
+      // message instead of incorrectly claiming that the endpoint is missing.
       if (response.status === 404) {
-        const errorMessage = `The OTP endpoint is not available on this server. Please ensure the backend server has the '/api/users/forgot-password-otp' endpoint deployed.`;
-        console.error('📧 Forgot Password OTP Error - Endpoint not found:', {
-          status: response.status,
-          endpoint,
-          fullUrl,
-          serverResponse: data
-        });
-        throw new Error(errorMessage);
+        throw new Error(data?.message || 'No account was found for this email address.');
       }
 
       const errorMessage = handleApiError(response, 'Failed to send OTP', data);
@@ -504,6 +514,13 @@ const apiService = {
       throw new Error(errorMessage);
     }
 
+    // Password-reset OTPs are authorized by a temporary server session. React
+    // Native cannot reliably retain Set-Cookie, so keep the returned session id
+    // for the verify and reset requests that follow.
+    if (data.session_id) {
+      await setSessionCookie(data.session_id);
+    }
+
     return data;
   },
 
@@ -514,28 +531,24 @@ const apiService = {
    * @returns {Promise<object>} - Response
    */
   verifyPasswordResetOTP: async (email, otp) => {
-
-    // Ensure we have a session cookie before making the request
-    const sessionCookie = await getSessionCookie();
-
     const response = await apiRequest(API_ENDPOINTS.VERIFY_PASSWORD_RESET_OTP, {
       method: 'POST',
-      body: JSON.stringify({ email, otp }),
+      body: JSON.stringify({ email, otp, mobile_client: true }),
     });
 
 
     const data = await safeParseResponse(response);
 
-    // Check if response contains a session_id (for mobile clients)
-    if (data && data.session_id) {
-      await setSessionCookie(data.session_id);
-      console.log('✅ Session ID stored after OTP verification');
-    }
-
     if (!response.ok || !data || !data.success) {
       const errorMessage = data?.message || handleApiError(response, 'Failed to verify OTP', data);
       console.error('❌ Verify OTP error:', errorMessage);
       throw new Error(errorMessage);
+    }
+
+    // Verification refreshes the same password-reset session. Persist its id
+    // before the next request so the API can see the verified OTP state.
+    if (data.session_id) {
+      await setSessionCookie(data.session_id);
     }
 
     return data;
@@ -569,14 +582,15 @@ const apiService = {
    * @param {string} password - New password
    * @returns {Promise<object>} - Response
    */
-  resetPasswordWithOTP: async (email, password) => {
-
-    // Ensure we have a session cookie before making the request
-    const sessionCookie = await getSessionCookie();
-
+  resetPasswordWithOTP: async (email, password, resetToken) => {
     const response = await apiRequest(API_ENDPOINTS.RESET_PASSWORD_OTP, {
       method: 'POST',
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({
+        email,
+        password,
+        reset_token: resetToken,
+        mobile_client: true,
+      }),
     });
 
 
@@ -643,7 +657,10 @@ const apiService = {
   },
 
   getPatients: async (practiceId, params = {}) => {
-    let endpoint = `/practices/${practiceId}/patients`;
+    const isProgramFiltered = !!params.dashboardFilter || !!params.program;
+    let endpoint = isProgramFiltered
+      ? `/practices/${practiceId}/patients/program-filtered`
+      : `/practices/${practiceId}/patients`;
     const queryParams = [];
     if (params.caregiverId) {
       queryParams.push(`caregiverId=${params.caregiverId}`);
@@ -662,6 +679,12 @@ const apiService = {
     }
     if (params.status) {
       queryParams.push(`status=${params.status}`);
+    }
+    if (params.dashboardFilter) {
+      queryParams.push(`dashboardFilter=${encodeURIComponent(params.dashboardFilter)}`);
+    }
+    if (params.program) {
+      queryParams.push(`program=${encodeURIComponent(params.program)}`);
     }
     if (params.includeDashboardEnrichment) {
       queryParams.push('includeDashboardEnrichment=true');
@@ -682,6 +705,100 @@ const apiService = {
     });
 
     return readApiResponse(response, 'Failed to get patients list');
+  },
+
+  /**
+   * Get practice providers
+   * GET /practices/:practiceId/providers
+   */
+  getPracticeProviders: async (practiceId) => {
+    const response = await apiRequest(`/practices/${practiceId}/providers`, { method: 'GET' });
+    return readApiResponse(response, 'Failed to get practice providers');
+  },
+
+  /**
+   * Get practice caregivers
+   * GET /practices/:practiceId/caregivers
+   */
+  getPracticeCaregivers: async (practiceId) => {
+    const response = await apiRequest(`/practices/${practiceId}/caregivers`, { method: 'GET' });
+    return readApiResponse(response, 'Failed to get practice caregivers');
+  },
+
+  /**
+   * Lookup patients with filters
+   * GET /practices/:practiceId/lookup
+   */
+  lookupPatient: async (practiceId, params = {}) => {
+    let endpoint = `/practices/${practiceId}/lookup`;
+    const queryParams = [];
+    if (params.lastName) queryParams.push(`lastName=${encodeURIComponent(params.lastName)}`);
+    if (params.firstName) queryParams.push(`firstName=${encodeURIComponent(params.firstName)}`);
+    if (params.phone) queryParams.push(`phone=${encodeURIComponent(params.phone)}`);
+    if (params.caregiver) queryParams.push(`caregiver=${params.caregiver}`);
+    if (params.provider) queryParams.push(`provider=${params.provider}`);
+    if (params.status) queryParams.push(`status=${params.status}`);
+    if (params.dobOperator) queryParams.push(`dobOperator=${params.dobOperator}`);
+    if (params.dobFrom) queryParams.push(`dobFrom=${params.dobFrom}`);
+    if (params.dobTo) queryParams.push(`dobTo=${params.dobTo}`);
+    if (params.programEnrolled) queryParams.push(`programEnrolled=${params.programEnrolled}`);
+    if (params.vitals) {
+      const vVal = Array.isArray(params.vitals) ? params.vitals.join(',') : params.vitals;
+      queryParams.push(`vitals=${encodeURIComponent(vVal)}`);
+    }
+    if (params.serialNumber) queryParams.push(`serialNumber=${encodeURIComponent(params.serialNumber)}`);
+    if (params.search) queryParams.push(`search=${encodeURIComponent(params.search)}`);
+    if (params.limit) queryParams.push(`limit=${params.limit}`);
+    if (params.page) queryParams.push(`page=${params.page}`);
+
+    if (queryParams.length > 0) {
+      endpoint += `?${queryParams.join('&')}`;
+    }
+
+    const response = await apiRequest(endpoint, { method: 'GET' });
+    return readApiResponse(response, 'Failed to lookup patients');
+  },
+
+  /**
+   * Lookup patients by RPM date range
+   * GET /practices/:practiceId/lookup-rpm
+   */
+  lookupPatientRPM: async (practiceId, params = {}) => {
+    let endpoint = `/practices/${practiceId}/lookup-rpm`;
+    const queryParams = [];
+    if (params.startDate) queryParams.push(`startDate=${params.startDate}`);
+    if (params.endDate) queryParams.push(`endDate=${params.endDate}`);
+    if (params.search) queryParams.push(`search=${encodeURIComponent(params.search)}`);
+    if (params.limit) queryParams.push(`limit=${params.limit}`);
+    if (params.page) queryParams.push(`page=${params.page}`);
+
+    if (queryParams.length > 0) {
+      endpoint += `?${queryParams.join('&')}`;
+    }
+
+    const response = await apiRequest(endpoint, { method: 'GET' });
+    return readApiResponse(response, 'Failed to lookup patients by RPM date');
+  },
+
+  /**
+   * Lookup patients by CCM date range
+   * GET /practices/:practiceId/lookup-ccm
+   */
+  lookupPatientCCM: async (practiceId, params = {}) => {
+    let endpoint = `/practices/${practiceId}/lookup-ccm`;
+    const queryParams = [];
+    if (params.startDate) queryParams.push(`startDate=${params.startDate}`);
+    if (params.endDate) queryParams.push(`endDate=${params.endDate}`);
+    if (params.search) queryParams.push(`search=${encodeURIComponent(params.search)}`);
+    if (params.limit) queryParams.push(`limit=${params.limit}`);
+    if (params.page) queryParams.push(`page=${params.page}`);
+
+    if (queryParams.length > 0) {
+      endpoint += `?${queryParams.join('&')}`;
+    }
+
+    const response = await apiRequest(endpoint, { method: 'GET' });
+    return readApiResponse(response, 'Failed to lookup patients by CCM date');
   },
 
   /**
@@ -706,6 +823,36 @@ const apiService = {
   },
 
   /**
+   * Get follow-up query records with filters
+   * GET /care-management/follow-up-query
+   */
+  getFollowUpQuery: async (params = {}) => {
+    let endpoint = `/care-management/follow-up-query`;
+    const queryParams = [];
+    if (params.practiceId) queryParams.push(`practiceId=${params.practiceId}`);
+    if (params.lastName) queryParams.push(`lastName=${encodeURIComponent(params.lastName)}`);
+    if (params.firstName) queryParams.push(`firstName=${encodeURIComponent(params.firstName)}`);
+    if (params.phone) queryParams.push(`phone=${encodeURIComponent(params.phone)}`);
+    if (params.caregiver) queryParams.push(`practiceCaregiverId=${params.caregiver}`);
+    if (params.provider) queryParams.push(`providerId=${params.provider}`);
+    if (params.status) queryParams.push(`status=${params.status}`);
+    if (params.vitals) queryParams.push(`vitals=${params.vitals}`);
+    if (params.dobOperator) queryParams.push(`dobOperator=${params.dobOperator}`);
+    if (params.dobFrom) queryParams.push(`dobFrom=${params.dobFrom}`);
+    if (params.dobTo) queryParams.push(`dobTo=${params.dobTo}`);
+    if (params.serialNumber) queryParams.push(`serialNumber=${encodeURIComponent(params.serialNumber)}`);
+    if (params.limit) queryParams.push(`limit=${params.limit}`);
+    if (params.page) queryParams.push(`page=${params.page}`);
+
+    if (queryParams.length > 0) {
+      endpoint += `?${queryParams.join('&')}`;
+    }
+
+    const response = await apiRequest(endpoint, { method: 'GET' });
+    return readApiResponse(response, 'Failed to query follow-ups');
+  },
+
+  /**
    * Get follow-up templates
    * GET /settings/follow-up-templates
    */
@@ -714,6 +861,28 @@ const apiService = {
     const response = await apiRequest(endpoint, { method: 'GET' });
 
     return readApiResponse(response, 'Failed to get follow-up templates');
+  },
+
+  /**
+   * Get single follow-up template by ID
+   * GET /settings/follow-up-templates/:templateId
+   */
+  getFollowUpTemplateById: async (templateId) => {
+    const endpoint = API_ENDPOINTS.GET_FOLLOW_UP_TEMPLATE_BY_ID(templateId);
+    const response = await apiRequest(endpoint, { method: 'GET' });
+
+    return readApiResponse(response, 'Failed to get follow-up template');
+  },
+
+  /**
+   * Get template content by ID
+   * GET /settings/follow-up-templates/:templateId/content
+   */
+  getFollowUpTemplateContent: async (templateId) => {
+    const endpoint = API_ENDPOINTS.GET_FOLLOW_UP_TEMPLATE_CONTENT(templateId);
+    const response = await apiRequest(endpoint, { method: 'GET' });
+
+    return readApiResponse(response, 'Failed to get follow-up template content');
   },
 
   /**
@@ -750,8 +919,17 @@ const apiService = {
    * Get total patient count for a practice (lightweight, no enrichment)
    * Returns: { total, patients }
    */
-  getTotalPatients: async (practiceId) => {
-    const endpoint = `/practices/${practiceId}/patients?limit=1`;
+  getTotalPatients: async (practiceId, params = {}) => {
+    let endpoint = `/practices/${practiceId}/patients?limit=1`;
+    const queryParams = [];
+    Object.keys(params).forEach((key) => {
+      if (params[key] !== undefined && params[key] !== null) {
+        queryParams.push(`${key}=${encodeURIComponent(params[key])}`);
+      }
+    });
+    if (queryParams.length > 0) {
+      endpoint += `&${queryParams.join('&')}`;
+    }
     const response = await apiRequest(endpoint, { method: 'GET' });
 
     return readApiResponse(response, 'Failed to get total patients count');
@@ -778,6 +956,158 @@ const apiService = {
       body: JSON.stringify(payload),
     });
     return readApiResponse(response, 'Failed to send message');
+  },
+
+  getChatUnreadCount: async (userId) => {
+    const response = await apiRequest(API_ENDPOINTS.CHAT_UNREAD_COUNT(userId), { method: 'GET' });
+    return readApiResponse(response, 'Failed to load unread count', { requireSuccess: false });
+  },
+
+  markChatNotificationsRead: async (userId) => {
+    const response = await apiRequest(API_ENDPOINTS.CHAT_NOTIFICATIONS_READ_ALL, {
+      method: 'PATCH',
+      body: JSON.stringify({ userId }),
+    });
+    return readApiResponse(response, 'Failed to mark notifications read', { requireSuccess: false });
+  },
+
+  editChatMessage: async (messageId, userId, newMessage) => {
+    const response = await apiRequest(API_ENDPOINTS.CHAT_EDIT(messageId), {
+      method: 'PUT',
+      body: JSON.stringify({ userId, newMessage }),
+    });
+    return readApiResponse(response, 'Failed to edit message');
+  },
+
+  deleteChatMessage: async (messageId, userId, mode = 'me') => {
+    const response = await apiRequest(API_ENDPOINTS.CHAT_DELETE(messageId), {
+      method: 'DELETE',
+      body: JSON.stringify({ userId, mode }),
+    });
+    return readApiResponse(response, 'Failed to delete message');
+  },
+
+  deleteChatConversations: async (userId, otherUserIds) => {
+    const response = await apiRequest(API_ENDPOINTS.CHAT_CONVERSATIONS_DELETE, {
+      method: 'POST',
+      body: JSON.stringify({ userId, otherUserIds }),
+    });
+    return readApiResponse(response, 'Failed to delete conversation');
+  },
+
+  uploadChatFile: async (formData) => {
+    const url = `${API_CONFIG.BASE_URL}${API_ENDPOINTS.CHAT_UPLOAD}`;
+    const sessionCookie = await getSessionCookie();
+    const headers = { 'Accept': 'application/json' };
+    if (sessionCookie) headers['Cookie'] = sessionCookie;
+    const response = await fetch(url, { method: 'POST', headers, body: formData });
+    return readApiResponse(response, 'Failed to upload file');
+  },
+
+  /**
+   * Get program analytics (total, active, pending, locked, recent uploads,
+   * missed uploads, abnormal measurements, CPT counts) for a practice program tab.
+   * This is the same API that the web frontend uses on the patient management dashboard.
+   *
+   * GET /practices/:practiceId/patients/program-analytics?program=rpm
+   *
+   * Returns data shaped as:
+   * {
+   *   summary: { total, active, pending, locked, recent, missed, abnormal },
+   *   cpt: { cpt99453, cpt99454, cpt99457, cpt99458, ... },
+   *   billing_period: { date_from, date_to, label }
+   * }
+   *
+   * @param {string|number} practiceId - Practice ID
+   * @param {string} [program='rpm'] - Care program key (e.g. 'rpm', 'ccm')
+   * @returns {Promise<object>} - Analytics data
+   */
+  getProgramAnalytics: async (practiceId, program = 'rpm') => {
+    const endpoint = `/practices/${practiceId}/patients/program-analytics?program=${encodeURIComponent(program)}&refresh=1`;
+    const response = await apiRequest(endpoint, { method: 'GET' });
+    return readApiResponse(response, 'Failed to get program analytics');
+  },
+
+  checkUsername: async (username, excludeUserId = null) => {
+    let endpoint = `/users/check-username?username=${encodeURIComponent(username)}`;
+    if (excludeUserId) endpoint += `&excludeUserId=${excludeUserId}`;
+    const response = await apiRequest(endpoint, { method: 'GET' });
+    return readApiResponse(response, 'Failed to check username');
+  },
+
+  checkEmail: async (email, excludeUserId = null) => {
+    let endpoint = `/users/check-email?email=${encodeURIComponent(email)}`;
+    if (excludeUserId) endpoint += `&excludeUserId=${excludeUserId}`;
+    const response = await apiRequest(endpoint, { method: 'GET' });
+    return readApiResponse(response, 'Failed to check email');
+  },
+
+  checkSsn: async (ssn, excludePatientId = null) => {
+    let endpoint = `/users/check-ssn?ssn=${encodeURIComponent(ssn)}`;
+    if (excludePatientId) endpoint += `&excludePatientId=${excludePatientId}`;
+    const response = await apiRequest(endpoint, { method: 'GET' });
+    return readApiResponse(response, 'Failed to check SSN');
+  },
+
+  createPatient: async (practiceId, patientData) => {
+    const response = await apiRequest(`/practices/${practiceId}/patients`, {
+      method: 'POST',
+      body: JSON.stringify(patientData),
+    });
+    return readApiResponse(response, 'Failed to create patient');
+  },
+
+  getPracticeProviders: async (practiceId) => {
+    const response = await apiRequest(`/practices/${practiceId}/providers`, { method: 'GET' });
+    return readApiResponse(response, 'Failed to get practice providers');
+  },
+
+  getPracticeCaregivers: async (practiceId) => {
+    const response = await apiRequest(`/practices/${practiceId}/caregivers`, { method: 'GET' });
+    return readApiResponse(response, 'Failed to get practice caregivers');
+  },
+
+  getSystemCaregivers: async () => {
+    const response = await apiRequest(`/users/system-caregivers`, { method: 'GET' });
+    return readApiResponse(response, 'Failed to get system caregivers');
+  },
+
+  getPracticeDetails: async (practiceId) => {
+    const response = await apiRequest(`/practices/${practiceId}`, { method: 'GET' });
+    return readApiResponse(response, 'Failed to get practice details');
+  },
+
+  getPracticeSummary: async (practiceId) => {
+    const response = await apiRequest(`/practices/${practiceId}/summary`, { method: 'GET' });
+    return readApiResponse(response, 'Failed to get practice summary');
+  },
+
+  getPractices: async (params = {}) => {
+    let endpoint = '/practices';
+    const queryParams = [];
+    if (params.limit) queryParams.push(`limit=${params.limit}`);
+    if (params.page) queryParams.push(`page=${params.page}`);
+    if (queryParams.length > 0) endpoint += `?${queryParams.join('&')}`;
+    const response = await apiRequest(endpoint, { method: 'GET' });
+    return readApiResponse(response, 'Failed to get practices');
+  },
+
+  getPracticePatientsFilteredByProgramTab: async (practiceId, params = {}) => {
+    let endpoint = `/practices/${practiceId}/patients/program-filtered`;
+    const queryParams = [];
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== '' && value != null) {
+        queryParams.push(`${key}=${encodeURIComponent(value)}`);
+      }
+    });
+    if (queryParams.length > 0) endpoint += `?${queryParams.join('&')}`;
+    const response = await apiRequest(endpoint, { method: 'GET' });
+    return readApiResponse(response, 'Failed to get program-filtered patients');
+  },
+
+  getAssignedPracticesForSystemCaregiver: async (userId) => {
+    const response = await apiRequest(`/users/${userId}/assigned-practices`, { method: 'GET' });
+    return readApiResponse(response, 'Failed to get assigned practices');
   },
 };
 

@@ -1,6 +1,9 @@
-import { Dimensions, StyleSheet } from 'react-native';
+import { Dimensions, Platform, StyleSheet } from 'react-native';
 
 const { width } = Dimensions.get('window');
+const isTablet = width >= 768;
+const authCardMaxWidth = isTablet ? Math.min(760, Math.max(620, width - 80)) : 430;
+const authTextMaxWidth = isTablet ? 560 : 340;
 
 export const scale = size => (width / 375) * size;
 
@@ -9,17 +12,17 @@ export const theme = {
   navyMid: '#0d2f58',
   blue: '#0d47a1',
   red: '#b91427',
-  cream: '#fbf7f3',
-  creamMid: '#f6eee6',
-  cream2: '#f2e8df',
-  line: '#eadbd4',
+  cream: '#ffffff',
+  creamMid: '#ffffff',
+  cream2: '#ffffff',
+  line: '#e8ecf0',
   text: '#152033',
   muted: '#687382',
   placeholder: '#a8afb8',
-  paper: 'rgba(255, 255, 255, 0.86)',
-  card: '#fffaf7',
+  paper: '#ffffff',
+  card: '#ffffff',
   success: '#2E7D32',
-  gradient: ['#fbf7f3', '#f6eee6', '#f2e8df'],
+  gradient: ['#ffffff', '#ffffff', '#ffffff'],
 };
 
 export const authStyles = StyleSheet.create({
@@ -34,29 +37,31 @@ export const authStyles = StyleSheet.create({
   },
   scrollContent: {
     flexGrow: 1,
-    paddingHorizontal: scale(10),
-    paddingVertical: scale(8),
+    paddingHorizontal: isTablet ? 24 : scale(10),
+    paddingVertical: isTablet ? 24 : scale(8),
     justifyContent: 'center',
   },
   screenCard: {
     width: '100%',
-    maxWidth: 430,
-    minHeight: scale(600),
+    maxWidth: authCardMaxWidth,
+    minHeight: isTablet ? 680 : scale(600),
     alignSelf: 'center',
-    borderRadius: scale(32),
+    borderRadius: isTablet ? 36 : scale(32),
     borderWidth: 1,
-    borderColor: 'rgba(234, 219, 212, 0.95)',
+    borderColor: '#e8ecf0',
     backgroundColor: theme.card,
-    overflow: 'hidden',
-    shadowColor: 'rgba(7, 27, 52, 0.16)',
-    shadowOffset: { width: 0, height: 22 },
-    shadowOpacity: 1,
-    shadowRadius: 48,
+    shadowColor: '#071b34',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.16,
+    shadowRadius: 24,
     elevation: 12,
   },
+  screenCardCompact: {
+    minHeight: 0,
+  },
   hero: {
-    paddingHorizontal: scale(20),
-    paddingTop: scale(20),
+    paddingHorizontal: isTablet ? 28 : scale(20),
+    paddingTop: isTablet ? 28 : scale(20),
   },
   heroRow: {
     flexDirection: 'row',
@@ -73,6 +78,10 @@ export const authStyles = StyleSheet.create({
     borderWidth: 1,
     borderColor: theme.line,
   },
+  headerSpacer: {
+    width: scale(36),
+    height: scale(36),
+  },
   backButtonText: {
     color: theme.navy,
     fontSize: scale(22),
@@ -88,13 +97,13 @@ export const authStyles = StyleSheet.create({
     textAlign: 'center',
   },
   logo: {
-    width: scale(128),
-    height: scale(52),
+    width: isTablet ? 148 : scale(128),
+    height: isTablet ? 60 : scale(52),
   },
   panel: {
-    paddingHorizontal: scale(22),
-    paddingTop: scale(24),
-    paddingBottom: scale(30),
+    paddingHorizontal: isTablet ? 32 : scale(22),
+    paddingTop: isTablet ? 30 : scale(24),
+    paddingBottom: isTablet ? 36 : scale(30),
   },
   eyebrow: {
     color: theme.red,
@@ -105,22 +114,22 @@ export const authStyles = StyleSheet.create({
   },
   title: {
     color: theme.text,
-    fontSize: scale(26),
-    lineHeight: scale(30),
+    fontSize: isTablet ? 30 : scale(26),
+    lineHeight: isTablet ? 36 : scale(30),
     fontWeight: '800',
-    maxWidth: 330,
+    maxWidth: authTextMaxWidth,
   },
   subheading: {
     color: theme.muted,
-    fontSize: scale(14),
-    lineHeight: scale(22),
+    fontSize: isTablet ? 16 : scale(14),
+    lineHeight: isTablet ? 24 : scale(22),
     fontWeight: '500',
-    marginTop: scale(8),
-    marginBottom: scale(20),
-    maxWidth: 340,
+    marginTop: isTablet ? 10 : scale(8),
+    marginBottom: isTablet ? 24 : scale(20),
+    maxWidth: authTextMaxWidth,
   },
   field: {
-    marginBottom: scale(16),
+    marginBottom: isTablet ? 18 : scale(16),
   },
   label: {
     color: '#3f4754',
@@ -129,15 +138,16 @@ export const authStyles = StyleSheet.create({
     marginBottom: scale(5),
   },
   input: {
-    height: scale(48),
+    height: isTablet ? 52 : scale(48),
     borderWidth: 1,
     borderColor: theme.line,
-    borderRadius: scale(16),
-    paddingHorizontal: scale(16),
+    borderRadius: isTablet ? 18 : scale(16),
+    paddingHorizontal: isTablet ? 18 : scale(16),
     color: theme.text,
     backgroundColor: theme.paper,
-    fontSize: scale(16),
+    fontSize: isTablet ? 17 : scale(16),
     fontWeight: '600',
+    letterSpacing: 0,
   },
   inputFocused: {
     borderColor: 'rgba(13, 71, 161, 0.55)',
@@ -154,24 +164,28 @@ export const authStyles = StyleSheet.create({
   },
   passwordInput: {
     paddingRight: scale(48),
+    // Android can render secure-entry text with a monospace font unless this
+    // is set explicitly, which makes the placeholder look inconsistent.
+    fontFamily: Platform.select({ android: 'sans-serif', ios: undefined }),
+    letterSpacing: 0,
   },
   eyeButton: {
     position: 'absolute',
-    right: scale(14),
-    top: scale(14),
+    right: isTablet ? 16 : scale(14),
+    top: isTablet ? 16 : scale(14),
   },
   eyeIcon: {
-    width: scale(18),
-    height: scale(18),
+    width: isTablet ? 19 : scale(18),
+    height: isTablet ? 19 : scale(18),
     tintColor: theme.muted,
   },
   formRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: scale(14),
+    gap: isTablet ? 18 : scale(14),
     marginTop: scale(2),
-    marginBottom: scale(16),
+    marginBottom: isTablet ? 20 : scale(16),
     flexWrap: 'wrap',
   },
   linkText: {
@@ -228,11 +242,11 @@ export const authStyles = StyleSheet.create({
     fontWeight: '800',
   },
   finePrint: {
-    marginTop: scale(36),
+    marginTop: isTablet ? 42 : scale(36),
     color: '#7a8491',
-    fontSize: scale(11),
+    fontSize: isTablet ? 12 : scale(11),
     fontWeight: '600',
-    lineHeight: scale(16),
+    lineHeight: isTablet ? 18 : scale(16),
     textAlign: 'center',
   },
   stepIndicator: {

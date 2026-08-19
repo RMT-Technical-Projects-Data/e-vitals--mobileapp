@@ -14,8 +14,9 @@ const scaleFont = (size) => Math.min((width / guidelineBaseWidth) * size, size *
 
 export const PREMIUM_BOTTOM_NAV_CLEARANCE = scaleHeight(88);
 
-export default function PremiumBottomNav({ active, navigation, role }) {
+export default function PremiumBottomNav({ active, navigation, role, unreadMessages = 0 }) {
   const [resolvedRole, setResolvedRole] = useState(role || 'patient');
+
 
   useEffect(() => {
     if (role) {
@@ -97,7 +98,14 @@ export default function PremiumBottomNav({ active, navigation, role }) {
               accessibilityRole="button"
               accessibilityLabel={item.label}
             >
-              <MaterialIcons name={item.icon} size={19} color={isActive ? activeColor : '#687382'} />
+              <View style={{ position: 'relative' }}>
+                <MaterialIcons name={item.icon} size={19} color={isActive ? activeColor : '#687382'} />
+                {item.key === 'messages' && unreadMessages > 0 && (
+                  <View style={styles.navBadge}>
+                    <Text style={styles.navBadgeText}>{unreadMessages > 99 ? '99+' : unreadMessages}</Text>
+                  </View>
+                )}
+              </View>
               <Text style={[styles.navLabel, isActive && { color: activeColor }]} numberOfLines={1}>
                 {item.label}
               </Text>
@@ -125,8 +133,8 @@ const styles = StyleSheet.create({
     padding: scaleWidth(8),
     borderRadius: scaleWidth(24),
     backgroundColor: 'rgba(255,255,255,0.94)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.72)',
+    borderWidth: 1.5,
+    borderColor: '#d0d8e2',
     shadowColor: '#071B34',
     shadowOffset: { width: 0, height: 18 },
     shadowOpacity: 0.16,
@@ -156,4 +164,22 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     textAlign: 'center',
   },
+  navBadge: {
+    position: 'absolute',
+    top: -4,
+    right: -8,
+    backgroundColor: '#E53935',
+    borderRadius: 8,
+    minWidth: 16,
+    height: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 3,
+  },
+  navBadgeText: {
+    color: '#fff',
+    fontSize: scaleFont(9),
+    fontWeight: '800',
+  },
 });
+

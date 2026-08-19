@@ -34,7 +34,7 @@ const scaleFont = size => scaleWidth(size);
 
 const NAVY_BLUE = colors.primaryButton || '#11224D';
 const WHITE = '#FFFFFF';
-const SCREEN_BG_COLORS = ['#fffdfb', '#f7ece7', '#eef1f5'];
+const SCREEN_BG_COLORS = ['#ffffff', '#ffffff', '#ffffff'];
 
 const caregivers = [
   {
@@ -1014,17 +1014,17 @@ const styles = StyleSheet.create({
     marginBottom: scaleHeight(8),
   },
   upcomingCard: {
-    backgroundColor: 'rgba(255,255,255,0.9)',
+    backgroundColor: '#ffffff',
     borderRadius: scaleWidth(24),
     padding: scaleWidth(16),
     marginBottom: scaleHeight(10),
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.78)',
+    borderColor: '#e8ecf0',
     shadowColor: '#071B34',
-    shadowOffset: { width: 0, height: 14 },
-    shadowOpacity: 0.08,
-    shadowRadius: 28,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    elevation: 4,
   },
   upcomingRow: {
     flexDirection: 'row',
@@ -1104,17 +1104,17 @@ const styles = StyleSheet.create({
   personBox: {
     flexDirection: 'row',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.78)',
+    borderColor: '#e8ecf0',
     borderRadius: scaleWidth(24),
     padding: scaleWidth(12),
     marginBottom: scaleHeight(10),
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.9)',
+    backgroundColor: '#ffffff',
     shadowColor: '#071B34',
-    shadowOffset: { width: 0, height: 14 },
-    shadowOpacity: 0.08,
-    shadowRadius: 28,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    elevation: 4,
   },
   personBoxSelected: {
     borderColor: '#071B34',

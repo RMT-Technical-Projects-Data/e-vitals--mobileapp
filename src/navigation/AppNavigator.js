@@ -3,7 +3,6 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useAuth } from '../context/AuthContext';
 
 import GlobalBottomBar from '../components/navigation/GlobalBottomBar';
-import SplashScreen from '../screens/auth/SplashScreen';
 import Login from '../screens/auth/Login';
 
 const Stack = createNativeStackNavigator();
@@ -12,17 +11,11 @@ const lazyScreen = (loader) => () => loader();
 
 /** Auth stack — shown when the user is NOT logged in */
 function AuthStack() {
-  const { showSplash } = useAuth();
   return (
     <Stack.Navigator
-      initialRouteName={showSplash ? 'Splash' : 'Login'}
+      initialRouteName="Login"
       screenOptions={{ headerShown: false }}
     >
-      <Stack.Screen
-        name="Splash"
-        component={SplashScreen}
-        options={{ animation: 'fade' }}
-      />
       <Stack.Screen
         name="Login"
         component={Login}
@@ -77,6 +70,10 @@ function AppStack() {
       <Stack.Screen
         name="FollowUp"
         getComponent={lazyScreen(() => require('../screens/communication/FollowUp').default)}
+      />
+      <Stack.Screen
+        name="LookupPatient"
+        getComponent={lazyScreen(() => require('../screens/patient/LookupPatient').default)}
       />
       <Stack.Screen
         name="Profile"

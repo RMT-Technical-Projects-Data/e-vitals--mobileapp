@@ -117,6 +117,8 @@ export const API_ENDPOINTS = {
   GET_FOLLOW_UPS: (practiceId, patientId) => `/practices/${practiceId}/patients/${patientId}/follow-ups`,
   CREATE_FOLLOW_UP: (practiceId, patientId) => `/practices/${practiceId}/patients/${patientId}/follow-ups`,
   GET_FOLLOW_UP_TEMPLATES: '/settings/follow-up-templates',
+  GET_FOLLOW_UP_TEMPLATE_BY_ID: (templateId) => `/settings/follow-up-templates/${templateId}`,
+  GET_FOLLOW_UP_TEMPLATE_CONTENT: (templateId) => `/settings/follow-up-templates/${templateId}/content`,
   GET_PATIENT_METERS: (practiceId, patientId) => `/practices/${practiceId}/patients/${patientId}/meters`,
 
   // Caregiver & Provider
@@ -142,6 +144,16 @@ export const API_ENDPOINTS = {
   CHAT_CONVERSATIONS: (userId) => `/chat/conversations/${userId}`,
   CHAT_HISTORY: (userId1, userId2) => `/chat/history/${userId1}/${userId2}`,
   CHAT_AVAILABLE_USERS: (practiceId, userId) => `/chat/users/${practiceId}/${userId}`,
+  CHAT_UNREAD_COUNT: (userId) => `/chat/unread-count/${userId}`,
+  CHAT_NOTIFICATIONS: (userId) => `/chat/notifications/${userId}`,
+  CHAT_NOTIFICATIONS_READ_ALL: '/chat/notifications/read-all',
+  CHAT_EDIT: (messageId) => `/chat/edit/${messageId}`,
+  CHAT_DELETE: (messageId) => `/chat/delete/${messageId}`,
+  CHAT_CONVERSATIONS_DELETE: '/chat/conversations/delete',
+  CHAT_UPLOAD: '/chat/upload',
 
   // ... Add other endpoints as needed
 };
+
+// Socket.IO base URL (no /api path — socket connects to the server root)
+export const SOCKET_BASE_URL = 'https://evitals.life';

@@ -48,7 +48,7 @@ export default function ChangePassword({ navigation }) {
   const getPasswordStrength = (password) => {
     const trimmedPassword = password.trim();
     return {
-      hasMinLength: trimmedPassword.length >= 7,
+      hasMinLength: trimmedPassword.length >= 8,
       hasLetter: /[a-zA-Z]/.test(trimmedPassword),
       hasNumber: /[0-9]/.test(trimmedPassword),
       isAlphanumericOnly: /^[a-zA-Z0-9]+$/.test(trimmedPassword), // Only letters and numbers, no special chars
@@ -72,15 +72,29 @@ export default function ChangePassword({ navigation }) {
     // Validate password strength (must match backend validation)
     const strength = getPasswordStrength(trimmedNewPassword);
     
-    // Check minimum 7 characters
-    if (trimmedNewPassword.length < 7) {
-      Alert.alert('Error', 'Password must be at least 7 characters long.');
+    // Check minimum 8 characters
+    if (trimmedNewPassword.length < 8) {
+      Alert.alert('Error', 'Password must be at least 8 characters long.');
       return;
     }
-    
-    // Check for letters and numbers (required for role_id 6 - Patient)
-    if (!strength.hasLetter || !strength.hasNumber) {
-      Alert.alert('Weak Password', 'Password must contain both letters and numbers.');
+    // Check for standard complexity requirements
+    if (!strength.hasUppercase) {
+      Alert.alert('Weak Password', 'Password must contain at least one uppercase letter.');
+      return;
+    }
+
+    if (!strength.hasLowercase) {
+      Alert.alert('Weak Password', 'Password must contain at least one lowercase letter.');
+      return;
+    }
+
+    if (!strength.hasNumber) {
+      Alert.alert('Weak Password', 'Password must contain at least one number.');
+      return;
+    }
+
+    if (!strength.hasSpecialChar) {
+      Alert.alert('Weak Password', 'Password must contain at least one special character (!@#$%^&*).');
       return;
     }
 
@@ -151,7 +165,7 @@ export default function ChangePassword({ navigation }) {
                   <View style={styles.passwordContainer}>
                     <TextInput
                       style={styles.input}
-                      placeholder="Enter current password"
+                      placeholder="Enter password"
                       secureTextEntry={!showCurrentPassword}
                       value={currentPassword}
                       onChangeText={setCurrentPassword}
@@ -177,7 +191,7 @@ export default function ChangePassword({ navigation }) {
                   <View style={styles.passwordContainer}>
                     <TextInput
                       style={styles.input}
-                      placeholder="Enter new password"
+                      placeholder="Enter password"
                       secureTextEntry={!showNewPassword}
                       value={newPassword}
                       onChangeText={setNewPassword}
@@ -203,17 +217,7 @@ export default function ChangePassword({ navigation }) {
                     <View style={styles.passwordStrengthContainer}>
                       <View style={styles.strengthRow}>
                         <Text style={[styles.strengthText, passwordStrength.hasMinLength && styles.strengthTextCompleted]}>
-                          {passwordStrength.hasMinLength ? '✓' : '○'} At least 7 characters
-                        </Text>
-                      </View>
-                      <View style={styles.strengthRow}>
-                        <Text style={[styles.strengthText, passwordStrength.hasLetter && styles.strengthTextCompleted]}>
-                          {passwordStrength.hasLetter ? '✓' : '○'} Contains letters
-                        </Text>
-                      </View>
-                      <View style={styles.strengthRow}>
-                        <Text style={[styles.strengthText, passwordStrength.hasNumber && styles.strengthTextCompleted]}>
-                          {passwordStrength.hasNumber ? '✓' : '○'} Contains numbers
+                          {passwordStrength.hasMinLength ? '✓' : '○'} At least 8 characters
                         </Text>
                       </View>
                       <View style={styles.strengthRow}>
@@ -222,8 +226,18 @@ export default function ChangePassword({ navigation }) {
                         </Text>
                       </View>
                       <View style={styles.strengthRow}>
-                        <Text style={[styles.strengthText, passwordStrength.isAlphanumericOnly && !passwordStrength.hasSpecialChar && styles.strengthTextCompleted, passwordStrength.hasSpecialChar && styles.strengthTextError]}>
-                          {passwordStrength.isAlphanumericOnly && !passwordStrength.hasSpecialChar ? '✓' : passwordStrength.hasSpecialChar ? '✗' : '○'} Only letters and numbers (no special characters)
+                        <Text style={[styles.strengthText, passwordStrength.hasLowercase && styles.strengthTextCompleted]}>
+                          {passwordStrength.hasLowercase ? '✓' : '○'} Contains lowercase letter
+                        </Text>
+                      </View>
+                      <View style={styles.strengthRow}>
+                        <Text style={[styles.strengthText, passwordStrength.hasNumber && styles.strengthTextCompleted]}>
+                          {passwordStrength.hasNumber ? '✓' : '○'} Contains numbers
+                        </Text>
+                      </View>
+                      <View style={styles.strengthRow}>
+                        <Text style={[styles.strengthText, passwordStrength.hasSpecialChar && styles.strengthTextCompleted]}>
+                          {passwordStrength.hasSpecialChar ? '✓' : '○'} Contains special character
                         </Text>
                       </View>
                     </View>
@@ -233,7 +247,7 @@ export default function ChangePassword({ navigation }) {
                   <View style={styles.passwordContainer}>
                     <TextInput
                       style={styles.input}
-                      placeholder="Confirm new password"
+                      placeholder="Enter password"
                       secureTextEntry={!showConfirmPassword}
                       value={confirmPassword}
                       onChangeText={setConfirmPassword}
@@ -380,6 +394,8 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 2,
     flex: 1,
+    fontFamily: Platform.select({ android: 'sans-serif', ios: undefined }),
+    letterSpacing: 0,
   },
   passwordContainer: {
     position: 'relative',

@@ -39,13 +39,16 @@ const TEXT_DARK = '#0A1C30';
 const TEXT_MUTED = '#6c757d';
 const CONTACT_SUPPORT_EMAIL = 'rsaiyed@evitalsrpm.com';
 const SettingsScreen = ({ navigation }) => {
-  const { logout } = useAuth();
+  const { logout, updateUser } = useAuth();
   const [userName, setUserName] = useState('E-Vitals');
   const [userEmail, setUserEmail] = useState('aamirse007@gmail.com');
   const [userRole, setUserRole] = useState('patient');
 
   const [isNotificationsEnabled, setIsNotificationsEnabled] = useState(true);
   const [isSupportModalVisible, setIsSupportModalVisible] = useState(false);
+  const [isSessionModalVisible, setIsSessionModalVisible] = useState(false);
+  const [sessionTimeInput, setSessionTimeInput] = useState('30');
+  const [sessionTime, setSessionTime] = useState(30);
 
   // Support Form State
   const [supportEmail, setSupportEmail] = useState('');
@@ -65,6 +68,26 @@ const SettingsScreen = ({ navigation }) => {
         setUserEmail(user.email || 'aamirse007@gmail.com');
         setSupportEmail(user.email || 'aamirse007@gmail.com');
         setUserRole(user.role_name || user.role || 'patient');
+        
+        let sessionMinutes = 30;
+        if (user.session_time) {
+          const parsed = parseInt(user.session_time, 10);
+          if (!isNaN(parsed) && parsed >= 1) {
+            sessionMinutes = parsed;
+          }
+        }
+        setSessionTime(sessionMinutes);
+      }
+
+      // Also try fetching from API to keep it fresh
+      const settingsResult = await apiService.getAccountSettings();
+      if (settingsResult?.success && settingsResult?.data) {
+        const dbSessionTime = settingsResult.data.session_time;
+        const parsed = parseInt(dbSessionTime, 10);
+        if (!isNaN(parsed) && parsed >= 1) {
+          setSessionTime(parsed);
+          await updateUser({ session_time: parsed });
+        }
       }
     } catch (error) {
       console.log('Error loading user data:', error);
@@ -111,9 +134,37 @@ const SettingsScreen = ({ navigation }) => {
     setSupportMessage('');
   };
 
+  const handleOpenSessionModal = () => {
+    setSessionTimeInput(String(sessionTime));
+    setIsSessionModalVisible(true);
+  };
+
+  const handleSaveSessionTime = async () => {
+    const parsed = parseInt(sessionTimeInput, 10);
+    if (isNaN(parsed) || parsed < 1) {
+      Alert.alert('Error', 'Please enter a valid session time of at least 1 minute.');
+      return;
+    }
+
+    try {
+      const result = await apiService.updateSessionSettings(parsed);
+      if (result && result.success) {
+        setSessionTime(parsed);
+        await updateUser({ session_time: parsed });
+        Alert.alert('Success', 'Session timeout updated successfully.');
+        setIsSessionModalVisible(false);
+      } else {
+        Alert.alert('Error', result?.message || 'Failed to update session settings.');
+      }
+    } catch (error) {
+      console.log('Error saving session time:', error);
+      Alert.alert('Error', error.message || 'Failed to update session settings.');
+    }
+  };
+
   return (
     <SafeAreaProvider>
-      <LinearGradient colors={['#fffdfb', '#f7ece7', '#eef1f5']} style={styles.fullScreenContainer}>
+      <LinearGradient colors={['#ffffff', '#ffffff', '#ffffff']} style={styles.fullScreenContainer}>
         <SafeAreaView style={styles.safeArea} edges={['top']}>
           <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent />
 
@@ -178,6 +229,21 @@ const SettingsScreen = ({ navigation }) => {
                 <View style={[styles.toggleCircle, isNotificationsEnabled ? styles.circleActive : styles.circleInactive]} />
               </TouchableOpacity>
             </View>
+            <View style={styles.divider} />
+
+            {/* Session Timeout */}
+            <TouchableOpacity style={styles.settingRow} onPress={handleOpenSessionModal}>
+              <View style={styles.iconBox}>
+                <Image source={require('../../assets/images/batch_05/information-button.png')} style={{ width: scaleWidth(20), height: scaleWidth(20), tintColor: NAVY_BLUE }} resizeMode="contain" />
+              </View>
+              <View style={styles.settingTextContainer}>
+                <Text style={styles.settingTitle}>Session Timeout</Text>
+                <Text style={styles.settingSubtitle}>
+                  Current: {sessionTime} {sessionTime === 1 ? 'minute' : 'minutes'}
+                </Text>
+              </View>
+              <Text style={{ fontSize: scaleFont(24), color: '#c7c7cc', paddingHorizontal: scaleWidth(5) }}>›</Text>
+            </TouchableOpacity>
             <View style={styles.divider} />
 
             {/* Privacy Policy */}
@@ -300,6 +366,48 @@ const SettingsScreen = ({ navigation }) => {
         </View>
       </Modal>
 
+      {/* Session Timeout Modal */}
+      <Modal
+        visible={isSessionModalVisible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setIsSessionModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Session Timeout Settings</Text>
+            
+            <Text style={[styles.settingSubtitle, { marginBottom: scaleHeight(12), textAlign: 'center' }]}>
+              Enter session inactivity lifetime (in minutes, min 1)
+            </Text>
+
+            <TextInput
+              style={styles.inputField}
+              value={sessionTimeInput}
+              onChangeText={setSessionTimeInput}
+              placeholder="Session timeout (minutes)"
+              placeholderTextColor="#999"
+              keyboardType="number-pad"
+            />
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={styles.cancelBtn}
+                onPress={() => setIsSessionModalVisible(false)}
+              >
+                <Text style={styles.cancelBtnText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.sendBtn}
+                onPress={handleSaveSessionTime}
+              >
+                <Text style={styles.sendBtnText}>Save</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
     </SafeAreaProvider >
   );
 };
@@ -364,19 +472,19 @@ const styles = StyleSheet.create({
     marginRight: scaleWidth(15),
   },
   profileCard: {
-    backgroundColor: 'rgba(255,255,255,0.9)',
+    backgroundColor: '#ffffff',
     borderRadius: scaleWidth(24),
     padding: scaleWidth(16),
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: scaleHeight(18),
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.78)',
+    borderColor: '#e8ecf0',
     shadowColor: '#071B34',
-    shadowOffset: { width: 0, height: 16 },
-    shadowOpacity: 0.08,
-    shadowRadius: 34,
-    elevation: 4,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    elevation: 5,
   },
   avatarContainer: {
     width: scaleWidth(60),
@@ -417,16 +525,16 @@ const styles = StyleSheet.create({
     marginBottom: scaleHeight(8),
   },
   settingsListCard: {
-    backgroundColor: 'rgba(255,255,255,0.9)',
+    backgroundColor: '#ffffff',
     borderRadius: scaleWidth(24),
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.78)',
+    borderColor: '#e8ecf0',
     shadowColor: '#071B34',
-    shadowOffset: { width: 0, height: 16 },
-    shadowOpacity: 0.08,
-    shadowRadius: 34,
-    elevation: 4,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    elevation: 5,
   },
   settingRow: {
     backgroundColor: 'transparent',

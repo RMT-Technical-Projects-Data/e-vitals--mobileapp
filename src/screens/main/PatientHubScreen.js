@@ -30,13 +30,21 @@ const guidelineBaseWidth = 375;
 const scaleWidth = (size) => Math.min((width / guidelineBaseWidth) * size, size * 1.25);
 const scaleFont = (size) => Math.min((width / guidelineBaseWidth) * size, size * 1.2);
 
-const SCREEN_BG_COLORS = ['#fffdfb', '#f7ece7', '#eef1f5'];
+const SCREEN_BG_COLORS = ['#ffffff', '#ffffff', '#ffffff'];
 const PANEL_ACCENT = '#071B34';
 const TEXT_DARK = '#071B34';
 const TEXT_MUTED = '#687382';
 
-const SERVICE_TYPES = ['General', 'Call via others'];
-const FOLLOW_UP_STATUSES = ['Continue follow up', 'No need to follow up'];
+const RPM_SERVICE_TYPES = ['General', 'Call via others'];
+const CCM_SERVICE_TYPES = [
+  'Care plan review',
+  'Medication management',
+  'Patient education',
+  'Care coordination',
+  'Symptom / condition follow-up',
+  'Other',
+];
+const STATUS_OPTIONS = ['Continue follow up', 'No need to follow up'];
 
 const getTodayYmd = () => {
   const d = new Date();
@@ -210,6 +218,46 @@ const VitalUploadCard = ({
 }) => {
   const { date, time } = formatVitalDateParts(dateValue);
 
+  let valueColor = TEXT_DARK;
+  if (primary && primary !== '-') {
+    if (title === 'Blood Pressure') {
+      const parts = String(primary).split('/');
+      if (parts.length === 2) {
+        const sys = Number(parts[0].trim());
+        const dia = Number(parts[1].trim());
+        if (sys > 140 || dia > 90) valueColor = '#d32f2f'; // High
+        else if (sys < 100 || dia < 60) valueColor = '#f57c00'; // Low
+        else valueColor = '#15803d'; // Normal
+      }
+    } else if (title === 'Blood Glucose') {
+      const bgNum = Number(String(primary).replace(/[^\d.-]/g, ''));
+      if (!Number.isNaN(bgNum) && bgNum > 0) {
+        if (bgNum > 110) valueColor = '#d32f2f';
+        else if (bgNum < 60) valueColor = '#f57c00';
+        else valueColor = '#15803d';
+      }
+    } else if (title === 'Weight') {
+      const wtNum = Number(String(primary).replace(/[^\d.-]/g, ''));
+      if (!Number.isNaN(wtNum) && wtNum > 0) {
+        const wtLbs = unit === 'kg' ? wtNum * 2.20462 : wtNum;
+        if (wtLbs > 220) valueColor = '#d32f2f';
+        else if (wtLbs < 66) valueColor = '#f57c00';
+        else valueColor = '#15803d';
+      }
+    }
+  }
+
+  let secondaryColor = TEXT_MUTED;
+  if (secondary) {
+    const pulseMatch = String(secondary).match(/\d+/);
+    if (pulseMatch) {
+      const pNum = Number(pulseMatch[0]);
+      if (pNum > 100) secondaryColor = '#d32f2f';
+      else if (pNum < 60) secondaryColor = '#f57c00';
+      else secondaryColor = '#15803d';
+    }
+  }
+
   const content = (
     <View style={styles.vitalCard}>
       <View style={styles.vitalCardTopRow}>
@@ -235,16 +283,14 @@ const VitalUploadCard = ({
         </View>
         <View style={styles.vitalValueCol}>
           <View style={styles.vitalValueRow}>
-            <Text style={styles.vitalCardValue}>{primary}</Text>
+            <Text style={[styles.vitalCardValue, { color: valueColor }]}>{primary}</Text>
             {unit ? <Text style={styles.vitalCardUnit}>{unit}</Text> : null}
           </View>
-          {secondary ? <Text style={styles.vitalCardSecondary}>{secondary}</Text> : null}
+          {secondary ? <Text style={[styles.vitalCardSecondary, { color: secondaryColor }]}>{secondary}</Text> : null}
         </View>
       </View>
     </View>
   );
-
-  if (!onPress) return content;
 
   return (
     <TouchableOpacity onPress={onPress} activeOpacity={0.88}>
@@ -253,12 +299,56 @@ const VitalUploadCard = ({
   );
 };
 
+const HUB_FALLBACK_TEMPLATES = [
+  {
+    id: 'fallback-1',
+    name: 'Normal BP',
+    template: 'Blood pressure is within normal range. Patient educated on maintaining healthy lifestyle, diet, and exercise. Continue current medication regimen. Follow up in 30 days or sooner if symptoms arise.',
+  },
+  {
+    id: 'fallback-2',
+    name: 'Emergency Follow-up',
+    template: 'Emergency protocol initiated. Patient reported critical vitals. Immediate care coordination performed. Provider notified. Patient advised to seek emergency care if symptoms worsen. Follow up within 24 hours.',
+  },
+  {
+    id: 'fallback-3',
+    name: 'High Blood Pressure',
+    template: 'Patient reported elevated blood pressure readings. Medication adherence reviewed and reinforced. Dietary and lifestyle modifications discussed. Provider notified of persistent hypertension. Follow up in 7 days.',
+  },
+  {
+    id: 'fallback-4',
+    name: 'General RPM Check-in',
+    template: 'Routine RPM follow-up completed. Vital signs reviewed. Patient reports feeling well. No significant changes noted. Continue current care plan. Follow up as scheduled.',
+  },
+  {
+    id: 'fallback-5',
+    name: 'Medication Adherence',
+    template: 'Patient contacted regarding medication adherence. Barriers to medication use identified and addressed. Pharmacy coordination completed if needed. Patient verbalized understanding of medication importance. Follow up in 14 days.',
+  },
+  {
+    id: 'fallback-ccm-1',
+    name: 'CCM – Care Plan Review',
+    template: `CCM care management contact completed.\n\nCondition(s) addressed:\nActivity: Care plan review\n\nDiscussion summary:\n- Reviewed current care plan goals and progress\n- Identified barriers:\n- Patient education provided:\n- Medication/adherence reviewed:\n- Coordination/actions taken:\n\nPatient response / agreement:\nNext steps / follow-up:`,
+  },
+  {
+    id: 'fallback-ccm-2',
+    name: 'CCM – Medication Management',
+    template: `CCM care management contact completed.\n\nCondition(s) addressed:\nActivity: Medication management\n\nDiscussion summary:\n- Current medications reviewed\n- Adherence discussed:\n- Side effects / concerns:\n- Refills / pharmacy coordination:\n- Changes recommended or coordinated:\n\nPatient response / agreement:\nNext steps / follow-up:`,
+  },
+  {
+    id: 'fallback-ccm-3',
+    name: 'CCM – Patient Education',
+    template: `CCM care management contact completed.\n\nCondition(s) addressed:\nActivity: Patient education\n\nDiscussion summary:\n- Education topic(s):\n- Teaching method / materials used:\n- Patient understanding / teach-back:\n- Barriers to self-management:\n- Support provided:\n\nPatient response / agreement:\nNext steps / follow-up:`,
+  },
+];
+
 export default function PatientHubScreen({ navigation, route }) {
   const {
     patientId,
     practiceId: routePracticeId,
     patientName: routePatientName,
     dashboardRole = 'provider',
+    careProgram: routeCareProgram = 'RPM',
   } = route.params || {};
   const theme = getDashboardTheme(dashboardRole);
   const accentColor = theme.accent;
@@ -279,9 +369,12 @@ export default function PatientHubScreen({ navigation, route }) {
   const [loading, setLoading] = useState(true);
   const [showFollowUpModal, setShowFollowUpModal] = useState(false);
   const [submittingFollowUp, setSubmittingFollowUp] = useState(false);
-  const [followUpTemplates, setFollowUpTemplates] = useState([]);
+  const [followUpTemplates, setFollowUpTemplates] = useState(HUB_FALLBACK_TEMPLATES);
   const [loadingTemplates, setLoadingTemplates] = useState(false);
   const [showTemplatePicker, setShowTemplatePicker] = useState(false);
+  const [showServiceTypeDropdown, setShowServiceTypeDropdown] = useState(false);
+  const [showStatusDropdown, setShowStatusDropdown] = useState(false);
+  const [showAssignToDropdown, setShowAssignToDropdown] = useState(false);
   const [showFollowUpDatePicker, setShowFollowUpDatePicker] = useState(false);
   const [showFollowUpTimePicker, setShowFollowUpTimePicker] = useState(false);
   const followUpScrollRef = useRef(null);
@@ -297,6 +390,18 @@ export default function PatientHubScreen({ navigation, route }) {
     content: '',
   });
   const practiceIsLocked = false;
+
+  const isCcm = String(routeCareProgram).toUpperCase() === 'CCM';
+
+  const filteredFollowUpTemplates = useMemo(() => {
+    const list = Array.isArray(followUpTemplates) && followUpTemplates.length > 0 ? followUpTemplates : HUB_FALLBACK_TEMPLATES;
+    if (isCcm) {
+      const ccmOnly = list.filter((t) => /ccm/i.test(String(t.name || '')));
+      return ccmOnly.length ? ccmOnly : list;
+    }
+    const rpmOnly = list.filter((t) => !/ccm/i.test(String(t.name || '')));
+    return rpmOnly.length ? rpmOnly : list;
+  }, [followUpTemplates, isCcm]);
 
   useEffect(() => {
     if (patientId && !practiceIsLocked) {
@@ -325,11 +430,15 @@ export default function PatientHubScreen({ navigation, route }) {
     setLoadingTemplates(true);
     try {
       const result = await apiService.getFollowUpTemplates();
-      const templates = Array.isArray(result?.data) ? result.data : [];
-      setFollowUpTemplates(templates);
+      const templates = Array.isArray(result?.data) ? result.data : (Array.isArray(result) ? result : []);
+      if (templates.length > 0) {
+        setFollowUpTemplates(templates);
+      } else {
+        setFollowUpTemplates(HUB_FALLBACK_TEMPLATES);
+      }
     } catch (error) {
       console.warn('Failed to load follow-up templates:', error.message);
-      setFollowUpTemplates([]);
+      setFollowUpTemplates(HUB_FALLBACK_TEMPLATES);
     } finally {
       setLoadingTemplates(false);
     }
@@ -445,9 +554,6 @@ export default function PatientHubScreen({ navigation, route }) {
       content: '',
     });
     setShowFollowUpModal(true);
-    if (followUpTemplates.length === 0) {
-      loadFollowUpTemplates();
-    }
   };
 
   const handleManualTimeChange = (field, value) => {
@@ -459,17 +565,31 @@ export default function PatientHubScreen({ navigation, route }) {
     setFollowUpForm((prev) => ({ ...prev, [field]: normalizedValue }));
   };
 
-  const handleTemplateSelect = (templateId) => {
+  const handleTemplateSelect = async (templateId) => {
     if (!templateId) {
       setFollowUpForm((prev) => ({ ...prev, templateId: '', content: '' }));
       setShowTemplatePicker(false);
       return;
     }
-    const selected = followUpTemplates.find((item) => String(item.id) === String(templateId));
+    const selected = filteredFollowUpTemplates.find((item) => String(item.id) === String(templateId))
+      || followUpTemplates.find((item) => String(item.id) === String(templateId));
+    
+    let templateText = selected?.template || selected?.content || '';
+    if (!templateText && templateId && !String(templateId).startsWith('fallback')) {
+      try {
+        const res = await apiService.getFollowUpTemplateContent(templateId);
+        if (res?.data?.template) {
+          templateText = res.data.template;
+        }
+      } catch (err) {
+        console.warn('Failed to fetch template content by ID:', err);
+      }
+    }
+
     setFollowUpForm((prev) => ({
       ...prev,
       templateId: String(templateId),
-      content: selected?.template || '',
+      content: templateText,
     }));
     setShowTemplatePicker(false);
   };
@@ -491,8 +611,9 @@ export default function PatientHubScreen({ navigation, route }) {
   };
 
   const selectedFollowUpTemplate = useMemo(
-    () => followUpTemplates.find((item) => String(item.id) === String(followUpForm.templateId)),
-    [followUpTemplates, followUpForm.templateId],
+    () => filteredFollowUpTemplates.find((item) => String(item.id) === String(followUpForm.templateId))
+      || followUpTemplates.find((item) => String(item.id) === String(followUpForm.templateId)),
+    [filteredFollowUpTemplates, followUpTemplates, followUpForm.templateId],
   );
 
   const handleFollowUpSubmit = async () => {
@@ -579,9 +700,27 @@ export default function PatientHubScreen({ navigation, route }) {
             <View style={styles.card}>
               <View style={styles.cardTitleRow}>
                 <Text style={styles.cardTitle}>Patient Details</Text>
-                <View style={styles.statusPill}>
-                  <Text style={styles.statusPillText}>{getStatusLabel(patient.status)}</Text>
-                </View>
+                {(() => {
+                  const raw = String(patient.status ?? '').trim().toLowerCase();
+                  const numeric = /^\d+$/.test(raw) ? parseInt(raw, 10) : null;
+                  let bg = '#E8EAED';
+                  let color = '#6C757D';
+                  let label = getStatusLabel(patient.status);
+                  if (numeric === 2 || raw === 'active' || raw === 'stable') {
+                    bg = '#DDF8DD'; color = '#15803d';
+                  } else if (numeric === 3 || raw === 'pending' || raw === 'review') {
+                    bg = '#FEF3C7'; color = '#D97706';
+                  } else if (numeric === 4 || raw === 'locked') {
+                    bg = '#E6DDF8'; color = '#490565';
+                  } else if (raw === 'critical') {
+                    bg = '#FDE8E8'; color = '#d32f2f';
+                  }
+                  return (
+                    <View style={[styles.statusPill, { backgroundColor: bg }]}>
+                      <Text style={[styles.statusPillText, { color }]}>{label}</Text>
+                    </View>
+                  );
+                })()}
               </View>
               <DetailRow label="DOB" value={formatDisplayDate(patient.date_of_birth)} />
               <DetailRow label="Gender" value={getGenderText(patient.gender)} />
@@ -719,82 +858,126 @@ export default function PatientHubScreen({ navigation, route }) {
                   nestedScrollEnabled
                   bounces
                 >
+              {/* Service Type Dropdown */}
               <Text style={styles.fieldLabel}>Service Type</Text>
-              <View style={styles.optionRow}>
-                {SERVICE_TYPES.map((opt) => (
-                  <TouchableOpacity
-                    key={opt}
-                    style={[
-                      styles.optionChip,
-                      followUpForm.serviceType === opt && { backgroundColor: accentColor },
-                    ]}
-                    onPress={() => setFollowUpForm((prev) => ({ ...prev, serviceType: opt }))}
-                  >
-                    <Text style={[
-                      styles.optionChipText,
-                      followUpForm.serviceType === opt && styles.optionChipTextActive,
-                    ]}>
-                      {opt}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
+              <TouchableOpacity
+                style={styles.selectField}
+                onPress={() => {
+                  setShowServiceTypeDropdown((prev) => !prev);
+                  setShowStatusDropdown(false);
+                  setShowTemplatePicker(false);
+                }}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.selectFieldText} numberOfLines={1}>{followUpForm.serviceType}</Text>
+                <MaterialIcons name={showServiceTypeDropdown ? "keyboard-arrow-up" : "keyboard-arrow-down"} size={22} color={TEXT_MUTED} />
+              </TouchableOpacity>
 
+              {showServiceTypeDropdown && (
+                <View style={styles.inlineTemplateContainer}>
+                  {(isCcm ? CCM_SERVICE_TYPES : RPM_SERVICE_TYPES).map((opt) => (
+                    <TouchableOpacity
+                      key={opt}
+                      style={[styles.inlineTemplateItem, followUpForm.serviceType === opt && styles.inlineTemplateItemActive]}
+                      onPress={() => {
+                        setFollowUpForm((prev) => ({ ...prev, serviceType: opt }));
+                        setShowServiceTypeDropdown(false);
+                      }}
+                    >
+                      <Text style={[styles.inlineTemplateTitle, followUpForm.serviceType === opt && { color: accentColor, fontWeight: '800' }]}>{opt}</Text>
+                      {followUpForm.serviceType === opt && <MaterialIcons name="check" size={18} color={accentColor} />}
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+
+              {/* Follow Up Status Dropdown */}
               <Text style={styles.fieldLabel}>Follow Up Status</Text>
-              <View style={styles.optionRow}>
-                {FOLLOW_UP_STATUSES.map((opt) => (
-                  <TouchableOpacity
-                    key={opt}
-                    style={[
-                      styles.optionChip,
-                      followUpForm.followUpStatus === opt && { backgroundColor: accentColor },
-                    ]}
-                    onPress={() => setFollowUpForm((prev) => ({ ...prev, followUpStatus: opt }))}
-                  >
-                    <Text style={[
-                      styles.optionChipText,
-                      followUpForm.followUpStatus === opt && styles.optionChipTextActive,
-                    ]}>
-                      {opt}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
+              <TouchableOpacity
+                style={styles.selectField}
+                onPress={() => {
+                  setShowStatusDropdown((prev) => !prev);
+                  setShowServiceTypeDropdown(false);
+                  setShowTemplatePicker(false);
+                }}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.selectFieldText} numberOfLines={1}>{followUpForm.followUpStatus}</Text>
+                <MaterialIcons name={showStatusDropdown ? "keyboard-arrow-up" : "keyboard-arrow-down"} size={22} color={TEXT_MUTED} />
+              </TouchableOpacity>
 
+              {showStatusDropdown && (
+                <View style={styles.inlineTemplateContainer}>
+                  {STATUS_OPTIONS.map((opt) => (
+                    <TouchableOpacity
+                      key={opt}
+                      style={[styles.inlineTemplateItem, followUpForm.followUpStatus === opt && styles.inlineTemplateItemActive]}
+                      onPress={() => {
+                        setFollowUpForm((prev) => ({ ...prev, followUpStatus: opt }));
+                        setShowStatusDropdown(false);
+                      }}
+                    >
+                      <Text style={[styles.inlineTemplateTitle, followUpForm.followUpStatus === opt && { color: accentColor, fontWeight: '800' }]}>{opt}</Text>
+                      {followUpForm.followUpStatus === opt && <MaterialIcons name="check" size={18} color={accentColor} />}
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+
+              {/* Assign To Dropdown */}
               <Text style={styles.fieldLabel}>Assign To</Text>
-              <View style={styles.optionRow}>
-                <TouchableOpacity
-                  style={[
-                    styles.optionChip,
-                    !followUpForm.assignTo && { backgroundColor: accentColor },
-                  ]}
-                  onPress={() => setFollowUpForm((prev) => ({ ...prev, assignTo: '' }))}
-                >
-                  <Text style={[
-                    styles.optionChipText,
-                    !followUpForm.assignTo && styles.optionChipTextActive,
-                  ]}>
-                    Select...
-                  </Text>
-                </TouchableOpacity>
-                {caregivers.map((caregiver) => (
+              <TouchableOpacity
+                style={styles.selectField}
+                onPress={() => {
+                  setShowAssignToDropdown((prev) => !prev);
+                  setShowServiceTypeDropdown(false);
+                  setShowStatusDropdown(false);
+                  setShowTemplatePicker(false);
+                }}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.selectFieldText, !followUpForm.assignTo && styles.selectFieldPlaceholder]} numberOfLines={1}>
+                  {(() => {
+                    const selectedCaregiver = caregivers.find(c => String(c.id) === String(followUpForm.assignTo));
+                    return selectedCaregiver
+                      ? (selectedCaregiver.full_name || selectedCaregiver.name || `Caregiver ${selectedCaregiver.id}`)
+                      : 'Select caregiver...';
+                  })()}
+                </Text>
+                <MaterialIcons name={showAssignToDropdown ? "keyboard-arrow-up" : "keyboard-arrow-down"} size={22} color={TEXT_MUTED} />
+              </TouchableOpacity>
+
+              {showAssignToDropdown && (
+                <View style={styles.inlineTemplateContainer}>
                   <TouchableOpacity
-                    key={caregiver.id}
-                    style={[
-                      styles.optionChip,
-                      String(followUpForm.assignTo) === String(caregiver.id) && { backgroundColor: accentColor },
-                    ]}
-                    onPress={() => setFollowUpForm((prev) => ({ ...prev, assignTo: String(caregiver.id) }))}
+                    style={[styles.inlineTemplateItem, !followUpForm.assignTo && styles.inlineTemplateItemActive]}
+                    onPress={() => {
+                      setFollowUpForm((prev) => ({ ...prev, assignTo: '' }));
+                      setShowAssignToDropdown(false);
+                    }}
                   >
-                    <Text style={[
-                      styles.optionChipText,
-                      String(followUpForm.assignTo) === String(caregiver.id) && styles.optionChipTextActive,
-                    ]}>
-                      {caregiver.full_name || caregiver.name || `Caregiver ${caregiver.id}`}
-                    </Text>
+                    <Text style={[styles.inlineTemplateTitle, !followUpForm.assignTo && { color: accentColor, fontWeight: '800' }]}>Select... (None)</Text>
+                    {!followUpForm.assignTo && <MaterialIcons name="check" size={18} color={accentColor} />}
                   </TouchableOpacity>
-                ))}
-              </View>
+                  {caregivers.map((caregiver) => {
+                    const isSel = String(followUpForm.assignTo) === String(caregiver.id);
+                    const nameStr = caregiver.full_name || caregiver.name || `Caregiver ${caregiver.id}`;
+                    return (
+                      <TouchableOpacity
+                        key={caregiver.id}
+                        style={[styles.inlineTemplateItem, isSel && styles.inlineTemplateItemActive]}
+                        onPress={() => {
+                          setFollowUpForm((prev) => ({ ...prev, assignTo: String(caregiver.id) }));
+                          setShowAssignToDropdown(false);
+                        }}
+                      >
+                        <Text style={[styles.inlineTemplateTitle, isSel && { color: accentColor, fontWeight: '800' }]}>{nameStr}</Text>
+                        {isSel && <MaterialIcons name="check" size={18} color={accentColor} />}
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              )}
 
               <Text style={styles.fieldLabel}>Service Time *</Text>
               <FollowUpServiceTimer
@@ -869,7 +1052,8 @@ export default function PatientHubScreen({ navigation, route }) {
               <Text style={styles.fieldLabel}>Template</Text>
               <TouchableOpacity
                 style={styles.selectField}
-                onPress={() => setShowTemplatePicker(true)}
+                onPress={() => setShowTemplatePicker((prev) => !prev)}
+                activeOpacity={0.7}
               >
                 <Text style={[
                   styles.selectFieldText,
@@ -880,9 +1064,59 @@ export default function PatientHubScreen({ navigation, route }) {
                 {loadingTemplates ? (
                   <ActivityIndicator size="small" color={accentColor} />
                 ) : (
-                  <MaterialIcons name="arrow-drop-down" size={24} color={TEXT_MUTED} />
+                  <MaterialIcons name={showTemplatePicker ? "keyboard-arrow-up" : "keyboard-arrow-down"} size={24} color={TEXT_MUTED} />
                 )}
               </TouchableOpacity>
+
+              {/* Expandable Inline Template Selector */}
+              {showTemplatePicker && (
+                <View style={styles.inlineTemplateContainer}>
+                  <TouchableOpacity
+                    style={styles.inlineTemplateItem}
+                    onPress={() => handleTemplateSelect('')}
+                  >
+                    <Text style={styles.inlineTemplateTitle}>Please Choose a Template (Clear)</Text>
+                  </TouchableOpacity>
+                  {filteredFollowUpTemplates.length === 0 ? (
+                    <Text style={styles.templatePickerEmpty}>
+                      {loadingTemplates ? 'Loading templates...' : 'No templates available'}
+                    </Text>
+                  ) : (
+                    filteredFollowUpTemplates.map((template) => {
+                      const isSelected = String(followUpForm.templateId) === String(template.id);
+                      const snippet = template.template || template.content || '';
+                      return (
+                        <TouchableOpacity
+                          key={template.id}
+                          style={[
+                            styles.inlineTemplateItem,
+                            isSelected && styles.inlineTemplateItemActive,
+                          ]}
+                          onPress={() => handleTemplateSelect(template.id)}
+                          activeOpacity={0.7}
+                        >
+                          <View style={{ flex: 1, marginRight: 8 }}>
+                            <Text style={[
+                              styles.inlineTemplateTitle,
+                              isSelected && { color: accentColor, fontWeight: '800' },
+                            ]}>
+                              {template.name || `Template ${template.id}`}
+                            </Text>
+                            {snippet ? (
+                              <Text style={styles.inlineTemplateSnippet} numberOfLines={2}>
+                                {snippet}
+                              </Text>
+                            ) : null}
+                          </View>
+                          {isSelected && <MaterialIcons name="check" size={20} color={accentColor} />}
+                        </TouchableOpacity>
+                      );
+                    })
+                  )}
+                </View>
+              )}
+
+              {/* Content */}
 
               <Text style={styles.fieldLabel}>Content *</Text>
               <TextInput
@@ -978,60 +1212,6 @@ export default function PatientHubScreen({ navigation, route }) {
             onChange={handleFollowUpTimeChange}
           />
         ) : null}
-
-      <Modal
-        visible={showTemplatePicker}
-        animationType="slide"
-        transparent
-        onRequestClose={() => setShowTemplatePicker(false)}
-        statusBarTranslucent
-        presentationStyle="overFullScreen"
-      >
-        <Pressable style={styles.templatePickerBackdrop} onPress={() => setShowTemplatePicker(false)}>
-          <Pressable style={styles.templatePickerSheet} onPress={(e) => e.stopPropagation()}>
-              <View style={styles.templatePickerHeader}>
-                <Text style={styles.templatePickerTitle}>Choose Template</Text>
-                <TouchableOpacity onPress={() => setShowTemplatePicker(false)}>
-                  <MaterialIcons name="close" size={22} color={TEXT_DARK} />
-                </TouchableOpacity>
-              </View>
-              <ScrollView style={styles.templatePickerList} bounces={false}>
-                <TouchableOpacity
-                  style={styles.templatePickerItem}
-                  onPress={() => handleTemplateSelect('')}
-                >
-                  <Text style={styles.templatePickerItemText}>Please Choose a Template</Text>
-                </TouchableOpacity>
-                {followUpTemplates.length === 0 ? (
-                  <Text style={styles.templatePickerEmpty}>
-                    {loadingTemplates ? 'Loading templates...' : 'No templates available'}
-                  </Text>
-                ) : (
-                  followUpTemplates.map((template) => (
-                    <TouchableOpacity
-                      key={template.id}
-                      style={[
-                        styles.templatePickerItem,
-                        String(followUpForm.templateId) === String(template.id) && styles.templatePickerItemActive,
-                      ]}
-                      onPress={() => handleTemplateSelect(template.id)}
-                    >
-                      <Text style={[
-                        styles.templatePickerItemText,
-                        String(followUpForm.templateId) === String(template.id) && styles.templatePickerItemTextActive,
-                      ]}>
-                        {template.name || `Template ${template.id}`}
-                      </Text>
-                      {String(followUpForm.templateId) === String(template.id) ? (
-                        <MaterialIcons name="check" size={20} color={accentColor} />
-                      ) : null}
-                    </TouchableOpacity>
-                  ))
-                )}
-              </ScrollView>
-          </Pressable>
-        </Pressable>
-      </Modal>
     </LinearGradient>
   );
 }
@@ -1080,16 +1260,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: scaleWidth(2),
   },
   card: {
-    backgroundColor: 'rgba(255,255,255,0.92)',
+    backgroundColor: '#ffffff',
     borderRadius: scaleWidth(20),
     padding: scaleWidth(16),
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.78)',
+    borderColor: '#e8ecf0',
     shadowColor: PANEL_ACCENT,
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.06,
-    shadowRadius: 20,
-    elevation: 2,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    elevation: 4,
   },
   cardTitleRow: {
     flexDirection: 'row',
@@ -1136,16 +1316,16 @@ const styles = StyleSheet.create({
     textAlign: 'right',
   },
   timerCard: {
-    backgroundColor: 'rgba(255,255,255,0.95)',
+    backgroundColor: '#ffffff',
     borderRadius: scaleWidth(18),
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.78)',
+    borderColor: '#e8ecf0',
     padding: scaleWidth(16),
     shadowColor: PANEL_ACCENT,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.06,
-    shadowRadius: 18,
-    elevation: 2,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    elevation: 4,
   },
   timerCardHeader: {
     flexDirection: 'row',
@@ -1201,16 +1381,16 @@ const styles = StyleSheet.create({
   },
   vitalsGrid: { gap: scaleWidth(10) },
   vitalCard: {
-    backgroundColor: 'rgba(255,255,255,0.94)',
+    backgroundColor: '#ffffff',
     borderRadius: scaleWidth(20),
     padding: scaleWidth(14),
     borderWidth: 1,
-    borderColor: 'rgba(7,27,52,0.07)',
+    borderColor: '#e8ecf0',
     shadowColor: PANEL_ACCENT,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.05,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.12,
     shadowRadius: 16,
-    elevation: 2,
+    elevation: 4,
   },
   vitalCardTopRow: {
     flexDirection: 'row',
@@ -1593,7 +1773,52 @@ const styles = StyleSheet.create({
     fontSize: scaleFont(13),
     color: TEXT_MUTED,
     textAlign: 'center',
-    paddingVertical: scaleWidth(24),
+    paddingVertical: scaleWidth(16),
+  },
+  inlineTemplateContainer: {
+    marginTop: scaleWidth(6),
+    marginBottom: scaleWidth(10),
+    borderWidth: 1,
+    borderColor: 'rgba(7,27,52,0.12)',
+    borderRadius: scaleWidth(12),
+    backgroundColor: '#fff',
+    overflow: 'hidden',
+  },
+  inlineTemplateItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: scaleWidth(12),
+    paddingVertical: scaleWidth(10),
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(7,27,52,0.06)',
+  },
+  inlineTemplateItemActive: {
+    backgroundColor: 'rgba(7,27,52,0.05)',
+  },
+  inlineTemplateTitle: {
+    fontSize: scaleFont(13),
+    fontWeight: '700',
+    color: TEXT_DARK,
+  },
+  inlineTemplateSnippet: {
+    fontSize: scaleFont(11),
+    color: TEXT_MUTED,
+    marginTop: 2,
+  },
+  templateChip: {
+    paddingHorizontal: scaleWidth(12),
+    paddingVertical: scaleWidth(6),
+    borderRadius: scaleWidth(16),
+    backgroundColor: 'rgba(7,27,52,0.05)',
+    borderWidth: 1,
+    borderColor: 'rgba(7,27,52,0.12)',
+    marginRight: scaleWidth(8),
+  },
+  templateChipText: {
+    fontSize: scaleFont(12),
+    fontWeight: '600',
+    color: TEXT_DARK,
   },
   modalActions: {
     flexDirection: 'row',
