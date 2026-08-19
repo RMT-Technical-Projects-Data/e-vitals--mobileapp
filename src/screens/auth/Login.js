@@ -15,7 +15,6 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
-import Svg, { Path } from 'react-native-svg';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import apiService from '../../services/apiService';
@@ -28,116 +27,18 @@ const EYE_OPEN = require('../../assets/images/batch_04/eye-open.png');
 const EYE_CLOSED = require('../../assets/images/batch_04/eye-close.png');
 
 const COLORS = {
-  page: '#ffffff',
-  pageSoft: '#f7fafc',
   navy: '#0b1f3f',
   blue: '#1177c6',
+  blueLight: '#4FA3F5',
   text: '#152033',
-  muted: '#687382',
-  border: '#dfe7ef',
-  paper: '#ffffff',
-  input: '#eef3fa',
-  shadow: 'rgba(7, 27, 52, 0.16)',
-  shadowSoft: 'rgba(7, 27, 52, 0.08)',
+  muted: '#64748b',
+  border: 'rgba(11, 42, 74, 0.14)',
+  inputBg: 'rgba(255, 255, 255, 0.65)',
+  inputFocusedBg: '#ffffff',
+  shadow: 'rgba(11, 42, 74, 0.28)',
+  cardBg: 'rgba(255, 255, 255, 0.62)',
+  cardBorder: 'rgba(255, 255, 255, 0.85)',
 };
-
-const TABLET_OVERLAY_COLORS = [
-  'rgba(255,255,255,0.98)',
-  'rgba(255,255,255,0.92)',
-  'rgba(255,255,255,0.72)',
-  'rgba(255,255,255,0.28)',
-  'rgba(255,255,255,0.08)',
-  'rgba(255,255,255,0)',
-  'rgba(255,255,255,0.18)',
-  'rgba(255,255,255,0.55)',
-  'rgba(255,255,255,0.82)',
-  'rgba(255,255,255,0.95)',
-];
-const TABLET_OVERLAY_LOCATIONS = [0, 0.12, 0.22, 0.34, 0.44, 0.52, 0.62, 0.72, 0.82, 1];
-
-const MOBILE_FEATURES = [
-  {
-    icon: 'verified-user',
-    title: 'Real-time Monitoring',
-    copy: 'Track vital signs in real time.',
-    tint: '#0f7bcf',
-    background: 'rgba(15, 123, 207, 0.10)',
-  },
-  {
-    icon: 'notifications-active',
-    title: 'Instant Alerts',
-    copy: 'Get notified instantly.',
-    tint: '#1b1f8a',
-    background: 'rgba(27, 31, 138, 0.08)',
-  },
-  {
-    icon: 'groups',
-    title: 'Care Connected',
-    copy: 'Your health, your team, always in sync.',
-    tint: '#1383c9',
-    background: 'rgba(19, 131, 201, 0.10)',
-  },
-];
-
-const TABLET_FEATURES = [
-  {
-    icon: 'verified-user',
-    title: 'Real-time Monitoring',
-    copy: 'Track your vital signs in real time.',
-    tint: '#0f7bcf',
-    background: 'rgba(15, 123, 207, 0.10)',
-  },
-  {
-    icon: 'notifications-active',
-    title: 'Instant Alerts',
-    copy: 'Get notified instantly when it matters.',
-    tint: '#1b1f8a',
-    background: 'rgba(27, 31, 138, 0.08)',
-  },
-  {
-    icon: 'groups',
-    title: 'Care Connected',
-    copy: 'Your health, your team, always in sync.',
-    tint: '#1383c9',
-    background: 'rgba(19, 131, 201, 0.10)',
-  },
-];
-
-const HeartOutline = ({ width, color = '#0077B6', opacity = 0.32 }) => (
-  <Svg viewBox="0 0 500 400" width={width} height={width * 0.8} fill="none">
-    <Path
-      d="M250 360 C230 340 90 235 55 170 C15 95 65 45 125 45
-         C175 45 215 75 250 120 C285 75 325 45 375 45
-         C435 45 485 95 445 170 C410 235 270 340 250 360Z"
-      stroke={color}
-      strokeWidth={12}
-      strokeOpacity={opacity}
-    />
-  </Svg>
-);
-
-const PulseLine = ({ width, height, color = '#0077B6', opacity = 0.32 }) => (
-  <Svg viewBox="0 0 650 160" width={width} height={height} fill="none">
-    <Path
-      d="M0 85 H118 L143 85 L168 115 L198 18 L238 148 L278 85
-         H318 L343 85 L373 52 L403 124 L433 85 H650"
-      stroke={color}
-      strokeWidth={4}
-      strokeOpacity={opacity}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    />
-  </Svg>
-);
-
-const WaveLines = ({ width, height, color = '#0077B6', opacity = 0.65 }) => (
-  <Svg viewBox="0 0 700 300" width={width} height={height} preserveAspectRatio="none" fill="none" opacity={opacity}>
-    <Path d="M0 80 C120 200 210 220 350 180 C500 130 590 60 700 0" stroke={color} strokeWidth={1.2} />
-    <Path d="M0 100 C120 220 210 240 350 200 C500 150 590 80 700 20" stroke={color} strokeWidth={1.2} />
-    <Path d="M0 120 C120 240 210 260 350 220 C500 170 590 100 700 40" stroke={color} strokeWidth={1.2} />
-    <Path d="M0 140 C120 260 210 280 350 240 C500 190 590 120 700 60" stroke={color} strokeWidth={1.2} />
-  </Svg>
-);
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 
@@ -146,17 +47,10 @@ const Login = ({ navigation }) => {
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
 
-  // Use shortest side so large iPhones in landscape are not treated as tablets.
   const shortestSide = Math.min(width, height);
-  const isLandscape = width > height;
   const isTablet = Platform.isPad || shortestSide >= 768;
-  const isPhoneLandscape = !isTablet && isLandscape;
-  // iPad always uses the full-bleed two-pane design (login on the right),
-  // matching the tablet mockup in both portrait and landscape.
-  const isLargeTablet = isTablet && width >= 1024;
 
-  // Scale relative to iPhone 14 width (390) / iPad landscape content width.
-  const mobileScale = clamp(width / 390, 0.82, 1.12);
+  const mobileScale = clamp(width / 390, 0.85, 1.15);
   const ms = n => Math.round(n * mobileScale);
 
   const [username, setUsername] = useState('');
@@ -318,71 +212,42 @@ const Login = ({ navigation }) => {
     }
   };
 
-  const formCardStyle = [
-    styles.formCard,
-    isTablet
-      ? styles.formCardTablet
-      : isPhoneLandscape
-        ? styles.formCardPhoneLandscape
-        : [styles.formCardMobile, { paddingHorizontal: ms(20), paddingTop: ms(22), paddingBottom: ms(22) }],
-  ];
-
-  const formTitleStyle = [
-    styles.formTitle,
-    isLargeTablet
-      ? styles.formTitleLarge
-      : isTablet
-        ? styles.formTitleTablet
-        : { fontSize: ms(28), lineHeight: ms(32) },
-  ];
-
-  const formSubtitleStyle = [
-    styles.formSubtitle,
-    isLargeTablet
-      ? styles.formSubtitleLarge
-      : isTablet
-        ? styles.formSubtitleTablet
-        : { fontSize: ms(15), lineHeight: ms(22) },
-  ];
-
-  const heartWidth = isTablet
-    ? clamp(width * 0.32, 300, 480)
-    : clamp(width * 0.52, 150, 210);
-  const pulseWidth = isTablet
-    ? clamp(width * 0.34, 310, 500)
-    : clamp(width * 0.58, 170, 240);
-  const pulseHeight = isTablet ? 130 : 58;
-  const waveWidth = width * (isTablet ? 0.42 : 0.72);
-  const waveHeight = height * (isTablet ? 0.28 : 0.18);
-
-  const renderFormFields = ({ mailIconSide = 'left', showLockIcon = true } = {}) => {
+  const renderFormFields = () => {
     if (showOtp) {
       return (
         <>
           <View style={styles.field}>
             <Text style={styles.label}>OTP Code</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Enter OTP code"
-              placeholderTextColor={COLORS.muted}
-              value={otp}
-              onChangeText={setOtp}
-              keyboardType="number-pad"
-              editable={!isLoading}
-              autoFocus
-            />
+            <View style={styles.inputIconWrap}>
+              <MaterialIcons name="pin" size={20} color={COLORS.muted} style={styles.fieldIconLeft} />
+              <TextInput
+                style={[styles.input, styles.inputWithLeftIcon]}
+                placeholder="Enter OTP code"
+                placeholderTextColor={COLORS.muted}
+                value={otp}
+                onChangeText={setOtp}
+                keyboardType="number-pad"
+                editable={!isLoading}
+                autoFocus
+              />
+            </View>
           </View>
 
-          <View style={styles.feedbackWrap}>
-            {feedback ? (
+          {feedback ? (
+            <View style={styles.feedbackWrap}>
               <Text style={[styles.feedbackText, feedbackTone === 'success' && styles.feedbackTextSuccess]}>
                 {feedback}
               </Text>
-            ) : null}
-          </View>
+            </View>
+          ) : null}
 
-          <TouchableOpacity style={styles.primaryButtonWrap} onPress={handleVerifyOtp} disabled={isLoading}>
-            <LinearGradient colors={['#1d1588', '#1177c6']} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} style={styles.primaryButton}>
+          <TouchableOpacity style={styles.primaryButtonWrap} onPress={handleVerifyOtp} disabled={isLoading} activeOpacity={0.85}>
+            <LinearGradient
+              colors={[COLORS.blueLight, COLORS.blue, COLORS.navy]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.primaryButton}
+            >
               <Text style={styles.primaryButtonText}>{isLoading ? 'Verifying...' : 'Verify OTP'}</Text>
               {!isLoading ? <MaterialIcons name="arrow-forward" size={18} color="#fff" /> : null}
             </LinearGradient>
@@ -396,13 +261,11 @@ const Login = ({ navigation }) => {
         <View style={styles.field}>
           <Text style={styles.label}>Email Address</Text>
           <View style={styles.inputIconWrap}>
-            {mailIconSide === 'left' ? (
-              <MaterialIcons name="mail-outline" size={18} color={COLORS.muted} style={styles.fieldIconLeft} />
-            ) : null}
+            <MaterialIcons name="mail-outline" size={20} color={COLORS.navy} style={styles.fieldIconLeft} />
             <TextInput
               style={[
                 styles.input,
-                mailIconSide === 'left' ? styles.inputWithLeftIcon : styles.inputWithRightIcon,
+                styles.inputWithLeftIcon,
                 isUsernameFocused && styles.inputFocused,
               ]}
               placeholder="Enter your email"
@@ -418,22 +281,17 @@ const Login = ({ navigation }) => {
               autoComplete="username"
               editable={!isLoading}
             />
-            {mailIconSide === 'right' ? (
-              <MaterialIcons name="mail-outline" size={18} color={COLORS.muted} style={styles.fieldIconRight} />
-            ) : null}
           </View>
         </View>
 
         <View style={styles.field}>
           <Text style={styles.label}>Password</Text>
-          <View style={styles.passwordWrap}>
-            {showLockIcon ? (
-              <MaterialIcons name="lock-outline" size={18} color={COLORS.muted} style={styles.fieldIconLeft} />
-            ) : null}
+          <View style={styles.inputIconWrap}>
+            <MaterialIcons name="lock-outline" size={20} color={COLORS.navy} style={styles.fieldIconLeft} />
             <TextInput
               style={[
                 styles.input,
-                showLockIcon ? styles.passwordInputWithLock : styles.passwordInput,
+                styles.passwordInputWithLock,
                 isPasswordFocused && styles.inputFocused,
               ]}
               placeholder="Enter password"
@@ -475,19 +333,19 @@ const Login = ({ navigation }) => {
           </TouchableOpacity>
         </View>
 
-        <View style={styles.feedbackWrap}>
-          {feedback ? (
+        {feedback ? (
+          <View style={styles.feedbackWrap}>
             <Text style={[styles.feedbackText, feedbackTone === 'success' && styles.feedbackTextSuccess]}>
               {feedback}
             </Text>
-          ) : null}
-        </View>
+          </View>
+        ) : null}
 
-        <TouchableOpacity style={styles.primaryButtonWrap} onPress={handleLogin} disabled={isLoading}>
+        <TouchableOpacity style={styles.primaryButtonWrap} onPress={handleLogin} disabled={isLoading} activeOpacity={0.85}>
           <LinearGradient
-            colors={['#1d1588', '#1177c6']}
-            start={{ x: 0, y: 0.5 }}
-            end={{ x: 1, y: 0.5 }}
+            colors={[COLORS.blueLight, COLORS.blue, COLORS.navy]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
             style={styles.primaryButton}
           >
             <Text style={styles.primaryButtonText}>{isLoading ? 'Signing in...' : 'Sign In'}</Text>
@@ -495,983 +353,311 @@ const Login = ({ navigation }) => {
           </LinearGradient>
         </TouchableOpacity>
 
-        <View style={styles.finePrintRow}>
-          <MaterialIcons name="verified" size={14} color={COLORS.blue} />
-          <Text style={styles.finePrint}>Secure. Reliable. Designed for better care.</Text>
+        <View style={styles.secureLine}>
+          <MaterialIcons name="verified-user" size={15} color={COLORS.navy} style={{ opacity: 0.75 }} />
+          <Text style={styles.secureLineText}>Secure. Reliable. Designed for better care.</Text>
         </View>
       </>
     );
   };
 
-  const formCard = (options = {}) => (
-    <View style={formCardStyle}>
-      <Text style={formTitleStyle}>{showOtp ? 'Verify your account' : 'Welcome back!'}</Text>
-      <Text style={formSubtitleStyle}>
-        {showOtp
-          ? 'Enter the verification code sent to you.'
-          : 'Enter your credentials to access your account.'}
-      </Text>
-      {renderFormFields(options)}
-    </View>
-  );
-
-  const renderFeatures = (features, compact = false) => (
-    <View style={[styles.featuresRow, compact && styles.featuresRowCompact]}>
-      {features.map(feature => (
-        <View key={feature.title} style={styles.featureCard}>
-          <View
-            style={[
-              styles.featureIconWrap,
-              compact && styles.featureIconWrapCompact,
-              { backgroundColor: feature.background },
-            ]}
-          >
-            <MaterialIcons name={feature.icon} size={compact ? 18 : 22} color={feature.tint} />
-          </View>
-          <Text style={[styles.featureTitle, compact && styles.featureTitleCompact]}>{feature.title}</Text>
-          <Text style={[styles.featureCopy, compact && styles.featureCopyCompact]}>{feature.copy}</Text>
-        </View>
-      ))}
-    </View>
-  );
-
-  // ── iPad: two-pane layout matching Image 2 ──
-  if (isTablet) {
-    return (
-      <View style={[styles.screenRoot, { width, height }]}>
-        <ImageBackground source={HERO_IMAGE} style={styles.tabletBgFill} resizeMode="cover">
-          <LinearGradient
-            colors={TABLET_OVERLAY_COLORS}
-            locations={TABLET_OVERLAY_LOCATIONS}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-            style={StyleSheet.absoluteFill}
-          />
-
-          <View style={styles.tabletDecorLayer} pointerEvents="none">
-            <View style={styles.tabletHeartWrap}>
-              <HeartOutline width={heartWidth} opacity={0.42} />
-            </View>
-            <View style={styles.tabletPulseWrap}>
-              <PulseLine width={pulseWidth} height={pulseHeight} opacity={0.55} />
-            </View>
-            <View style={styles.tabletWaveWrap}>
-              <WaveLines width={waveWidth} height={waveHeight} opacity={0.55} />
-            </View>
-          </View>
-
-          <SafeAreaView style={styles.tabletSafeArea} edges={['top', 'bottom', 'left', 'right']}>
-            <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent />
-            <KeyboardAvoidingView
-              style={styles.tabletKeyboardWrap}
-              behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-            >
-              <View style={styles.tabletRow}>
-                <ScrollView
-                  style={styles.tabletLeftPane}
-                  contentContainerStyle={[
-                    styles.tabletLeftContent,
-                    isLargeTablet && styles.tabletLeftContentLarge,
-                  ]}
-                  showsVerticalScrollIndicator={false}
-                  bounces={false}
-                  keyboardShouldPersistTaps="handled"
-                >
-                  <Image
-                    source={LOGO_IMAGE}
-                    resizeMode="contain"
-                    style={[styles.logoTabletImage, isLargeTablet && styles.logoLarge]}
-                  />
-
-                  <View style={styles.heroTextBlock}>
-                    <Text
-                      style={[
-                        styles.heroHeadline,
-                        isLargeTablet ? styles.heroHeadlineLarge : styles.heroHeadlineTablet,
-                      ]}
-                    >
-                      <Text style={styles.heroHeadlineDark}>Better Care.</Text>
-                      {'\n'}
-                      <Text style={styles.heroHeadlineBlue}>Stronger Outcomes.</Text>
-                    </Text>
-                    <Text style={[styles.heroCopy, styles.heroCopyTablet]}>
-                      Empowering patients and care teams with intelligent, real-time remote
-                      monitoring for proactive health management and continuous care. Delivering
-                      peace of mind through seamless clinical connectivity.
-                    </Text>
-                  </View>
-
-                  <View style={[styles.featuresRow, styles.featuresRowTablet]}>
-                    {TABLET_FEATURES.map(feature => (
-                      <View key={feature.title} style={styles.featureCardTablet}>
-                        <View style={[styles.featureIconWrap, { backgroundColor: feature.background }]}>
-                          <MaterialIcons name={feature.icon} size={24} color={feature.tint} />
-                        </View>
-                        <Text style={styles.featureTitle}>{feature.title}</Text>
-                        <Text style={styles.featureCopy}>{feature.copy}</Text>
-                      </View>
-                    ))}
-                  </View>
-
-                  <View style={styles.securityCard}>
-                    <View style={styles.securityBadge}>
-                      <MaterialIcons name="lock-outline" size={18} color={COLORS.blue} />
-                    </View>
-                    <View style={styles.securityTextWrap}>
-                      <Text style={styles.securityTitle}>Your health data is safe with us.</Text>
-                      <Text style={styles.securityCopy}>
-                        We use industry-leading encryption to protect your information.
-                      </Text>
-                    </View>
-                  </View>
-                </ScrollView>
-
-                <View style={styles.tabletRightPane}>
-                  <ScrollView
-                    style={styles.tabletRightScroll}
-                    contentContainerStyle={styles.tabletRightScrollContent}
-                    showsVerticalScrollIndicator={false}
-                    keyboardShouldPersistTaps="handled"
-                    keyboardDismissMode="on-drag"
-                    bounces={false}
-                  >
-                    {formCard({ mailIconSide: 'right', showLockIcon: false })}
-                  </ScrollView>
-                </View>
-              </View>
-            </KeyboardAvoidingView>
-          </SafeAreaView>
-        </ImageBackground>
-      </View>
-    );
-  }
-
-  // ── Phone landscape: side-by-side compact layout ──
-  if (isPhoneLandscape) {
-    return (
-      <View style={[styles.screenRoot, styles.phoneLandscapeRoot, { width, height }]}>
-        <SafeAreaView style={styles.safeArea} edges={['top', 'bottom', 'left', 'right']}>
-          <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
-          <KeyboardAvoidingView
-            style={styles.flex}
-            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          >
-            <View style={styles.phoneLandscapeRow}>
-              <ScrollView
-                style={styles.phoneLandscapeLeft}
-                contentContainerStyle={styles.phoneLandscapeLeftContent}
-                showsVerticalScrollIndicator={false}
-                bounces={false}
-                keyboardShouldPersistTaps="handled"
-              >
-                <Image source={LOGO_IMAGE} resizeMode="contain" style={styles.logoPhoneLandscape} />
-                <Text style={styles.heroHeadlinePhoneLandscape}>
-                  <Text style={styles.heroHeadlineDark}>Better Care.</Text>
-                  {'\n'}
-                  <Text style={styles.heroHeadlineBlue}>Stronger Outcomes.</Text>
-                </Text>
-                <Text style={styles.heroCopyPhoneLandscape}>
-                  Empowering patients and care teams with intelligent, real-time remote monitoring.
-                </Text>
-                {renderFeatures(MOBILE_FEATURES, true)}
-              </ScrollView>
-
-              <ScrollView
-                style={styles.phoneLandscapeRight}
-                contentContainerStyle={styles.phoneLandscapeRightContent}
-                showsVerticalScrollIndicator={false}
-                keyboardShouldPersistTaps="handled"
-                keyboardDismissMode="on-drag"
-                bounces={false}
-              >
-                {formCard({ mailIconSide: 'left', showLockIcon: true })}
-              </ScrollView>
-            </View>
-          </KeyboardAvoidingView>
-        </SafeAreaView>
-      </View>
-    );
-  }
-
-  // ── Mobile portrait: stacked layout matching the phone mockup ──
-  const mobileBottomPad = Math.max(insets.bottom, ms(12)) + ms(44);
-  const mobileHeroW = ms(238);
-  const mobileHeroH = ms(256);
-  const mobileHeartW = clamp(width * 0.5, 168, 214);
-  const mobilePulseW = clamp(width * 0.54, 180, 228);
-  const mobilePulseH = ms(62);
+  const cardMaxWidth = isTablet ? 520 : Math.min(width - 32, 430);
+  const logoWidth = isTablet ? ms(150) : ms(130);
+  const logoHeight = isTablet ? ms(48) : ms(42);
 
   return (
-    <View style={[styles.screenRoot, styles.mobileRoot]}>
-      <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
-        <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
-        <KeyboardAvoidingView
-          style={styles.flex}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top : 0}
-        >
-          <ScrollView
-            style={styles.flex}
-            contentContainerStyle={[
-              styles.mobileScrollContentPhone,
-              {
-                paddingHorizontal: ms(20),
-                paddingBottom: mobileBottomPad,
-              },
-            ]}
-            keyboardShouldPersistTaps="handled"
-            keyboardDismissMode="on-drag"
-            bounces
-            showsVerticalScrollIndicator={false}
-            nestedScrollEnabled
+    <View style={styles.screenRoot}>
+      <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent />
+      <ImageBackground source={HERO_IMAGE} style={styles.fullScreenBg} resizeMode="cover">
+        {/* Soft light gradient overlay — keeps the photo visible while giving
+            the top brand mark and bottom card enough contrast to read */}
+        <LinearGradient
+          colors={[
+            'rgba(255, 255, 255, 0.55)',
+            'rgba(255, 255, 255, 0.10)',
+            'rgba(255, 255, 255, 0.06)',
+            'rgba(255, 255, 255, 0.55)',
+            'rgba(255, 255, 255, 0.85)',
+          ]}
+          locations={[0, 0.2, 0.45, 0.72, 1]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 0, y: 1 }}
+          style={StyleSheet.absoluteFill}
+        />
+
+        <SafeAreaView style={styles.safeArea} edges={['top', 'bottom', 'left', 'right']}>
+          {/* Brand mark sits directly on the photo — no card/background behind it */}
+          <View style={[styles.brandRow, { paddingTop: 8 }]}>
+            <Image
+              source={LOGO_IMAGE}
+              resizeMode="contain"
+              style={{ width: logoWidth, height: logoHeight }}
+            />
+          </View>
+
+          <KeyboardAvoidingView
+            style={styles.keyboardWrap}
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top : 0}
           >
-            <View style={[styles.mobileShell, { maxWidth: 430 }]}>
-              <View style={styles.mobileDecor} pointerEvents="none">
-                <View
-                  style={[
-                    styles.mobileHeroZone,
-                    { width: mobileHeroW, height: mobileHeroH, top: ms(2), right: ms(-22) },
-                  ]}
-                >
-                  <Image
-                    source={HERO_IMAGE}
-                    resizeMode="cover"
-                    style={styles.mobileHeroImageFill}
-                  />
-                  <LinearGradient
-                    colors={[
-                      'rgba(255,255,255,1)',
-                      'rgba(255,255,255,0.92)',
-                      'rgba(255,255,255,0.45)',
-                      'rgba(255,255,255,0)',
-                    ]}
-                    locations={[0, 0.22, 0.48, 0.72]}
-                    start={{ x: 0, y: 0.45 }}
-                    end={{ x: 1, y: 0.55 }}
-                    style={StyleSheet.absoluteFill}
-                  />
-                  <LinearGradient
-                    colors={[
-                      'rgba(255,255,255,0)',
-                      'rgba(255,255,255,0.35)',
-                      'rgba(255,255,255,0.82)',
-                      'rgba(255,255,255,1)',
-                    ]}
-                    locations={[0, 0.45, 0.78, 1]}
-                    start={{ x: 0.5, y: 0 }}
-                    end={{ x: 0.5, y: 1 }}
-                    style={StyleSheet.absoluteFill}
-                  />
-                  <LinearGradient
-                    colors={['rgba(255,255,255,0.55)', 'rgba(255,255,255,0)']}
-                    start={{ x: 0.5, y: 0 }}
-                    end={{ x: 0.5, y: 0.3 }}
-                    style={StyleSheet.absoluteFill}
-                  />
-                  <View style={styles.mobileHeartOverlay}>
-                    <HeartOutline width={mobileHeartW} opacity={0.4} />
-                  </View>
-                  <View style={[styles.mobilePulseOverlay, { top: ms(72), left: ms(-12) }]}>
-                    <PulseLine width={mobilePulseW} height={mobilePulseH} opacity={0.52} />
-                  </View>
-                </View>
-                <View style={styles.mobileWaveWrap}>
-                  <WaveLines width={waveWidth} height={waveHeight} opacity={0.55} />
-                </View>
-              </View>
-
-              <Image
-                source={LOGO_IMAGE}
-                resizeMode="contain"
-                style={[styles.logo, { width: ms(150), height: ms(48) }]}
-              />
-
-              <View style={[styles.heroTextBlock, { marginTop: ms(18), maxWidth: ms(240) }]}>
-                <Text style={[styles.heroHeadline, { fontSize: ms(34), lineHeight: ms(38) }]}>
-                  <Text style={styles.heroHeadlineDark}>Better Care.</Text>
-                  {'\n'}
-                  <Text style={styles.heroHeadlineBlue}>Stronger Outcomes.</Text>
+            <ScrollView
+              contentContainerStyle={styles.scrollContent}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              bounces
+            >
+              {/* Glassmorphic centered card */}
+              <View style={[styles.glassCard, { maxWidth: cardMaxWidth }]}>
+                {showOtp ? (
+                  <Text style={styles.formEyebrow}>Verification</Text>
+                ) : null}
+                <Text style={styles.formTitle}>
+                  {showOtp ? 'Verify your account' : 'Sign in to continue'}
                 </Text>
-                <Text
-                  style={[
-                    styles.heroCopy,
-                    { marginTop: ms(12), fontSize: ms(13), lineHeight: ms(20), maxWidth: ms(250) },
-                  ]}
-                >
-                  Empowering patients and care teams with intelligent, real-time remote monitoring
-                  for proactive health management and continuous care.
-                </Text>
-              </View>
+                {showOtp ? (
+                  <Text style={styles.formSubtitle}>
+                    Enter the verification code sent to you.
+                  </Text>
+                ) : null}
 
-              <View style={[styles.featuresRow, styles.featuresRowMobile, { marginTop: ms(22) }]}>
-                {MOBILE_FEATURES.map(feature => (
-                  <View key={feature.title} style={styles.featureCard}>
-                    <View
-                      style={[
-                        styles.featureIconWrap,
-                        { width: ms(44), height: ms(44), borderRadius: ms(14), backgroundColor: feature.background },
-                      ]}
-                    >
-                      <MaterialIcons name={feature.icon} size={ms(20)} color={feature.tint} />
-                    </View>
-                    <Text style={[styles.featureTitle, { fontSize: ms(12), lineHeight: ms(15) }]}>
-                      {feature.title}
-                    </Text>
-                    <Text style={[styles.featureCopy, { fontSize: ms(10), lineHeight: ms(14) }]}>
-                      {feature.copy}
-                    </Text>
-                  </View>
-                ))}
+                {renderFormFields()}
               </View>
-
-              <View style={[styles.mobileFormWrap, { marginTop: ms(20), marginBottom: ms(8) }]}>
-                {formCard({ mailIconSide: 'left', showLockIcon: true })}
-              </View>
-            </View>
-          </ScrollView>
-        </KeyboardAvoidingView>
-      </SafeAreaView>
+            </ScrollView>
+          </KeyboardAvoidingView>
+        </SafeAreaView>
+      </ImageBackground>
     </View>
   );
 };
 
 const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-  },
   screenRoot: {
     flex: 1,
-    backgroundColor: '#f4f6f7',
+    backgroundColor: '#071b34',
   },
-  mobileRoot: {
-    backgroundColor: COLORS.page,
-  },
-  phoneLandscapeRoot: {
-    backgroundColor: COLORS.page,
+  fullScreenBg: {
+    flex: 1,
+    width: '100%',
+    height: '100%',
   },
   safeArea: {
     flex: 1,
   },
-  flex: {
-    flex: 1,
-  },
-
-  // ── Tablet layout ──
-  tabletBgFill: {
-    flex: 1,
-    width: '100%',
-    height: '100%',
-  },
-  tabletDecorLayer: {
-    ...StyleSheet.absoluteFillObject,
-  },
-  tabletSafeArea: {
-    flex: 1,
-  },
-  tabletKeyboardWrap: {
-    flex: 1,
-  },
-  tabletHeartWrap: {
-    position: 'absolute',
-    top: '6%',
-    left: '16%',
-  },
-  tabletPulseWrap: {
-    position: 'absolute',
-    top: '20%',
-    left: '16%',
-  },
-  tabletWaveWrap: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-  },
-  tabletRow: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'stretch',
-    overflow: 'hidden',
-  },
-  tabletLeftPane: {
-    width: '58%',
-    maxHeight: '100%',
-  },
-  tabletLeftContent: {
-    paddingLeft: 44,
-    paddingRight: 20,
-    paddingTop: 24,
-    paddingBottom: 24,
-    gap: 20,
-  },
-  tabletLeftContentLarge: {
-    paddingLeft: 56,
-    paddingTop: 32,
-    paddingBottom: 32,
-  },
-  tabletRightPane: {
-    width: '42%',
-    maxHeight: '100%',
-    justifyContent: 'center',
-    paddingRight: 44,
-    paddingLeft: 12,
-  },
-  tabletRightScroll: {
-    flexGrow: 0,
-  },
-  tabletRightScrollContent: {
-    justifyContent: 'center',
-    paddingVertical: 16,
-  },
-  logoTabletImage: {
-    width: 190,
-    height: 62,
-  },
-
-  // ── Phone landscape ──
-  phoneLandscapeRow: {
-    flex: 1,
-    flexDirection: 'row',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    gap: 12,
-  },
-  phoneLandscapeLeft: {
-    flex: 1.05,
-  },
-  phoneLandscapeLeftContent: {
-    flexGrow: 1,
-    justifyContent: 'center',
-    paddingRight: 8,
-    paddingVertical: 8,
-  },
-  phoneLandscapeRight: {
-    flex: 0.95,
-  },
-  phoneLandscapeRightContent: {
-    flexGrow: 1,
-    justifyContent: 'center',
-    paddingVertical: 8,
-  },
-  logoPhoneLandscape: {
-    width: 128,
-    height: 42,
-    marginBottom: 10,
-  },
-  heroHeadlinePhoneLandscape: {
-    color: COLORS.navy,
-    fontWeight: '900',
-    letterSpacing: -0.4,
-    fontSize: 26,
-    lineHeight: 30,
-  },
-  heroCopyPhoneLandscape: {
-    color: COLORS.muted,
-    fontWeight: '500',
-    marginTop: 8,
-    fontSize: 12,
-    lineHeight: 17,
-    maxWidth: 280,
-    marginBottom: 12,
-  },
-
-  // ── iPhone portrait scroll ──
-  mobileScrollContentPhone: {
-    paddingTop: 8,
-  },
-  mobileScrollContent: {
-    flexGrow: 1,
-    paddingTop: 8,
-    paddingBottom: 28,
-  },
-  tabletPortraitScrollContent: {
-    paddingTop: 20,
-    paddingBottom: 36,
-    justifyContent: 'center',
-  },
-  mobileShell: {
-    width: '100%',
-    alignSelf: 'center',
-    position: 'relative',
-  },
-  mobileDecor: {
-    ...StyleSheet.absoluteFillObject,
-    zIndex: 0,
-  },
-  mobileHeroZone: {
-    position: 'absolute',
-    overflow: 'visible',
-    zIndex: 0,
-  },
-  mobileHeroImageFill: {
-    ...StyleSheet.absoluteFillObject,
-    width: '100%',
-    height: '100%',
-  },
-  mobileHeartOverlay: {
-    position: 'absolute',
-    top: 6,
-    left: -8,
-    zIndex: 3,
-  },
-  mobilePulseOverlay: {
-    position: 'absolute',
-    zIndex: 3,
-  },
-  mobileHeartWrap: {
-    position: 'absolute',
-    top: 8,
-    right: -10,
-    opacity: 0.9,
-  },
-  mobileHeartWrapTablet: {
-    top: 20,
-    right: 40,
-  },
-  mobilePulseWrap: {
-    position: 'absolute',
-    top: 78,
-    right: -4,
-  },
-  mobilePulseWrapTablet: {
-    top: 110,
-    right: 50,
-  },
-  mobileHeroImage: {
-    position: 'absolute',
-    top: 0,
-    right: -8,
-    opacity: 0.92,
-  },
-  mobileHeroImageTablet: {
-    right: 12,
-    borderRadius: 24,
-  },
-  mobileHeroFade: {
-    position: 'absolute',
-    top: 0,
-    right: -8,
-  },
-  mobileWaveWrap: {
-    position: 'absolute',
-    left: -20,
-    bottom: -10,
-  },
-  mobileFormWrap: {
-    zIndex: 2,
-  },
-
-  logo: {
-    zIndex: 2,
-  },
-  logoTablet: {
-    width: 190,
-    height: 62,
-  },
-  logoLarge: {
-    width: 214,
-    height: 68,
-  },
-  logoTabletPortrait: {
-    width: 180,
-    height: 58,
-  },
-  heroTextBlock: {
-    zIndex: 2,
-  },
-  heroHeadline: {
-    color: COLORS.navy,
-    fontWeight: '900',
-    letterSpacing: -0.4,
-  },
-  heroHeadlineDark: {
-    color: COLORS.navy,
-  },
-  heroHeadlineBlue: {
-    color: COLORS.blue,
-  },
-  heroHeadlineTablet: {
-    fontSize: 46,
-    lineHeight: 48,
-    maxWidth: 430,
-  },
-  heroHeadlineLarge: {
-    fontSize: 54,
-    lineHeight: 56,
-    maxWidth: 500,
-  },
-  heroHeadlineTabletPortrait: {
-    fontSize: 42,
-    lineHeight: 46,
-  },
-  heroCopy: {
-    color: COLORS.muted,
-    fontWeight: '500',
-  },
-  heroCopyTablet: {
-    marginTop: 16,
-    fontSize: 16,
-    lineHeight: 24,
-    maxWidth: 430,
-  },
-  heroCopyTabletPortrait: {
-    marginTop: 14,
-    fontSize: 15,
-    lineHeight: 23,
-    maxWidth: 420,
-  },
-  featuresRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: 8,
-    zIndex: 2,
-  },
-  featuresRowCompact: {
-    gap: 6,
-  },
-  featuresRowMobile: {
-    alignItems: 'flex-start',
-  },
-  featuresRowTablet: {
-    marginTop: 32,
-    maxWidth: 500,
-    justifyContent: 'flex-start',
-    gap: 32,
-  },
-  featureCard: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'flex-start',
-    paddingHorizontal: 4,
-  },
-  featureCardTablet: {
-    flex: 0,
-    width: 132,
-    alignItems: 'center',
-    justifyContent: 'flex-start',
-  },
-  featureIconWrap: {
-    width: 50,
-    height: 50,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 10,
-  },
-  featureIconWrapCompact: {
-    width: 36,
-    height: 36,
-    borderRadius: 12,
-    marginBottom: 6,
-  },
-  featureIconWrapTabletPortrait: {
-    width: 48,
-    height: 48,
-    borderRadius: 15,
-  },
-  featureTitle: {
-    color: COLORS.navy,
-    fontSize: 13,
-    lineHeight: 17,
-    fontWeight: '800',
-    textAlign: 'center',
-  },
-  featureTitleCompact: {
-    fontSize: 11,
-    lineHeight: 14,
-  },
-  featureCopy: {
-    color: COLORS.muted,
-    fontSize: 11,
-    lineHeight: 15,
-    fontWeight: '500',
-    textAlign: 'center',
-    marginTop: 4,
-  },
-  featureCopyCompact: {
-    fontSize: 10,
-    lineHeight: 13,
-  },
-  securityCard: {
-    marginTop: 28,
+  brandRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderRadius: 18,
-    backgroundColor: 'rgba(255,255,255,0.92)',
-    borderWidth: 1,
-    borderColor: 'rgba(99, 127, 167, 0.12)',
-    alignSelf: 'flex-start',
-    maxWidth: 440,
-    shadowColor: COLORS.shadowSoft,
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 1,
-    shadowRadius: 14,
-    elevation: 3,
-  },
-  securityCardPortrait: {
-    marginTop: 22,
-    alignSelf: 'stretch',
-    maxWidth: '100%',
-    backgroundColor: '#fff',
-    shadowColor: COLORS.shadowSoft,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 1,
-    shadowRadius: 16,
+    paddingHorizontal: 24,
+    // subtle lift so the mark reads clearly against any part of the photo
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
     elevation: 4,
   },
-  securityBadge: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(17, 119, 198, 0.10)',
-  },
-  securityTextWrap: {
+  keyboardWrap: {
     flex: 1,
   },
-  securityTitle: {
-    color: COLORS.navy,
-    fontSize: 13,
-    lineHeight: 18,
-    fontWeight: '800',
-  },
-  securityCopy: {
-    color: COLORS.muted,
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: '500',
-    marginTop: 2,
-  },
-  formCard: {
-    width: '100%',
-    alignSelf: 'center',
-    backgroundColor: COLORS.paper,
-    borderRadius: 28,
-    borderWidth: 1,
-    borderColor: 'rgba(223, 231, 239, 0.95)',
-    shadowColor: COLORS.shadowSoft,
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 1,
-    shadowRadius: 22,
-    elevation: 8,
-  },
-  formCardMobile: {
-    borderRadius: 30,
+  scrollContent: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
     paddingHorizontal: 20,
-    paddingTop: 22,
-    paddingBottom: 22,
+    paddingVertical: 24,
   },
-  formCardTablet: {
+  glassCard: {
     width: '100%',
-    maxWidth: 420,
-    alignSelf: 'flex-end',
-    paddingHorizontal: 28,
-    paddingTop: 32,
-    paddingBottom: 28,
+    justifyContent: 'center',
+    backgroundColor: COLORS.cardBg,
     borderRadius: 32,
+    borderWidth: 1,
+    borderColor: COLORS.cardBorder,
+    paddingHorizontal: 30,
+    paddingTop: 34,
+    paddingBottom: 30,
+    alignItems: 'flex-start',
+    // Layered shadow so the card visibly floats over the photo
+    shadowColor: COLORS.shadow,
+    shadowOffset: { width: 0, height: 18 },
+    shadowOpacity: 1,
+    shadowRadius: 32,
+    elevation: 12,
   },
-  formCardTabletCompact: {
-    maxWidth: 400,
-    paddingHorizontal: 24,
-    paddingTop: 26,
-    paddingBottom: 22,
-  },
-  formCardPhoneLandscape: {
-    paddingHorizontal: 18,
-    paddingTop: 16,
-    paddingBottom: 16,
-    borderRadius: 22,
+  formEyebrow: {
+    color: COLORS.blue,
+    fontSize: 13,
+    fontWeight: '800',
+    letterSpacing: 1.6,
+    textTransform: 'uppercase',
+    marginBottom: 6,
   },
   formTitle: {
     color: COLORS.navy,
-    fontWeight: '900',
-    textAlign: 'center',
-    letterSpacing: -0.2,
-  },
-  formTitleTablet: {
-    fontSize: 28,
-    lineHeight: 32,
-  },
-  formTitleLarge: {
     fontSize: 30,
-    lineHeight: 34,
+    lineHeight: 36,
+    fontWeight: '800',
+    letterSpacing: -0.4,
   },
   formSubtitle: {
     color: COLORS.muted,
-    textAlign: 'center',
+    fontSize: 15,
+    lineHeight: 21,
     fontWeight: '500',
     marginTop: 8,
-    marginBottom: 18,
-  },
-  formSubtitleTablet: {
-    fontSize: 15,
-    lineHeight: 22,
-  },
-  formSubtitleLarge: {
-    fontSize: 16,
-    lineHeight: 24,
   },
   field: {
-    marginBottom: 16,
+    width: '100%',
+    marginTop: 26,
+    marginBottom: 0,
   },
   label: {
-    color: '#3f4754',
-    fontSize: 12,
-    fontWeight: '800',
-    marginBottom: 6,
-  },
-  input: {
-    height: 50,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    borderRadius: 16,
-    paddingHorizontal: 16,
-    color: COLORS.text,
-    backgroundColor: COLORS.input,
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  inputFocused: {
-    borderColor: 'rgba(17, 119, 198, 0.55)',
-    backgroundColor: '#ffffff',
+    color: COLORS.navy,
+    opacity: 0.85,
+    fontSize: 13.5,
+    fontWeight: '700',
+    marginBottom: 9,
   },
   inputIconWrap: {
     position: 'relative',
-  },
-  inputWithLeftIcon: {
-    paddingLeft: 44,
-    paddingRight: 16,
-  },
-  inputWithRightIcon: {
-    paddingRight: 44,
-  },
-  fieldIconRight: {
-    position: 'absolute',
-    right: 16,
-    top: 16,
+    width: '100%',
+    justifyContent: 'center',
   },
   fieldIconLeft: {
     position: 'absolute',
     left: 16,
-    top: 16,
-    zIndex: 1,
+    zIndex: 2,
   },
-  passwordWrap: {
-    position: 'relative',
+  input: {
+    height: 58,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 16,
+    paddingHorizontal: 18,
+    color: COLORS.text,
+    backgroundColor: COLORS.inputBg,
+    fontSize: 16,
+    fontWeight: '600',
   },
-  passwordInput: {
-    paddingRight: 48,
+  inputWithLeftIcon: {
+    paddingLeft: 48,
+    paddingRight: 18,
   },
   passwordInputWithLock: {
-    paddingLeft: 44,
-    paddingRight: 48,
+    paddingLeft: 48,
+    paddingRight: 52,
+  },
+  inputFocused: {
+    borderColor: COLORS.blue,
+    backgroundColor: COLORS.inputFocusedBg,
   },
   eyeButton: {
     position: 'absolute',
-    right: 14,
-    top: 16,
+    right: 16,
+    zIndex: 2,
+    padding: 4,
   },
   eyeIcon: {
-    width: 18,
-    height: 18,
-    tintColor: COLORS.muted,
+    width: 22,
+    height: 22,
+    tintColor: COLORS.navy,
+    opacity: 0.7,
   },
   formRow: {
+    width: '100%',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 14,
-    marginTop: 2,
-    marginBottom: 14,
-    flexWrap: 'wrap',
+    marginTop: 18,
+    marginBottom: 26,
   },
   rememberRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    flexShrink: 1,
   },
   checkbox: {
-    width: 18,
-    height: 18,
-    borderRadius: 4,
-    borderWidth: 1.4,
-    borderColor: COLORS.navy,
+    width: 20,
+    height: 20,
+    borderRadius: 6,
+    borderWidth: 1.5,
+    borderColor: 'rgba(11, 42, 74, 0.4)',
+    backgroundColor: 'transparent',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#fff',
+    marginRight: 9,
   },
   checkboxChecked: {
-    backgroundColor: COLORS.navy,
+    backgroundColor: COLORS.blue,
+    borderColor: COLORS.blue,
   },
   checkmark: {
-    color: '#fff',
-    fontSize: 11,
-    fontWeight: '800',
-    lineHeight: 12,
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: '900',
+    lineHeight: 14,
   },
   rememberText: {
-    color: COLORS.muted,
-    fontSize: 12,
-    fontWeight: '700',
+    color: COLORS.navy,
+    opacity: 0.85,
+    fontSize: 14,
+    fontWeight: '600',
   },
   linkText: {
     color: COLORS.blue,
-    fontSize: 12,
-    fontWeight: '800',
+    fontSize: 14,
+    fontWeight: '700',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(28, 111, 217, 0.4)',
   },
   feedbackWrap: {
-    minHeight: 18,
-    marginBottom: 12,
+    width: '100%',
+    marginBottom: 14,
   },
   feedbackText: {
-    color: '#b91427',
-    fontSize: 12,
-    fontWeight: '800',
-    lineHeight: 16,
+    color: '#dc2626',
+    fontSize: 14,
+    fontWeight: '600',
     textAlign: 'center',
   },
   feedbackTextSuccess: {
-    color: COLORS.navy,
+    color: '#16a34a',
   },
   primaryButtonWrap: {
-    borderRadius: 27,
+    width: '100%',
+    borderRadius: 16,
     overflow: 'hidden',
-    shadowColor: 'rgba(7, 27, 52, 0.20)',
-    shadowOffset: { width: 0, height: 15 },
-    shadowOpacity: 1,
-    shadowRadius: 28,
-    elevation: 8,
-    marginTop: 4,
+    marginTop: 2,
+    shadowColor: COLORS.blue,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.35,
+    shadowRadius: 14,
+    elevation: 6,
   },
   primaryButton: {
-    height: 54,
+    height: 58,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    flexDirection: 'row',
     gap: 8,
+    paddingHorizontal: 20,
   },
   primaryButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '900',
+    color: '#ffffff',
+    fontSize: 17,
+    fontWeight: '800',
+    letterSpacing: 0.2,
   },
-  finePrintRow: {
-    marginTop: 18,
+  secureLine: {
+    width: '100%',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
+    gap: 7,
+    marginTop: 20,
   },
-  finePrint: {
-    color: '#7a8491',
-    fontSize: 11,
+  secureLineText: {
+    color: COLORS.navy,
+    opacity: 0.65,
+    fontSize: 12.5,
     fontWeight: '600',
-    lineHeight: 16,
-    textAlign: 'center',
   },
 });
 
