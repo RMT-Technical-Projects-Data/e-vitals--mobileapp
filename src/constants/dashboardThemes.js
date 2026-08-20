@@ -1,18 +1,20 @@
+import { EV } from '../config/colors';
+
 export const DASHBOARD_THEMES = {
   patient: {
-    accent: '#071B34',
-    accentSoft: 'rgba(7, 27, 52, 0.08)',
-    chartSecondary: '#1B3A5C',
+    accent: EV.navy,
+    accentSoft: 'rgba(11, 31, 63, 0.08)',
+    chartSecondary: EV.blueDeep,
   },
   provider: {
-    accent: '#071B34',
-    accentSoft: 'rgba(7, 27, 52, 0.08)',
-    chartSecondary: '#1B3A5C',
+    accent: EV.navy,
+    accentSoft: 'rgba(11, 31, 63, 0.08)',
+    chartSecondary: EV.blueDeep,
   },
   caregiver: {
-    accent: '#1B2A47',
-    accentSoft: 'rgba(27, 42, 71, 0.08)',
-    chartSecondary: '#2F5F8F',
+    accent: EV.navyMid,
+    accentSoft: 'rgba(27, 42, 74, 0.08)',
+    chartSecondary: EV.blue,
   },
 };
 

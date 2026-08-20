@@ -9,6 +9,7 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Dimensions,
+  Modal,
 } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
@@ -106,25 +107,25 @@ const VITAL_TARGETS = {
 };
 
 const getVitalColor = (value, min, max) => {
-  if (value == null || value === '' || value === '--' || value === 'N/A') return '#071B34';
+  if (value == null || value === '' || value === '--' || value === 'N/A') return '#0b1f3f';
   const num = Number(value);
-  if (Number.isNaN(num) || num <= 0) return '#071B34';
-  if (num > max) return '#d32f2f'; // High / Abnormal (Red)
-  if (num < min) return '#f57c00'; // Low / Warning (Orange)
-  return '#15803d'; // Normal (Green)
+  if (Number.isNaN(num) || num <= 0) return '#0b1f3f';
+  if (num > max) return '#d32f2f'; // High / Abnormal
+  if (num < min) return '#C53030'; // Low / Abnormal
+  return '#0b1f3f'; // Normal (brand navy)
 };
 
 const getBpVitalColor = (bpString) => {
-  if (!bpString || bpString === '--' || bpString === 'N/A') return '#071B34';
+  if (!bpString || bpString === '--' || bpString === 'N/A') return '#0b1f3f';
   const parts = String(bpString).split('/');
-  if (parts.length !== 2) return '#071B34';
+  if (parts.length !== 2) return '#0b1f3f';
   const sys = Number(parts[0].trim());
   const dia = Number(parts[1].trim());
   const sysColor = getVitalColor(sys, VITAL_TARGETS.systolicMin, VITAL_TARGETS.systolicMax);
   const diaColor = getVitalColor(dia, VITAL_TARGETS.diastolicMin, VITAL_TARGETS.diastolicMax);
   if (sysColor === '#d32f2f' || diaColor === '#d32f2f') return '#d32f2f';
-  if (sysColor === '#f57c00' || diaColor === '#f57c00') return '#f57c00';
-  return '#15803d';
+  if (sysColor === '#C53030' || diaColor === '#C53030') return '#C53030';
+  return '#0b1f3f';
 };
 
 const getPatientStatusMeta = (status) => {
@@ -133,10 +134,10 @@ const getPatientStatusMeta = (status) => {
   const numeric = /^\d+$/.test(lower) ? parseInt(lower, 10) : null;
 
   if (numeric === 2 || lower === 'active' || lower === 'stable') {
-    return { letter: 'A', bg: '#DDF8DD', color: '#15803d' };
+    return { letter: 'A', bg: '#DDF8DD', color: '#0b1f3f' };
   }
   if (numeric === 3 || lower === 'pending' || lower === 'review') {
-    return { letter: 'P', bg: '#FEF3C7', color: '#D97706' };
+    return { letter: 'P', bg: '#caf0f8', color: '#1177c6' };
   }
   if (numeric === 4 || lower === 'locked') {
     return { letter: 'L', bg: '#FDE8E8', color: '#d32f2f' };
@@ -162,6 +163,29 @@ const mapStatusToDbCode = (statusVal) => {
   if (str === '3' || str === 'pending' || str === 'review') return '3';
   if (str === '4' || str === 'locked') return '4';
   return str;
+};
+
+const STATUS_DASHBOARD_KEYS = new Set(['active', 'pending', 'locked', '2', '3', '4']);
+
+const resolveRouteFilterParams = (params = {}) => {
+  const dashboardFilter = params.dashboardFilter || null;
+  const filterTitle = params.filterTitle || null;
+  const normalizedKey = dashboardFilter ? String(dashboardFilter).trim().toLowerCase() : '';
+
+  // Active / Pending / Locked must use the status API filter, not dashboardFilter.
+  if (normalizedKey && STATUS_DASHBOARD_KEYS.has(normalizedKey)) {
+    return {
+      activeFilter: null,
+      activeFilterTitle: filterTitle,
+      statusFilter: mapStatusToDbCode(normalizedKey),
+    };
+  }
+
+  return {
+    activeFilter: dashboardFilter,
+    activeFilterTitle: filterTitle,
+    statusFilter: null,
+  };
 };
 
 const getPatientVitalPills = (item) => {
@@ -224,10 +248,10 @@ const fallbackPatients = [
 ];
 
 const STATUS_TABS = [
-  { key: null, label: 'All', activeBg: '#071B34', inactiveBorder: '#E2E8F0', activeColor: '#FFFFFF', inactiveColor: '#64748B' },
-  { key: '2', label: 'Active', activeBg: '#15803d', inactiveBorder: '#BBF7D0', activeColor: '#FFFFFF', inactiveColor: '#15803d', dot: '#15803d' },
-  { key: '3', label: 'Pending', activeBg: '#D97706', inactiveBorder: '#FDE68A', activeColor: '#FFFFFF', inactiveColor: '#D97706', dot: '#D97706' },
-  { key: '4', label: 'Locked', activeBg: '#d32f2f', inactiveBorder: '#FCA5A5', activeColor: '#FFFFFF', inactiveColor: '#d32f2f', dot: '#d32f2f' },
+  { key: null, label: 'All', activeBg: '#0b1f3f', inactiveBorder: '#E2E8F0', activeColor: '#FFFFFF', inactiveColor: '#64748B' },
+  { key: '2', label: 'Active', activeBg: '#0077b6', inactiveBorder: '#90e0ef', activeColor: '#FFFFFF', inactiveColor: '#0077b6', dot: '#00b4d8' },
+  { key: '3', label: 'Pending', activeBg: '#1177c6', inactiveBorder: '#4FA3F5', activeColor: '#FFFFFF', inactiveColor: '#1177c6', dot: '#4FA3F5' },
+  { key: '4', label: 'Locked', activeBg: '#1B2A4A', inactiveBorder: '#1B2A4A', activeColor: '#FFFFFF', inactiveColor: '#1B2A4A', dot: '#1B2A4A' },
 ];
 
 const PAGE_SIZE = 10;
@@ -242,20 +266,28 @@ export default function PatientsScreen({ route, navigation }) {
   const [totalPages, setTotalPages] = useState(1);
   const [totalPatients, setTotalPatients] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
-  const [activeFilter, setActiveFilter] = useState(route?.params?.dashboardFilter || null);
-  const [activeFilterTitle, setActiveFilterTitle] = useState(route?.params?.filterTitle || null);
-  const [statusFilter, setStatusFilter] = useState(null);
+  const initialRouteFilter = resolveRouteFilterParams(route?.params);
+  const [activeFilter, setActiveFilter] = useState(initialRouteFilter.activeFilter);
+  const [activeFilterTitle, setActiveFilterTitle] = useState(initialRouteFilter.activeFilterTitle);
+  const [statusFilter, setStatusFilter] = useState(initialRouteFilter.statusFilter);
+  const [showComingSoonModal, setShowComingSoonModal] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
   const listRef = useRef(null);
+  const fetchRequestIdRef = useRef(0);
 
   useEffect(() => {
-    if (route?.params?.dashboardFilter !== undefined || route?.params?.filterTitle !== undefined) {
-      setActiveFilter(route?.params?.dashboardFilter || null);
-      setActiveFilterTitle(route?.params?.filterTitle || null);
-      setStatusFilter(null);
+    if (
+      route?.params?.dashboardFilter !== undefined
+      || route?.params?.filterTitle !== undefined
+      || route?.params?.filterToken !== undefined
+    ) {
+      const next = resolveRouteFilterParams(route?.params);
+      setActiveFilter(next.activeFilter);
+      setActiveFilterTitle(next.activeFilterTitle);
+      setStatusFilter(next.statusFilter);
       setCurrentPage(1);
     }
-  }, [route?.params?.dashboardFilter, route?.params?.filterTitle]);
+  }, [route?.params?.dashboardFilter, route?.params?.filterTitle, route?.params?.filterToken]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -266,6 +298,7 @@ export default function PatientsScreen({ route, navigation }) {
   }, [searchQuery]);
 
   const fetchPatients = useCallback(async () => {
+    const requestId = ++fetchRequestIdRef.current;
     setIsLoading(true);
     try {
       const userStr = await AsyncStorage.getItem('user');
@@ -288,6 +321,11 @@ export default function PatientsScreen({ route, navigation }) {
             program: activeFilter ? 'rpm' : undefined,
             includeDashboardEnrichment: true,
           });
+
+          if (requestId !== fetchRequestIdRef.current) {
+            return;
+          }
+
           if (result?.success && result?.data?.patients) {
             const pagination = result.data.pagination || {};
             const fetchedPatients = result.data.patients;
@@ -312,6 +350,9 @@ export default function PatientsScreen({ route, navigation }) {
                   }
                 })
               ).then((updates) => {
+                if (requestId !== fetchRequestIdRef.current) {
+                  return;
+                }
                 const validUpdates = updates.filter(u => u && u.latest);
                 if (validUpdates.length > 0) {
                   setPatients((prev) =>
@@ -339,12 +380,17 @@ export default function PatientsScreen({ route, navigation }) {
         setTotalPatients(fallbackPatients.length);
       }
     } catch (error) {
+      if (requestId !== fetchRequestIdRef.current) {
+        return;
+      }
       console.warn('Error fetching patients list screen:', error);
       setPatients(fallbackPatients);
       setTotalPages(1);
       setTotalPatients(fallbackPatients.length);
     } finally {
-      setIsLoading(false);
+      if (requestId === fetchRequestIdRef.current) {
+        setIsLoading(false);
+      }
     }
   }, [currentPage, debouncedSearch, activeFilter, statusFilter]);
 
@@ -364,7 +410,11 @@ export default function PatientsScreen({ route, navigation }) {
     setStatusFilter(null);
     setCurrentPage(1);
     if (navigation.setParams) {
-      navigation.setParams({ dashboardFilter: undefined, filterTitle: undefined });
+      navigation.setParams({
+        dashboardFilter: null,
+        filterTitle: null,
+        filterToken: Date.now(),
+      });
     }
   };
 
@@ -379,8 +429,8 @@ export default function PatientsScreen({ route, navigation }) {
   };
 
   const isCaregiver = userRole === 'caregiver';
-  const themeColor = isCaregiver ? '#1B2A47' : '#071B34';
-  const accentColor = isCaregiver ? '#2F5F8F' : '#9B1230';
+  const themeColor = isCaregiver ? '#1B2A4A' : '#0b1f3f';
+  const accentColor = isCaregiver ? '#0077b6' : '#1177c6';
   const canGoPrevious = currentPage > 1;
   const canGoNext = currentPage < totalPages;
   const rangeStart = totalPatients === 0 ? 0 : ((currentPage - 1) * PAGE_SIZE) + 1;
@@ -411,7 +461,7 @@ export default function PatientsScreen({ route, navigation }) {
     if (weightNum != null && !Number.isNaN(weightNum) && weightNum <= 110) {
       weightNum = weightNum * 2.20462;
     }
-    const weightColor = weightNum != null ? getVitalColor(weightNum, VITAL_TARGETS.weightMin, VITAL_TARGETS.weightMax) : '#071B34';
+    const weightColor = weightNum != null ? getVitalColor(weightNum, VITAL_TARGETS.weightMin, VITAL_TARGETS.weightMax) : '#0b1f3f';
 
     return (
       <TouchableOpacity
@@ -554,20 +604,17 @@ export default function PatientsScreen({ route, navigation }) {
               accessibilityRole="button"
               accessibilityLabel="Go back"
             >
-              <MaterialIcons name="arrow-back" size={21} color="#071B34" />
+              <MaterialIcons name="arrow-back" size={21} color="#0b1f3f" />
             </TouchableOpacity>
             <Text style={styles.topbarTitle}>Patients List</Text>
             <TouchableOpacity
               style={styles.topbarActionButton}
-              onPress={() => {
-                // Add Patient Modal opening disabled for now
-                // setShowAddModal(true);
-              }}
+              onPress={() => setShowComingSoonModal(true)}
               activeOpacity={0.7}
               accessibilityRole="button"
               accessibilityLabel="Add patient"
             >
-              <MaterialIcons name="person-add" size={21} color="#071B34" />
+              <MaterialIcons name="person-add" size={21} color="#0b1f3f" />
             </TouchableOpacity>
           </View>
 
@@ -588,7 +635,7 @@ export default function PatientsScreen({ route, navigation }) {
           {activeFilterTitle ? (
             <View style={styles.activeFilterBanner}>
               <View style={styles.activeFilterPill}>
-                <MaterialIcons name="filter-list" size={18} color="#071B34" />
+                <MaterialIcons name="filter-list" size={18} color="#0b1f3f" />
                 <View style={{ flex: 1 }}>
                   <Text style={styles.activeFilterText}>Filtered by: {activeFilterTitle}</Text>
                   <Text style={styles.activeFilterSubtext}>Applied on active patients</Text>
@@ -675,6 +722,33 @@ export default function PatientsScreen({ route, navigation }) {
 
           <PremiumBottomNav active="patients" navigation={navigation} role={userRole} />
 
+          <Modal
+            visible={showComingSoonModal}
+            transparent
+            animationType="fade"
+            onRequestClose={() => setShowComingSoonModal(false)}
+          >
+            <View style={styles.comingSoonOverlay}>
+              <View style={styles.comingSoonCard}>
+                <View style={styles.comingSoonIconWrap}>
+                  <MaterialIcons name="auto-awesome" size={34} color="#0b1f3f" />
+                </View>
+                <Text style={styles.comingSoonEyebrow}>Coming soon</Text>
+                <Text style={styles.comingSoonTitle}>Add Patient</Text>
+                <Text style={styles.comingSoonMessage}>
+                  This feature will be implemented in the next version.
+                </Text>
+                <TouchableOpacity
+                  style={styles.comingSoonButton}
+                  onPress={() => setShowComingSoonModal(false)}
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.comingSoonButtonText}>Got it</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </Modal>
+
           {/* AddPatientModal disabled for now
           <AddPatientModal
             visible={showAddModal}
@@ -713,7 +787,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.86)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.78)',
-    shadowColor: '#071B34',
+    shadowColor: '#0b1f3f',
     shadowOffset: { width: 0, height: 12 },
     shadowOpacity: 0.08,
     shadowRadius: 26,
@@ -724,7 +798,7 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: scaleFont(20),
     fontWeight: '800',
-    color: '#071B34',
+    color: '#0b1f3f',
     textAlign: 'center',
     marginHorizontal: scaleWidth(8),
   },
@@ -739,7 +813,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#e8ecf0',
     minHeight: scaleWidth(50),
-    shadowColor: '#071B34',
+    shadowColor: '#0b1f3f',
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.12,
     shadowRadius: 16,
@@ -750,7 +824,7 @@ const styles = StyleSheet.create({
   },
   searchInput: {
     flex: 1,
-    color: '#071B34',
+    color: '#0b1f3f',
     fontSize: scaleFont(14),
     fontWeight: '700',
   },
@@ -776,7 +850,7 @@ const styles = StyleSheet.create({
   activeFilterText: {
     fontSize: scaleFont(13),
     fontWeight: '800',
-    color: '#071B34',
+    color: '#0b1f3f',
     flexShrink: 1,
   },
   activeFilterSubtext: {
@@ -847,7 +921,7 @@ const styles = StyleSheet.create({
     marginBottom: scaleWidth(12),
     borderWidth: 1,
     borderColor: '#e8ecf0',
-    shadowColor: '#071B34',
+    shadowColor: '#0b1f3f',
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.12,
     shadowRadius: 16,
@@ -900,7 +974,7 @@ const styles = StyleSheet.create({
   pcName: {
     fontSize: scaleFont(15),
     fontWeight: '800',
-    color: '#071B34',
+    color: '#0b1f3f',
     flexShrink: 1,
   },
   vitalsPillRow: {
@@ -920,7 +994,7 @@ const styles = StyleSheet.create({
   inlineVitalPillText: {
     fontSize: scaleFont(10),
     fontWeight: '800',
-    color: '#071B34',
+    color: '#0b1f3f',
   },
   pcVitals: {
     flexDirection: 'row',
@@ -946,7 +1020,7 @@ const styles = StyleSheet.create({
   pvVal: {
     fontSize: scaleFont(12),
     fontWeight: '800',
-    color: '#071B34',
+    color: '#0b1f3f',
     lineHeight: scaleFont(14),
     flexShrink: 1,
   },
@@ -984,7 +1058,7 @@ const styles = StyleSheet.create({
   },
   pcExtraStatValue: {
     fontSize: scaleFont(11),
-    color: '#071B34',
+    color: '#0b1f3f',
     fontWeight: '800',
   },
   emptyContainer: {
@@ -1008,7 +1082,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.9)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.78)',
-    shadowColor: '#071B34',
+    shadowColor: '#0b1f3f',
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.06,
     shadowRadius: 18,
@@ -1041,7 +1115,7 @@ const styles = StyleSheet.create({
   paginationBtnText: {
     fontSize: scaleFont(13),
     fontWeight: '800',
-    color: '#071B34',
+    color: '#0b1f3f',
   },
   paginationBtnTextDisabled: {
     color: '#A0AAB4',
@@ -1049,6 +1123,74 @@ const styles = StyleSheet.create({
   paginationPageText: {
     fontSize: scaleFont(13),
     fontWeight: '800',
-    color: '#071B34',
+    color: '#0b1f3f',
+  },
+  comingSoonOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(7, 27, 52, 0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: scaleWidth(28),
+  },
+  comingSoonCard: {
+    width: '100%',
+    maxWidth: scaleWidth(340),
+    borderRadius: scaleWidth(28),
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: scaleWidth(24),
+    paddingTop: scaleWidth(28),
+    paddingBottom: scaleWidth(22),
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#E8ECF0',
+    shadowColor: '#0b1f3f',
+    shadowOffset: { width: 0, height: 16 },
+    shadowOpacity: 0.22,
+    shadowRadius: 28,
+    elevation: 12,
+  },
+  comingSoonIconWrap: {
+    width: scaleWidth(68),
+    height: scaleWidth(68),
+    borderRadius: scaleWidth(22),
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#EDF2F7',
+    marginBottom: scaleWidth(16),
+  },
+  comingSoonEyebrow: {
+    color: '#0077b6',
+    fontSize: scaleFont(12),
+    fontWeight: '800',
+    letterSpacing: 1.4,
+    textTransform: 'uppercase',
+    marginBottom: scaleWidth(6),
+  },
+  comingSoonTitle: {
+    color: '#0b1f3f',
+    fontSize: scaleFont(24),
+    fontWeight: '900',
+    marginBottom: scaleWidth(10),
+  },
+  comingSoonMessage: {
+    color: '#687382',
+    fontSize: scaleFont(15),
+    fontWeight: '600',
+    lineHeight: scaleFont(22),
+    textAlign: 'center',
+    marginBottom: scaleWidth(22),
+  },
+  comingSoonButton: {
+    width: '100%',
+    height: scaleWidth(50),
+    borderRadius: scaleWidth(16),
+    backgroundColor: '#0b1f3f',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  comingSoonButtonText: {
+    color: '#FFFFFF',
+    fontSize: scaleFont(15),
+    fontWeight: '800',
   },
 });

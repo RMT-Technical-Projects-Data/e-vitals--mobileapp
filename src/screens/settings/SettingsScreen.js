@@ -209,7 +209,7 @@ const SettingsScreen = ({ navigation }) => {
               style={styles.backButton}
               onPress={() => (navigation.canGoBack() ? navigation.goBack() : navigation.navigate('Home'))}
             >
-              <MaterialIcons name="arrow-back" size={21} color="#071B34" />
+              <MaterialIcons name="arrow-back" size={21} color="#0b1f3f" />
             </TouchableOpacity>
             <Text style={styles.topbarTitle}>Settings</Text>
             <View style={styles.topbarSpacer} />
@@ -500,7 +500,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.86)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.78)',
-    shadowColor: '#071B34',
+    shadowColor: '#0b1f3f',
     shadowOffset: { width: 0, height: 12 },
     shadowOpacity: 0.08,
     shadowRadius: 26,
@@ -544,7 +544,7 @@ const styles = StyleSheet.create({
     marginBottom: scaleHeight(18),
     borderWidth: 1,
     borderColor: '#e8ecf0',
-    shadowColor: '#071B34',
+    shadowColor: '#0b1f3f',
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.12,
     shadowRadius: 16,
@@ -554,7 +554,7 @@ const styles = StyleSheet.create({
     width: scaleWidth(60),
     height: scaleWidth(60),
     borderRadius: scaleWidth(20),
-    backgroundColor: '#071B34',
+    backgroundColor: '#0b1f3f',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -594,7 +594,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: '#e8ecf0',
-    shadowColor: '#071B34',
+    shadowColor: '#0b1f3f',
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.12,
     shadowRadius: 16,

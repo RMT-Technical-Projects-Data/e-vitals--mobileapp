@@ -42,7 +42,7 @@ const guidelineBaseWidth = 375;
 const scaleWidth = (size) => Math.min((width / guidelineBaseWidth) * size, size * 1.25);
 const scaleFont = (size) => Math.min((width / guidelineBaseWidth) * size, size * 1.2);
 
-const DARK = '#071B34';
+const DARK = '#0b1f3f';
 const MUTED = '#687382';
 const BORDER = '#e8ecf0';
 const WHITE = '#ffffff';
@@ -293,25 +293,25 @@ const toCleanNum = (val) => {
 };
 
 const getVitalColor = (value, min, max) => {
-  if (value == null || value === '' || value === '--' || value === 'N/A') return '#071B34';
+  if (value == null || value === '' || value === '--' || value === 'N/A') return '#0b1f3f';
   const num = Number(value);
-  if (Number.isNaN(num) || num <= 0) return '#071B34';
+  if (Number.isNaN(num) || num <= 0) return '#0b1f3f';
   if (num > max) return '#d32f2f';
-  if (num < min) return '#f57c00';
-  return '#15803d';
+  if (num < min) return '#C53030';
+  return '#0b1f3f';
 };
 
 const getBpVitalColor = (bpString) => {
-  if (!bpString || bpString === '--' || bpString === 'N/A') return '#071B34';
+  if (!bpString || bpString === '--' || bpString === 'N/A') return '#0b1f3f';
   const parts = String(bpString).split('/');
-  if (parts.length !== 2) return '#071B34';
+  if (parts.length !== 2) return '#0b1f3f';
   const sys = Number(parts[0].trim());
   const dia = Number(parts[1].trim());
   const sysColor = getVitalColor(sys, VITAL_TARGETS.systolicMin, VITAL_TARGETS.systolicMax);
   const diaColor = getVitalColor(dia, VITAL_TARGETS.diastolicMin, VITAL_TARGETS.diastolicMax);
   if (sysColor === '#d32f2f' || diaColor === '#d32f2f') return '#d32f2f';
-  if (sysColor === '#f57c00' || diaColor === '#f57c00') return '#f57c00';
-  return '#15803d';
+  if (sysColor === '#C53030' || diaColor === '#C53030') return '#C53030';
+  return '#0b1f3f';
 };
 
 const kgToLb = (kg) => {
@@ -321,10 +321,10 @@ const kgToLb = (kg) => {
 
 const getPatientStatusMeta = (status) => {
   const raw = String(status ?? '').trim().toLowerCase();
-  if (raw === '2' || raw === 'active') return { letter: 'A', bg: '#DDF8DD', color: '#15803d' };
-  if (raw === '3' || raw === 'pending') return { letter: 'P', bg: '#FEF3C7', color: '#D97706' };
+  if (raw === '2' || raw === 'active') return { letter: 'A', bg: '#DDF8DD', color: '#0b1f3f' };
+  if (raw === '3' || raw === 'pending') return { letter: 'P', bg: '#caf0f8', color: '#1177c6' };
   if (raw === '4' || raw === 'locked') return { letter: 'L', bg: '#FDE8E8', color: '#d32f2f' };
-  return { letter: 'A', bg: '#DDF8DD', color: '#15803d' };
+  return { letter: 'A', bg: '#DDF8DD', color: '#0b1f3f' };
 };
 
 const getPatientVitalsDisplay = (item) => {
@@ -1172,7 +1172,7 @@ export default function FollowUp({ navigation, route }) {
 
     let weightNum = vitals.weight && vitals.weight !== '--' ? Number(String(vitals.weight).replace(/[^\d.-]/g, '')) : null;
     if (weightNum != null && !Number.isNaN(weightNum) && weightNum <= 110) weightNum = weightNum * 2.20462;
-    const weightColor = weightNum != null ? getVitalColor(weightNum, VITAL_TARGETS.weightMin, VITAL_TARGETS.weightMax) : '#071B34';
+    const weightColor = weightNum != null ? getVitalColor(weightNum, VITAL_TARGETS.weightMin, VITAL_TARGETS.weightMax) : '#0b1f3f';
 
     return (
       <View key={String(item.id || item.patient_table_id || Math.random())} style={st.patientCard}>
@@ -1919,7 +1919,7 @@ const st = StyleSheet.create({
   patientCard: {
     backgroundColor: WHITE, borderRadius: scaleWidth(16), padding: scaleWidth(14),
     marginBottom: scaleWidth(12), borderWidth: 1, borderColor: BORDER,
-    shadowColor: '#071B34', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.08, shadowRadius: 12, elevation: 3,
+    shadowColor: '#0b1f3f', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.08, shadowRadius: 12, elevation: 3,
   },
   pcTop: { flexDirection: 'row', alignItems: 'center', marginBottom: scaleWidth(12) },
   avatarWrap: { position: 'relative', marginRight: scaleWidth(10) },

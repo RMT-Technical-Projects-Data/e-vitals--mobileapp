@@ -18,8 +18,8 @@ export const scaleFont = size => RFValue(size);
 export const colors = {
   background: '#FFFFFF',
   backgroundLight: '#fbf7f3',
-  primary: '#071b34',
-  primaryButton: '#071b34',
+  primary: '#0b1f3f',
+  primaryButton: '#0b1f3f',
   secondaryButton: '#0d2f58',
   accent: '#b91427',
   accentLight: '#f2e8df',
@@ -33,12 +33,12 @@ export const colors = {
   borderLight: '#eadbd4',
   borderDark: '#BDBDBD',
   shadow: '#000000',
-  success: '#2E7D32',
+  success: '#1177c6',
   warning: '#ED6C02',
   error: '#b91427',
   cream: '#fbf7f3',
   cream2: '#f2e8df',
-  navy: '#071b34',
+  navy: '#0b1f3f',
   navyMid: '#0d2f58',
 };
 

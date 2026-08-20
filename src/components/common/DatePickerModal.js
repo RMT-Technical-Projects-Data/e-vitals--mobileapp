@@ -17,7 +17,7 @@ const scaleWidth = (size) => Math.min((width / guidelineBaseWidth) * size, size 
 const scaleHeight = (size) => scaleWidth(size);
 const scaleFont = (size) => Math.min((width / guidelineBaseWidth) * size, size * 1.2);
 
-const TEXT_DARK = '#071B34';
+const TEXT_DARK = '#0b1f3f';
 const TEXT_MUTED = '#687382';
 const WHITE = '#FFFFFF';
 const BORDER_SOFT = 'rgba(15, 23, 42, 0.08)';

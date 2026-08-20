@@ -574,7 +574,7 @@ const ForgotPassword = ({ navigation }) => {
 const styles = StyleSheet.create({
   screenRoot: {
     flex: 1,
-    backgroundColor: '#071b34',
+    backgroundColor: '#0b1f3f',
   },
   fullScreenBg: {
     flex: 1,

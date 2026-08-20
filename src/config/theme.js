@@ -7,22 +7,29 @@ const authTextMaxWidth = isTablet ? 560 : 340;
 
 export const scale = size => (width / 375) * size;
 
+// Brand palette = Login Sign In + E-Vital-Frontend tokens (see config/colors.js).
+// Do not solid-fill home cards; use navy/blue for text, accents, and actions only.
+// Clinical reds are reserved for critical alerts / abnormal readings.
 export const theme = {
-  navy: '#071b34',
-  navyMid: '#0d2f58',
-  blue: '#0d47a1',
-  red: '#b91427',
+  navy: '#0b1f3f',
+  navyMid: '#1B2A4A',
+  blue: '#1177c6',
+  blueLight: '#4FA3F5',
+  blueDeep: '#0077b6',
+  accent: '#00b4d8',
+  red: '#C4162E',
   cream: '#ffffff',
   creamMid: '#ffffff',
   cream2: '#ffffff',
   line: '#e8ecf0',
   text: '#152033',
-  muted: '#687382',
-  placeholder: '#a8afb8',
+  muted: '#64748b',
+  placeholder: '#94a3b8',
   paper: '#ffffff',
   card: '#ffffff',
-  success: '#2E7D32',
+  success: '#1177c6',
   gradient: ['#ffffff', '#ffffff', '#ffffff'],
+  buttonGradient: ['#4FA3F5', '#1177c6', '#0b1f3f'],
 };
 
 export const authStyles = StyleSheet.create({
@@ -50,7 +57,7 @@ export const authStyles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#e8ecf0',
     backgroundColor: theme.card,
-    shadowColor: '#071b34',
+    shadowColor: '#0b1f3f',
     shadowOffset: { width: 0, height: 12 },
     shadowOpacity: 0.16,
     shadowRadius: 24,

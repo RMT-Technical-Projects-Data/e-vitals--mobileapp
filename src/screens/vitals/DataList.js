@@ -33,7 +33,7 @@ const scaleFont = (size) => Math.min((width / guidelineBaseWidth) * size, size *
 
 const PATIENT_SCREEN_BG_COLORS = ['#ffffff', '#ffffff', '#ffffff'];
 const DEFAULT_SCREEN_BG_COLORS = ['#ffffff', '#ffffff', '#ffffff'];
-const TEXT_DARK = '#071B34';
+const TEXT_DARK = '#0b1f3f';
 const TEXT_MUTED = '#687382';
 const WHITE = '#FFFFFF';
 const BORDER_SOFT = 'rgba(15, 23, 42, 0.08)';
@@ -89,7 +89,7 @@ const dropdownStyles = StyleSheet.create({
     padding: scaleWidth(8),
     borderWidth: 1,
     borderColor: BORDER_SOFT,
-    shadowColor: '#071B34',
+    shadowColor: '#0b1f3f',
     shadowOffset: { width: 0, height: 12 },
     shadowOpacity: 0.12,
     shadowRadius: 24,
@@ -169,12 +169,12 @@ const formatMeasurementTableTime = (timeString) => {
 };
 
 const getVitalColor = (val, min, max) => {
-  if (val == null || val === '' || val === '--' || val === 'N/A') return '#071B34';
+  if (val == null || val === '' || val === '--' || val === 'N/A') return '#0b1f3f';
   const num = Number(val);
-  if (Number.isNaN(num) || num <= 0) return '#071B34';
+  if (Number.isNaN(num) || num <= 0) return '#0b1f3f';
   if (num > max) return '#d32f2f'; // High / Red
-  if (num < min) return '#f57c00'; // Low / Orange
-  return '#15803d'; // Normal / Green
+  if (num < min) return '#C53030'; // Low / Orange
+  return '#0b1f3f'; // Normal / Green
 };
 
 const PERIOD_TIME_WINDOWS = {
@@ -856,9 +856,9 @@ const DataList = ({ navigation, route }) => {
         return { label: 'High', bg: '#FDE8E8', color: '#d32f2f' };
       }
       if ((!Number.isNaN(sys) && sys < 100) || (!Number.isNaN(dia) && dia < 60)) {
-        return { label: 'Low', bg: '#FEF3C7', color: '#D97706' };
+        return { label: 'Low', bg: '#caf0f8', color: '#1177c6' };
       }
-      return { label: 'Normal', bg: '#DDF8DD', color: '#15803d' };
+      return { label: 'Normal', bg: '#DDF8DD', color: '#0b1f3f' };
     }
     if (type === 'bloodGlucose') {
       const bgNum = Number(row.glucose);
@@ -866,9 +866,9 @@ const DataList = ({ navigation, route }) => {
         return { label: 'High', bg: '#FDE8E8', color: '#d32f2f' };
       }
       if (!Number.isNaN(bgNum) && bgNum < 60) {
-        return { label: 'Low', bg: '#FEF3C7', color: '#D97706' };
+        return { label: 'Low', bg: '#caf0f8', color: '#1177c6' };
       }
-      return { label: 'Normal', bg: '#DDF8DD', color: '#15803d' };
+      return { label: 'Normal', bg: '#DDF8DD', color: '#0b1f3f' };
     }
     if (type === 'weight') {
       const wtNum = Number(row.weight);
@@ -877,11 +877,11 @@ const DataList = ({ navigation, route }) => {
         return { label: 'High', bg: '#FDE8E8', color: '#d32f2f' };
       }
       if (!Number.isNaN(wtLbs) && wtLbs < 66) {
-        return { label: 'Low', bg: '#FEF3C7', color: '#D97706' };
+        return { label: 'Low', bg: '#caf0f8', color: '#1177c6' };
       }
-      return { label: 'Normal', bg: '#DDF8DD', color: '#15803d' };
+      return { label: 'Normal', bg: '#DDF8DD', color: '#0b1f3f' };
     }
-    return { label: 'Normal', bg: '#DDF8DD', color: '#15803d' };
+    return { label: 'Normal', bg: '#DDF8DD', color: '#0b1f3f' };
   };
 
   const matrixData = useMemo(() => {
@@ -1360,7 +1360,7 @@ const createStyles = (themePrimary, themeSoft) => StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.86)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.78)',
-    shadowColor: '#071B34',
+    shadowColor: '#0b1f3f',
     shadowOffset: { width: 0, height: 12 },
     shadowOpacity: 0.08,
     shadowRadius: 26,
@@ -1391,7 +1391,7 @@ const createStyles = (themePrimary, themeSoft) => StyleSheet.create({
     padding: scaleWidth(4),
     borderWidth: 1,
     borderColor: '#e8ecf0',
-    shadowColor: '#071B34',
+    shadowColor: '#0b1f3f',
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.12,
     shadowRadius: 16,
@@ -1428,7 +1428,7 @@ const createStyles = (themePrimary, themeSoft) => StyleSheet.create({
     marginBottom: scaleHeight(14),
     borderWidth: 1,
     borderColor: '#e8ecf0',
-    shadowColor: '#071B34',
+    shadowColor: '#0b1f3f',
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.12,
     shadowRadius: 16,
@@ -1588,7 +1588,7 @@ const createStyles = (themePrimary, themeSoft) => StyleSheet.create({
   vSlotFilterLabel: {
     fontSize: scaleFont(12),
     fontWeight: '800',
-    color: '#071B34',
+    color: '#0b1f3f',
     marginBottom: scaleHeight(6),
   },
   vSlotFilterScroll: {
@@ -1606,8 +1606,8 @@ const createStyles = (themePrimary, themeSoft) => StyleSheet.create({
     borderColor: '#e8ecf0',
   },
   vSlotChipActive: {
-    backgroundColor: '#071B34',
-    borderColor: '#071B34',
+    backgroundColor: '#0b1f3f',
+    borderColor: '#0b1f3f',
   },
   vSlotChipText: {
     fontSize: scaleFont(11),
@@ -1624,7 +1624,7 @@ const createStyles = (themePrimary, themeSoft) => StyleSheet.create({
     borderRadius: scaleWidth(14),
     overflow: 'hidden',
     backgroundColor: '#ffffff',
-    shadowColor: '#071B34',
+    shadowColor: '#0b1f3f',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.08,
     shadowRadius: 12,
@@ -1634,7 +1634,7 @@ const createStyles = (themePrimary, themeSoft) => StyleSheet.create({
   vTableHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#071B34',
+    backgroundColor: '#0b1f3f',
     paddingVertical: scaleHeight(10),
     paddingHorizontal: scaleWidth(4),
   },
@@ -1661,7 +1661,7 @@ const createStyles = (themePrimary, themeSoft) => StyleSheet.create({
   vTdDate: {
     fontSize: scaleFont(12),
     fontWeight: '800',
-    color: '#071B34',
+    color: '#0b1f3f',
   },
   vTdTime: {
     fontSize: scaleFont(10),
@@ -1691,7 +1691,7 @@ const createStyles = (themePrimary, themeSoft) => StyleSheet.create({
   vPeriodPillText: {
     fontSize: scaleFont(10),
     fontWeight: '800',
-    color: '#071B34',
+    color: '#0b1f3f',
     textAlign: 'center',
   },
   vPeriodPillSubText: {
@@ -1751,7 +1751,7 @@ const createStyles = (themePrimary, themeSoft) => StyleSheet.create({
     paddingLeft: scaleWidth(10),
     fontSize: scaleFont(11),
     fontWeight: '800',
-    color: '#071B34',
+    color: '#0b1f3f',
   },
   matrixTdCell: {
     width: scaleWidth(115),
@@ -1802,7 +1802,7 @@ const createStyles = (themePrimary, themeSoft) => StyleSheet.create({
   matrixReadingsCount: {
     fontSize: scaleFont(8),
     fontWeight: '800',
-    color: '#2F5F8F',
+    color: '#0077b6',
     marginBottom: 1,
   },
   colDate: {
@@ -1846,7 +1846,7 @@ const createStyles = (themePrimary, themeSoft) => StyleSheet.create({
     padding: scaleWidth(8),
     borderWidth: 1,
     borderColor: '#e8ecf0',
-    shadowColor: '#071B34',
+    shadowColor: '#0b1f3f',
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.12,
     shadowRadius: 16,

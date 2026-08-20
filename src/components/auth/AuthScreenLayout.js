@@ -186,7 +186,7 @@ const AuthScreenLayout = ({
       <SafeAreaView style={authStyles.safeArea} edges={['top', 'bottom']}>
         <View style={tabletShellStyle}>
           <LinearGradient
-            colors={['#071b34', '#0d2f58', '#123e73']}
+            colors={['#0b1f3f', '#0d2f58', '#123e73']}
             style={tabletPromoPaneStyle}
           >
             <View style={styles.tabletPromoGlowOne} />

@@ -80,11 +80,11 @@ export default function GlobalBottomBar({ navigation }) {
     return <View style={{ flex: 1, backgroundColor: '#ffffff' }} />;
   }
 
-  let activeColor = '#1a3a6b'; // Patient
+  let activeColor = '#0b1f3f'; // Patient
   if (userRole === 'caregiver') {
-    activeColor = '#0a6640';
+    activeColor = '#0077b6';
   } else if (userRole === 'provider') {
-    activeColor = '#4a1a8b';
+    activeColor = '#1B2A4A';
   }
 
   if (userRole === 'patient') {

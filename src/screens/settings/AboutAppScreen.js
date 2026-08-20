@@ -33,7 +33,7 @@ const AboutAppScreen = ({ navigation }) => {
                     style={styles.backButton}
                     onPress={() => (navigation.canGoBack() ? navigation.goBack() : navigation.navigate('Settings'))}
                 >
-                    <MaterialIcons name="arrow-back" size={21} color="#071B34" />
+                    <MaterialIcons name="arrow-back" size={21} color="#0b1f3f" />
                 </TouchableOpacity>
                 <Text style={styles.topbarTitle}>About App</Text>
                 <View style={styles.topbarSpacer} />
@@ -113,7 +113,7 @@ const styles = StyleSheet.create({
         backgroundColor: 'rgba(255,255,255,0.86)',
         borderWidth: 1,
         borderColor: 'rgba(255,255,255,0.78)',
-        shadowColor: '#071B34',
+        shadowColor: '#0b1f3f',
         shadowOffset: { width: 0, height: 12 },
         shadowOpacity: 0.08,
         shadowRadius: 26,
@@ -121,7 +121,7 @@ const styles = StyleSheet.create({
     },
     topbarTitle: {
         flex: 1,
-        color: '#071B34',
+        color: '#0b1f3f',
         fontSize: scaleFont(20),
         lineHeight: scaleFont(24),
         fontWeight: '800',

@@ -26,7 +26,7 @@ const scaleHeight = size => (height / guidelineBaseHeight) * size;
 const scaleFont = size => scaleWidth(size);
 
 const SCREEN_BG_COLORS = ['#ffffff', '#ffffff', '#ffffff'];
-const PRIMARY_ACCENT = '#071B34';
+const PRIMARY_ACCENT = '#0b1f3f';
 const SECONDARY_ACCENT = colors.secondaryButton || '#D9E0F5';
 
 // Generate unique notification IDs based on type and data
@@ -459,14 +459,14 @@ export default function Notifications({ navigation }) {
                 style={styles.backButton}
                 onPress={() => (navigation.canGoBack() ? navigation.goBack() : navigation.navigate('Home'))}
               >
-                <MaterialIcons name="arrow-back" size={21} color="#071B34" />
+                <MaterialIcons name="arrow-back" size={21} color="#0b1f3f" />
               </TouchableOpacity>
               <Text style={styles.topbarTitle}>Medical Alerts</Text>
               <TouchableOpacity
                 style={styles.filterIconButton}
                 onPress={() => setShowDateFilter(!showDateFilter)}
               >
-                <MaterialIcons name="expand-more" size={22} color="#071B34" />
+                <MaterialIcons name="expand-more" size={22} color="#0b1f3f" />
               </TouchableOpacity>
             </View>
 
@@ -579,7 +579,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.86)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.78)',
-    shadowColor: '#071B34',
+    shadowColor: '#0b1f3f',
     shadowOffset: { width: 0, height: 12 },
     shadowOpacity: 0.08,
     shadowRadius: 26,
@@ -590,7 +590,7 @@ const styles = StyleSheet.create({
     fontSize: scaleFont(20),
     lineHeight: scaleFont(24),
     fontWeight: '800',
-    color: '#071B34',
+    color: '#0b1f3f',
     textAlign: 'center',
     marginHorizontal: scaleWidth(8),
   },
@@ -603,7 +603,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.86)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.78)',
-    shadowColor: '#071B34',
+    shadowColor: '#0b1f3f',
     shadowOffset: { width: 0, height: 12 },
     shadowOpacity: 0.08,
     shadowRadius: 26,
@@ -687,7 +687,7 @@ const styles = StyleSheet.create({
     borderRadius: scaleWidth(10),
     paddingHorizontal: scaleWidth(16),
     paddingVertical: scaleHeight(12),
-    shadowColor: '#071B34',
+    shadowColor: '#0b1f3f',
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.12,
     shadowRadius: 16,

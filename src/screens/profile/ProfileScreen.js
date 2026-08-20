@@ -565,7 +565,7 @@ const PatientProfileScreen = ({ navigation }) => {
               style={styles.backButton}
               onPress={() => (navigation.canGoBack() ? navigation.goBack() : navigation.navigate('Settings'))}
             >
-              <Icon name="arrow-back" size={21} color="#071B34" />
+              <Icon name="arrow-back" size={21} color="#0b1f3f" />
             </TouchableOpacity>
             <Text style={styles.topbarTitle}>Profile</Text>
             <View style={styles.topbarSpacer} />
@@ -654,7 +654,7 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     fontSize: scaleFont(16),
-    color: '#071B34',
+    color: '#0b1f3f',
     fontWeight: '600',
   },
   topbar: {
@@ -674,7 +674,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.86)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.78)',
-    shadowColor: '#071B34',
+    shadowColor: '#0b1f3f',
     shadowOffset: { width: 0, height: 12 },
     shadowOpacity: 0.08,
     shadowRadius: 26,
@@ -682,7 +682,7 @@ const styles = StyleSheet.create({
   },
   topbarTitle: {
     flex: 1,
-    color: '#071B34',
+    color: '#0b1f3f',
     fontSize: scaleFont(20),
     lineHeight: scaleFont(24),
     fontWeight: '800',
@@ -715,7 +715,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: scaleFont(16),
     fontWeight: '800',
-    color: '#071B34',
+    color: '#0b1f3f',
   },
 
   // Info Box (Common for both sections)
@@ -724,7 +724,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#ffffff',
     borderRadius: scaleWidth(24),
     padding: scaleWidth(16),
-    shadowColor: '#071B34',
+    shadowColor: '#0b1f3f',
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.12,
     shadowRadius: 16,
@@ -759,7 +759,7 @@ const styles = StyleSheet.create({
   infoValue: {
     fontSize: scaleFont(16),
     fontWeight: '700',
-    color: '#071B34',
+    color: '#0b1f3f',
     textAlign: 'right',
     flex: 2,
   },

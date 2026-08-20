@@ -19,17 +19,17 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import apiService from '../../services/apiService';
 
 const COLORS = {
-  primary: '#0052CC',
+  primary: '#1177c6',
   primaryLight: '#EFF6FF',
   textDark: '#111827',
   textMuted: '#475569',
   border: '#E2E8F0',
-  borderActive: '#0052CC',
+  borderActive: '#1177c6',
   bgInput: '#FFFFFF',
   bgCard: '#FFFFFF',
   btnCancelBg: '#F1F5F9',
-  btnCancelText: '#0052CC',
-  btnSaveBg: '#0052CC',
+  btnCancelText: '#1177c6',
+  btnSaveBg: '#1177c6',
   btnSaveText: '#FFFFFF',
   errorRed: '#EF4444',
   errorBg: '#FEF2F2',
@@ -777,7 +777,7 @@ export default function AddPatientModal({ visible, onClose, onSuccess, practiceI
                       style={[styles.dropdownSelectInput, errors.dateOfBirth && styles.inputInvalid]}
                       onPress={() => setShowDobPicker(true)}>
                       <Text style={styles.dropdownSelectText}>{formData.dateOfBirth || 'Select Date of Birth'}</Text>
-                      <MaterialIcons name="event" size={20} color="#0052CC" />
+                      <MaterialIcons name="event" size={20} color="#1177c6" />
                     </TouchableOpacity>
                     {errors.dateOfBirth && <Text style={styles.errorText}>{errors.dateOfBirth}</Text>}
                   </View>
@@ -785,7 +785,7 @@ export default function AddPatientModal({ visible, onClose, onSuccess, practiceI
                   <View style={styles.formGroup}>
                     <View style={styles.labelRow}>
                       <Text style={styles.label}>SSN (Social Security Number) *</Text>
-                      {checkingSsn && <ActivityIndicator size="small" color="#0052CC" style={{ marginLeft: 6 }} />}
+                      {checkingSsn && <ActivityIndicator size="small" color="#1177c6" style={{ marginLeft: 6 }} />}
                     </View>
                     <TextInput
                       style={[styles.input, errors.ssn && styles.inputInvalid]}
@@ -843,7 +843,7 @@ export default function AddPatientModal({ visible, onClose, onSuccess, practiceI
                   <View style={styles.formGroup}>
                     <View style={styles.labelRow}>
                       <Text style={styles.label}>Username *</Text>
-                      {checkingUsername && <ActivityIndicator size="small" color="#0052CC" style={{ marginLeft: 6 }} />}
+                      {checkingUsername && <ActivityIndicator size="small" color="#1177c6" style={{ marginLeft: 6 }} />}
                     </View>
                     <TextInput
                       style={[styles.input, errors.username && styles.inputInvalid]}
@@ -859,7 +859,7 @@ export default function AddPatientModal({ visible, onClose, onSuccess, practiceI
                   <View style={styles.formGroup}>
                     <View style={styles.labelRow}>
                       <Text style={styles.label}>Email *</Text>
-                      {checkingEmail && <ActivityIndicator size="small" color="#0052CC" style={{ marginLeft: 6 }} />}
+                      {checkingEmail && <ActivityIndicator size="small" color="#1177c6" style={{ marginLeft: 6 }} />}
                     </View>
                     <TextInput
                       style={[styles.input, errors.email && styles.inputInvalid]}
@@ -1064,7 +1064,7 @@ export default function AddPatientModal({ visible, onClose, onSuccess, practiceI
                     <View style={styles.formGroup}>
                       <Text style={styles.label}>System Caregivers (eVitals Monitoring)</Text>
                       {systemCaregiversLoading ? (
-                        <ActivityIndicator size="small" color="#0052CC" style={{ alignSelf: 'flex-start', marginVertical: 4 }} />
+                        <ActivityIndicator size="small" color="#1177c6" style={{ alignSelf: 'flex-start', marginVertical: 4 }} />
                       ) : systemCaregivers.length === 0 ? (
                         <Text style={styles.subtextMuted}>No system caregivers assigned to this practice</Text>
                       ) : (
@@ -1152,7 +1152,7 @@ export default function AddPatientModal({ visible, onClose, onSuccess, practiceI
                         <MaterialIcons
                           name={formData.carePrograms.includes('rpm') ? 'check-box' : 'check-box-outline-blank'}
                           size={22}
-                          color={formData.carePrograms.includes('rpm') ? '#0052CC' : '#94A3B8'}
+                          color={formData.carePrograms.includes('rpm') ? '#1177c6' : '#94A3B8'}
                         />
                         <View style={{ flex: 1, marginLeft: 10 }}>
                           <Text style={styles.progName}>Remote Patient Monitoring (RPM)</Text>
@@ -1168,7 +1168,7 @@ export default function AddPatientModal({ visible, onClose, onSuccess, practiceI
                         <MaterialIcons
                           name={formData.carePrograms.includes('ccm') ? 'check-box' : 'check-box-outline-blank'}
                           size={22}
-                          color={formData.carePrograms.includes('ccm') ? '#0052CC' : '#94A3B8'}
+                          color={formData.carePrograms.includes('ccm') ? '#1177c6' : '#94A3B8'}
                         />
                         <View style={{ flex: 1, marginLeft: 10 }}>
                           <Text style={styles.progName}>Chronic Care Management (CCM)</Text>
@@ -1191,7 +1191,7 @@ export default function AddPatientModal({ visible, onClose, onSuccess, practiceI
                       style={styles.dropdownSelectInput}
                       onPress={() => setShowRpmDatePicker(true)}>
                       <Text style={styles.dropdownSelectText}>{formData.rpmStartDate || 'Select RPM Start Date'}</Text>
-                      <MaterialIcons name="event" size={20} color="#0052CC" />
+                      <MaterialIcons name="event" size={20} color="#1177c6" />
                     </TouchableOpacity>
                   </View>
 
@@ -1356,7 +1356,7 @@ export default function AddPatientModal({ visible, onClose, onSuccess, practiceI
                           <MaterialIcons
                             name={formData.ccmVerbalChecklist[idx] ? 'check-box' : 'check-box-outline-blank'}
                             size={20}
-                            color={formData.ccmVerbalChecklist[idx] ? '#0052CC' : '#94A3B8'}
+                            color={formData.ccmVerbalChecklist[idx] ? '#1177c6' : '#94A3B8'}
                           />
                           <Text style={styles.ccmCheckText}>{q}</Text>
                         </TouchableOpacity>
@@ -1439,7 +1439,7 @@ export default function AddPatientModal({ visible, onClose, onSuccess, practiceI
                     <Text style={[styles.modalSelectText, formData.state === st.code && styles.modalSelectTextActive]}>
                       {st.name} ({st.code})
                     </Text>
-                    {formData.state === st.code && <MaterialIcons name="check" size={18} color="#0052CC" />}
+                    {formData.state === st.code && <MaterialIcons name="check" size={18} color="#1177c6" />}
                   </TouchableOpacity>
                 ))}
               </ScrollView>
@@ -1475,7 +1475,7 @@ export default function AddPatientModal({ visible, onClose, onSuccess, practiceI
                       setTzSearch('');
                     }}>
                     <Text style={[styles.modalSelectText, formData.timeZone === tz && styles.modalSelectTextActive]}>{tz}</Text>
-                    {formData.timeZone === tz && <MaterialIcons name="check" size={18} color="#0052CC" />}
+                    {formData.timeZone === tz && <MaterialIcons name="check" size={18} color="#1177c6" />}
                   </TouchableOpacity>
                 ))}
               </ScrollView>
@@ -1509,7 +1509,7 @@ export default function AddPatientModal({ visible, onClose, onSuccess, practiceI
                       handleFieldChange('profilePicture', item.url);
                       setShowAvatarModal(false);
                     }}>
-                    <Image source={{ uri: item.url }} style={{ width: 54, height: 54, borderRadius: 27, borderWidth: 2, borderColor: '#0052CC' }} />
+                    <Image source={{ uri: item.url }} style={{ width: 54, height: 54, borderRadius: 27, borderWidth: 2, borderColor: '#1177c6' }} />
                     <Text style={{ fontSize: 11, color: '#334155', marginTop: 4, fontWeight: '600' }}>{item.label}</Text>
                   </TouchableOpacity>
                 ))}
@@ -1556,7 +1556,7 @@ export default function AddPatientModal({ visible, onClose, onSuccess, practiceI
               display="spinner"
               themeVariant="light"
               textColor="#111827"
-              accentColor="#0052CC"
+              accentColor="#1177c6"
               onChange={handleDobChange}
             />
           </View>
@@ -1584,7 +1584,7 @@ export default function AddPatientModal({ visible, onClose, onSuccess, practiceI
               display="spinner"
               themeVariant="light"
               textColor="#111827"
-              accentColor="#0052CC"
+              accentColor="#1177c6"
               onChange={handleRpmDateChange}
             />
           </View>
@@ -2018,7 +2018,7 @@ const styles = StyleSheet.create({
     color: '#334155',
   },
   modalSelectTextActive: {
-    color: '#0052CC',
+    color: '#1177c6',
     fontWeight: '700',
   },
   iosPickerSheet: {

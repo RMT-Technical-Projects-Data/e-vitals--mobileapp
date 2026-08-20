@@ -1132,7 +1132,7 @@ const styles = StyleSheet.create({
         borderColor: '#C8E6C9',
     },
     historyButtonText: {
-        color: '#2E7D32',
+        color: '#1177c6',
         fontSize: 14,
         fontWeight: '600',
     },

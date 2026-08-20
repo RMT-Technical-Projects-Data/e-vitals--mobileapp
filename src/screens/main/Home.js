@@ -4,6 +4,7 @@ import {
   View,
   Text,
   TouchableOpacity,
+  Pressable,
   StyleSheet,
   StatusBar,
   ScrollView,
@@ -11,6 +12,8 @@ import {
   ActivityIndicator,
   Image,
   Modal,
+  Animated,
+  Easing,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
@@ -20,6 +23,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import apiService from '../../services/apiService';
 import { useFocusEffect } from '@react-navigation/native';
 import PremiumBottomNav, { PREMIUM_BOTTOM_NAV_CLEARANCE } from '../../components/navigation/PremiumBottomNav';
+import { EV } from '../../config/colors';
 
 const { width, height } = Dimensions.get('window');
 const guidelineBaseWidth = 375;
@@ -29,8 +33,8 @@ const scaleWidth = (size) => Math.min((width / guidelineBaseWidth) * size, size 
 const scaleHeight = (size) => Math.min((height / guidelineBaseHeight) * size, size * 1.25);
 const scaleFont = (size) => Math.min((width / guidelineBaseWidth) * size, size * 1.2);
 const eVitalsLogo = require('../../assets/images/batch_06/logo5.png');
-const SCREEN_BG_COLORS = ['#ffffff', '#ffffff', '#ffffff'];
-const QUICK_ACCESS_ICON_COLORS = ['#071B34', '#1B2A47'];
+const SCREEN_BG_COLORS = [EV.surface, EV.surface, EV.surface];
+const QUICK_ACCESS_ICON_COLORS = EV.buttonGradient;
 
 const toSafeNumber = (value, fallback = 0) => {
   const n = Number(value);
@@ -81,15 +85,29 @@ const Sparkline = ({ points, color }) => {
 };
 
 const AppHeader = ({ color, onNotifications, onMenuPress }) => (
-  <View style={st.evTopbar}>
-    <Image source={eVitalsLogo} style={st.evLogo} resizeMode="contain" />
-    <View style={st.topbarActions}>
-      <TouchableOpacity style={st.evIconButton} onPress={onNotifications} accessibilityRole="button" accessibilityLabel="Notifications">
+  <View style={st.evTopbar} pointerEvents="box-none">
+    <Image source={eVitalsLogo} style={st.evLogo} resizeMode="contain" pointerEvents="none" />
+    <View style={st.topbarActions} pointerEvents="box-none">
+      <TouchableOpacity
+        style={st.evIconButton}
+        onPress={onNotifications}
+        activeOpacity={0.7}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        accessibilityRole="button"
+        accessibilityLabel="Notifications"
+      >
         <MaterialIcons name="notifications-none" size={21} color={color} />
-        <View style={st.notifBadge} />
+        <View style={st.notifBadge} pointerEvents="none" />
       </TouchableOpacity>
       {Boolean(onMenuPress) && (
-        <TouchableOpacity style={st.evIconButton} onPress={onMenuPress} accessibilityRole="button" accessibilityLabel="Open menu">
+        <TouchableOpacity
+          style={st.evIconButton}
+          onPress={onMenuPress}
+          activeOpacity={0.7}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          accessibilityRole="button"
+          accessibilityLabel="Open menu"
+        >
           <MaterialIcons name="more-vert" size={21} color={color} />
         </TouchableOpacity>
       )}
@@ -106,7 +124,7 @@ const ThreeDotMenu = ({ visible, onClose, onLookupPatient, onFollowUp }) => (
           onPress={() => { onClose(); onLookupPatient(); }}
           activeOpacity={0.75}
         >
-          <MaterialIcons name="search" size={18} color="#071B34" style={st.menuItemIcon} />
+          <MaterialIcons name="search" size={18} color={EV.navy} style={st.menuItemIcon} />
           <Text style={st.menuItemText}>Look up Patient</Text>
         </TouchableOpacity>
         <View style={st.menuDivider} />
@@ -115,7 +133,7 @@ const ThreeDotMenu = ({ visible, onClose, onLookupPatient, onFollowUp }) => (
           onPress={() => { onClose(); onFollowUp(); }}
           activeOpacity={0.75}
         >
-          <MaterialIcons name="assignment" size={18} color="#071B34" style={st.menuItemIcon} />
+          <MaterialIcons name="assignment" size={18} color={EV.navy} style={st.menuItemIcon} />
           <Text style={st.menuItemText}>Follow Up</Text>
         </TouchableOpacity>
       </View>
@@ -123,7 +141,7 @@ const ThreeDotMenu = ({ visible, onClose, onLookupPatient, onFollowUp }) => (
   </Modal>
 );
 
-const RoleIntro = ({ eyebrow, title, practiceName, subtitle, color, practiceNameColor = '#9B1230' }) => (
+const RoleIntro = ({ eyebrow, title, practiceName, subtitle, color, practiceNameColor = EV.blue }) => (
   <View style={st.evIntro}>
     <Text style={[st.evEyebrow, { color }]}>{eyebrow}</Text>
     <Text style={st.evTitle}>{title}</Text>
@@ -148,7 +166,7 @@ const SectionTitle = ({ title, subtitle, actionLabel, actionColor, onPress, subt
     </View>
     {!!actionLabel && (
       <TouchableOpacity onPress={onPress} accessibilityRole="button">
-        <Text style={[st.evSectionAction, { color: actionColor || '#1b2a47' }]}>{actionLabel}</Text>
+        <Text style={[st.evSectionAction, { color: actionColor || EV.navyMid }]}>{actionLabel}</Text>
       </TouchableOpacity>
     )}
   </View>
@@ -189,191 +207,178 @@ const PanelMetricCard = ({ value, label, valueColor = '#fff', isTotal = false, c
 );
 
 const CapsulePanelSummary = ({ total = 0, active = 0, pending = 0, locked = 0, navigation }) => {
-  const scrollRef = React.useRef(null);
-  const scrollPos = React.useRef(0);
-  const contentWidthRef = React.useRef(0);
-  const isInteracting = React.useRef(false);
-  const resumeTimer = React.useRef(null);
-  const animationFrame = React.useRef(null);
+  // Animated translateX (not ScrollView.scrollTo) — continuous scrollTo was stealing
+  // touches from Dashboard Counts and other rows below this section.
+  const translateX = React.useRef(new Animated.Value(0)).current;
+  const [loopWidth, setLoopWidth] = React.useState(0);
+  const animRef = React.useRef(null);
+  const pausedRef = React.useRef(false);
 
   const baseItems = [
     {
       key: 'all',
       label: 'All',
       count: total,
-      bg: '#071B34',
-      borderColor: '#071B34',
-      textColor: '#FFFFFF',
-      dotColor: null,
+      bg: EV.surface,
+      borderColor: EV.navy,
+      textColor: EV.navy,
+      dotColor: EV.navy,
       onPress: () => navigation?.navigate('Patients', { filterTitle: 'All Patients' }),
     },
     {
       key: 'active',
       label: 'Active',
       count: active,
-      bg: '#F0FDF4',
-      borderColor: '#86EFAC',
-      textColor: '#15803D',
-      dotColor: '#22C55E',
+      bg: EV.bluePale,
+      borderColor: EV.accent,
+      textColor: EV.blueDeep,
+      dotColor: EV.accent,
       onPress: () => navigation?.navigate('Patients', { dashboardFilter: 'active', filterTitle: 'Active Patients' }),
     },
     {
       key: 'pending',
       label: 'Pending',
       count: pending,
-      bg: '#FEFCE8',
-      borderColor: '#FDE047',
-      textColor: '#A16207',
-      dotColor: '#EAB308',
+      bg: '#EFF8FC',
+      borderColor: EV.blue,
+      textColor: EV.navy,
+      dotColor: EV.blue,
       onPress: () => navigation?.navigate('Patients', { dashboardFilter: 'pending', filterTitle: 'Pending Patients' }),
     },
     {
       key: 'locked',
       label: 'Locked',
       count: locked,
-      bg: '#FEF2F2',
-      borderColor: '#FCA5A5',
-      textColor: '#B91C1C',
-      dotColor: '#EF4444',
+      bg: '#F0F4F8',
+      borderColor: EV.navyMid,
+      textColor: EV.navyMid,
+      dotColor: EV.navyMid,
       onPress: () => navigation?.navigate('Patients', { dashboardFilter: 'locked', filterTitle: 'Locked Patients' }),
     },
   ];
 
-  const carouselItems = [...baseItems, ...baseItems, ...baseItems, ...baseItems];
+  const carouselItems = [...baseItems, ...baseItems];
+
+  const startLoop = React.useCallback(() => {
+    if (pausedRef.current || loopWidth <= 0) return;
+    translateX.setValue(0);
+    animRef.current = Animated.timing(translateX, {
+      toValue: -loopWidth,
+      duration: Math.max(8000, (loopWidth / 35) * 1000),
+      easing: Easing.linear,
+      useNativeDriver: true,
+    });
+    animRef.current.start(({ finished }) => {
+      if (finished && !pausedRef.current) startLoop();
+    });
+  }, [loopWidth, translateX]);
 
   React.useEffect(() => {
-    let lastTime = Date.now();
-
-    const tick = () => {
-      const now = Date.now();
-      const delta = now - lastTime;
-      lastTime = now;
-
-      if (!isInteracting.current && scrollRef.current && contentWidthRef.current > 0) {
-        scrollPos.current += (35 * delta) / 1000;
-
-        const halfWidth = contentWidthRef.current / 2;
-        if (halfWidth > 0 && scrollPos.current >= halfWidth) {
-          scrollPos.current = scrollPos.current % halfWidth;
-        }
-
-        scrollRef.current.scrollTo({ x: scrollPos.current, animated: false });
-      }
-
-      animationFrame.current = requestAnimationFrame(tick);
-    };
-
-    animationFrame.current = requestAnimationFrame(tick);
-
+    pausedRef.current = false;
+    startLoop();
     return () => {
-      if (animationFrame.current) {
-        cancelAnimationFrame(animationFrame.current);
-      }
-      if (resumeTimer.current) {
-        clearTimeout(resumeTimer.current);
-      }
+      pausedRef.current = true;
+      animRef.current?.stop?.();
     };
-  }, []);
+  }, [startLoop]);
 
-  const handleScrollTouchStart = () => {
-    isInteracting.current = true;
-    if (resumeTimer.current) {
-      clearTimeout(resumeTimer.current);
-    }
+  const pauseMarquee = () => {
+    pausedRef.current = true;
+    animRef.current?.stop?.();
   };
 
-  const handleScrollTouchEnd = () => {
-    if (resumeTimer.current) {
-      clearTimeout(resumeTimer.current);
-    }
-    resumeTimer.current = setTimeout(() => {
-      isInteracting.current = false;
-    }, 2000);
-  };
-
-  const handleScroll = (event) => {
-    const x = event.nativeEvent.contentOffset.x;
-    scrollPos.current = x;
+  const resumeMarquee = () => {
+    pausedRef.current = false;
+    startLoop();
   };
 
   return (
     <View style={st.capsuleCarouselWrap}>
-      <ScrollView
-        ref={scrollRef}
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        onScroll={handleScroll}
-        scrollEventThrottle={16}
-        onTouchStart={handleScrollTouchStart}
-        onTouchEnd={handleScrollTouchEnd}
-        onScrollBeginDrag={handleScrollTouchStart}
-        onScrollEndDrag={handleScrollTouchEnd}
-        onMomentumScrollEnd={handleScrollTouchEnd}
-        onContentSizeChange={(w) => {
-          contentWidthRef.current = w;
-        }}
-        contentContainerStyle={st.capsuleCarouselContent}
-      >
-        {carouselItems.map((item, index) => (
-          <TouchableOpacity
-            key={`${item.key}-${index}`}
-            style={[
-              st.capsulePill,
-              {
-                backgroundColor: item.bg,
-                borderColor: item.borderColor,
-              },
-            ]}
-            onPress={item.onPress}
-            activeOpacity={0.8}
-          >
-            {item.dotColor && (
-              <View style={[st.capsuleDot, { backgroundColor: item.dotColor }]} />
-            )}
-            <Text style={[st.capsuleLabel, { color: item.textColor }]}>
-              {item.label}
-            </Text>
-            <View
+      <View style={st.capsuleCarouselClip}>
+        <Animated.View
+          style={[st.capsuleCarouselTrack, { transform: [{ translateX }] }]}
+          onLayout={(e) => {
+            const full = e.nativeEvent.layout.width;
+            if (full > 0) {
+              const next = full / 2;
+              if (Math.abs(next - loopWidth) > 1) setLoopWidth(next);
+            }
+          }}
+        >
+          {carouselItems.map((item, index) => (
+            <TouchableOpacity
+              key={`${item.key}-${index}`}
               style={[
-                st.capsuleBadge,
-                item.key === 'all'
-                  ? { backgroundColor: 'rgba(255,255,255,0.22)' }
-                  : { backgroundColor: 'rgba(0,0,0,0.06)' },
+                st.capsulePill,
+                {
+                  backgroundColor: item.bg,
+                  borderColor: item.borderColor,
+                },
               ]}
+              onPress={item.onPress}
+              onPressIn={pauseMarquee}
+              onPressOut={resumeMarquee}
+              activeOpacity={0.8}
             >
-              <Text style={[st.capsuleCountText, { color: item.textColor }]}>
-                {item.count}
+              {item.dotColor && (
+                <View style={[st.capsuleDot, { backgroundColor: item.dotColor }]} />
+              )}
+              <Text style={[st.capsuleLabel, { color: item.textColor }]}>
+                {item.label}
               </Text>
-            </View>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
+              <View
+                style={[
+                  st.capsuleBadge,
+                  { backgroundColor: 'rgba(11, 31, 63, 0.08)' },
+                ]}
+              >
+                <Text style={[st.capsuleCountText, { color: item.textColor }]}>
+                  {item.count}
+                </Text>
+              </View>
+            </TouchableOpacity>
+          ))}
+        </Animated.View>
+      </View>
     </View>
   );
 };
 
 const DashboardCountsSection = ({ missedUploadsCount = 0, abnormalCount = 0, recentUploadsCount = 0, navigation }) => {
+  const openDashboardCount = (dashboardFilter, filterTitle) => {
+    if (!navigation?.navigate) return;
+    navigation.navigate({
+      name: 'Patients',
+      params: {
+        dashboardFilter,
+        filterTitle,
+        filterToken: Date.now(),
+      },
+      merge: true,
+    });
+  };
+
   const items = [
     {
       id: '01',
       title: 'Missed Uploads',
       value: missedUploadsCount,
-      valueColor: '#071B34',
-      onPress: () => navigation.navigate('Patients', { dashboardFilter: 'missedUploads', filterTitle: 'Missed Uploads' }),
+      valueColor: EV.navy,
+      onPress: () => openDashboardCount('missedUploads', 'Missed Uploads'),
     },
     {
       id: '02',
       title: 'Abnormal Readings',
       value: abnormalCount,
-      valueColor: abnormalCount > 0 ? '#C53030' : '#071B34',
-      onPress: () => navigation.navigate('Patients', { dashboardFilter: 'abnormalMeasurements', filterTitle: 'Abnormal Readings' }),
+      valueColor: abnormalCount > 0 ? EV.abnormal : EV.navy,
+      onPress: () => openDashboardCount('abnormalMeasurements', 'Abnormal Readings'),
     },
     {
       id: '03',
       title: 'Recent Uploads',
       value: recentUploadsCount,
-      valueColor: '#071B34',
-      onPress: () => navigation.navigate('Patients', { dashboardFilter: 'recentUploads', filterTitle: 'Recent Uploads' }),
+      valueColor: EV.navy,
+      onPress: () => openDashboardCount('recentUploads', 'Recent Uploads'),
     },
   ];
 
@@ -381,41 +386,38 @@ const DashboardCountsSection = ({ missedUploadsCount = 0, abnormalCount = 0, rec
     <View style={st.dbCountsWrap}>
       <View style={st.dbCountsHeaderRow}>
         <Text style={st.dbCountsHeaderTitle}>Dashboard Counts</Text>
-        {/* <Text style={st.dbCountsHeaderSub}>Today</Text> */}
       </View>
       <View style={st.dbCountsCardContainer}>
         {items.map((item, index) => {
           const isLast = index === items.length - 1;
           return (
-            <TouchableOpacity
+            <Pressable
               key={item.id}
-              style={[st.dbCountsRow, !isLast && st.dbCountsRowDivider]}
+              style={({ pressed }) => [
+                st.dbCountsRow,
+                !isLast && st.dbCountsRowDivider,
+                pressed && { opacity: 0.7 },
+              ]}
               onPress={item.onPress}
-              activeOpacity={0.7}
+              hitSlop={8}
             >
               <Text style={st.dbCountsIndex}>{item.id}</Text>
               <Text style={st.dbCountsRowTitle}>{item.title}</Text>
-              <View style={st.dbCountsRightWrap}>
+              <View style={st.dbCountsRightWrap} pointerEvents="none">
                 <Text style={[st.dbCountsValue, { color: item.valueColor }]}>{item.value}</Text>
-                <MaterialIcons name="chevron-right" size={20} color="#CBD5E0" />
+                <MaterialIcons name="chevron-right" size={20} color={EV.mutedLight} />
               </View>
-            </TouchableOpacity>
+            </Pressable>
           );
         })}
       </View>
-      {/* <View style={st.dbCountsHelperTag}>
-        <Text style={st.dbCountsHelperText}>Tap anywhere on a row →</Text>
-      </View> */}
     </View>
   );
 };
 
-const CriticalAlertRow = ({ icon = 'warning-amber', name, detail, severity = 'High', critical, onPress }) => {
+const CriticalAlertRow = ({ name, detail, severity = 'High', critical, onPress }) => {
   const content = (
     <View style={st.criticalRow}>
-      <View style={st.criticalIcon}>
-        <MaterialIcons name={icon} size={20} color="#c62828" />
-      </View>
       <View style={st.criticalText}>
         <Text style={st.criticalName}>{name}</Text>
         <Text style={st.criticalDetail}>{detail}</Text>
@@ -450,39 +452,38 @@ const CPT_CODE_META = {
  * Each row shows: code pill | description | Elig count (green) | Inelig count (red) | fill bar.
  */
 const CptEligibilityCard = ({ rows, theme = 'care', onCptPress }) => {
-  const themeAccent = theme === 'provider' ? '#1B2A47' : '#1B2A47';
+  const themeAccent = EV.navyMid;
   return (
     <View style={st.cptCard}>
       {/* Header */}
       <View style={st.cptHeader}>
         <Text style={st.cptHeaderTitle}>
-          {theme === 'provider' ? 'Provider attestation readiness' : 'RPM code readiness'}
+          {theme === 'provider' ? 'RPM code readiness' : 'RPM code readiness'}
         </Text>
         <View style={st.cptHeaderLegend}>
-          <View style={st.cptLegendDot} />
-          <Text style={[st.cptLegendLabel, { color: '#2e7d32' }]}>Elig</Text>
-          <View style={[st.cptLegendDot, { backgroundColor: '#c62828', marginLeft: scaleWidth(10) }]} />
-          <Text style={[st.cptLegendLabel, { color: '#c62828' }]}>Inelig</Text>
+          <View style={[st.cptLegendDot, { backgroundColor: EV.blueDeep }]} />
+          <Text style={[st.cptLegendLabel, { color: EV.blueDeep }]}>Elig</Text>
+          <View style={[st.cptLegendDot, { backgroundColor: EV.criticalStrong, marginLeft: scaleWidth(10) }]} />
+          <Text style={[st.cptLegendLabel, { color: EV.criticalStrong }]}>Inelig</Text>
         </View>
       </View>
 
       {/* CPT rows */}
-      {rows.map((row) => {
+      {rows.map((row, index) => {
         const meta = CPT_CODE_META[row.code] || {};
         const eligible = typeof row.eligible === 'number' ? row.eligible : row.count || 0;
         const ineligible = typeof row.ineligible === 'number' ? row.ineligible : 0;
         const total = eligible + ineligible;
         const fillPct = total > 0 ? Math.round((eligible / total) * 100) : 0;
         const barColors = row.variant === 'warn'
-          ? ['#c98a1a', '#dec07d']
+          ? [EV.blueLight, EV.blueTint]
           : row.variant === 'navy'
-            ? ['#071B34', '#315272']
-            : theme === 'provider'
-              ? ['#9B1230', '#d2778a']
-              : ['#2f5f8f', '#8da1b8'];
+            ? [EV.navy, EV.blueDeep]
+            : [EV.blue, EV.accent];
+        const isLast = index === rows.length - 1;
 
         const rowContent = (
-          <View key={row.code} style={st.cptRow}>
+          <View key={row.code} style={[st.cptRow, !isLast && st.cptRowDivider]}>
             {/* Left: code pill + description */}
             <View style={st.cptMeta}>
               <View style={[st.cptCodePill, { backgroundColor: themeAccent }]}>
@@ -495,11 +496,11 @@ const CptEligibilityCard = ({ rows, theme = 'care', onCptPress }) => {
             <View style={st.cptRight}>
               <View style={st.cptCounts}>
                 <View style={st.cptCountCol}>
-                  <Text style={[st.cptCountNum, { color: '#2e7d32' }]}>{eligible}</Text>
+                  <Text style={[st.cptCountNum, { color: EV.blueDeep }]}>{eligible}</Text>
                   <Text style={st.cptCountLabel}>Elig</Text>
                 </View>
                 <View style={[st.cptCountCol, { marginLeft: scaleWidth(12) }]}>
-                  <Text style={[st.cptCountNum, { color: '#c62828' }]}>{ineligible}</Text>
+                  <Text style={[st.cptCountNum, { color: EV.criticalStrong }]}>{ineligible}</Text>
                   <Text style={st.cptCountLabel}>Inelig</Text>
                 </View>
               </View>
@@ -582,7 +583,7 @@ const PatientTrendSlidesCarousel = () => {
             return (
               <React.Fragment key={tick}>
                 <Line x1={left} y1={y} x2={left + innerW} y2={y} stroke="rgba(7,27,52,0.06)" strokeWidth="1" />
-                <SvgText x={left - 6} y={y + 3} fontSize="9" fontWeight="700" fill="#94A3B8" textAnchor="end">
+                <SvgText x={left - 6} y={y + 3} fontSize="9" fontWeight="700" fill={EV.mutedLight} textAnchor="end">
                   {valLabel}
                 </SvgText>
               </React.Fragment>
@@ -612,7 +613,7 @@ const PatientTrendSlidesCarousel = () => {
                       cx={pt.x}
                       cy={pt.y}
                       r="3.5"
-                      fill="#FFFFFF"
+                      fill={EV.surface}
                       stroke={l.color}
                       strokeWidth="2"
                     />
@@ -629,7 +630,7 @@ const PatientTrendSlidesCarousel = () => {
               y={chartHeight - 6}
               fontSize="9"
               fontWeight="700"
-              fill="#94A3B8"
+              fill={EV.mutedLight}
               textAnchor="middle"
             >
               {day}
@@ -655,9 +656,9 @@ const PatientTrendSlidesCarousel = () => {
         {renderSingleChart({
           title: 'Blood Pressure & Pulse',
           lines: [
-            { label: 'Systole', color: '#9B1230', data: bpData.systole },
-            { label: 'Diastole', color: '#2563EB', data: bpData.diastole },
-            { label: 'Pulse', color: '#EAB308', data: bpData.pulse },
+            { label: 'Systole', color: EV.navyDark, data: bpData.systole },
+            { label: 'Diastole', color: EV.blue, data: bpData.diastole },
+            { label: 'Pulse', color: EV.accent, data: bpData.pulse },
           ],
           minVal: 60,
           maxVal: 160,
@@ -667,7 +668,7 @@ const PatientTrendSlidesCarousel = () => {
         {renderSingleChart({
           title: 'Blood Glucose (mg/dL)',
           lines: [
-            { label: 'Glucose', color: '#EA580C', data: bgData },
+            { label: 'Glucose', color: EV.blueDeep, data: bgData },
           ],
           minVal: 90,
           maxVal: 140,
@@ -677,7 +678,7 @@ const PatientTrendSlidesCarousel = () => {
         {renderSingleChart({
           title: 'Weight (lb)',
           lines: [
-            { label: 'Weight', color: '#0D9488', data: weightData },
+            { label: 'Weight', color: EV.navyMid, data: weightData },
           ],
           minVal: 175,
           maxVal: 185,
@@ -701,7 +702,7 @@ const PatientTrendSlidesCarousel = () => {
 };
 
 const SvgTextShim = ({ x, y, value }) => (
-  <SvgText x={x} y={y} fontSize="9" fontWeight="700" fill="#8b96a6" textAnchor="middle">
+  <SvgText x={x} y={y} fontSize="9" fontWeight="700" fill={EV.mutedLight} textAnchor="middle">
     {value}
   </SvgText>
 );
@@ -1118,6 +1119,15 @@ export default function Home({ navigation }) {
     patientId: patientTableId || undefined,
   });
 
+  const openNotifications = () => {
+    const parent = navigation.getParent?.();
+    if (parent) {
+      parent.navigate('Notifications');
+      return;
+    }
+    navigation.navigate('Notifications');
+  };
+
   const openLookupPatient = () => navigation.navigate('LookupPatient');
   const openLookupRPM = () => navigation.navigate('LookupPatientRPM');
   const openLookupCCM = () => navigation.navigate('LookupPatientCCM');
@@ -1173,27 +1183,30 @@ export default function Home({ navigation }) {
     const wtTime = formatReadingTime(measurements.weight?.date);
 
     return (
-      <View style={{ flex: 1, backgroundColor: '#ffffff' }}>
+      <View style={{ flex: 1, backgroundColor: EV.surface }}>
         <LinearGradient
           colors={SCREEN_BG_COLORS}
           style={st.fullGradient}
         >
           <SafeAreaView style={{ flex: 1 }} edges={['top']}>
+            <View style={st.headerSafeWrap}>
+              <AppHeader
+                color={EV.navy}
+                onNotifications={openNotifications}
+              />
+            </View>
             <ScrollView
               contentContainerStyle={st.scrollContainer}
               showsVerticalScrollIndicator={false}
               bounces={true}
               overScrollMode="never"
+              keyboardShouldPersistTaps="handled"
             >
-              <AppHeader
-                color="#071B34"
-                onNotifications={() => navigation.navigate('Notifications')}
-              />
               <RoleIntro
 
                 title={patientName || 'Dashboard'}
                 practiceName={practiceName || 'Northside Cardiology'}
-                color="#071B34"
+                color={EV.navy}
               />
 
               <View style={st.lrHeaderWrap}>
@@ -1208,7 +1221,7 @@ export default function Home({ navigation }) {
                     <Text style={st.lrTime}>{bpTime}</Text>
                   </View>
                   <View style={st.lrValWrap}>
-                    <Text style={[st.lrValText, bpVal !== '--' && { color: '#800000' }]}>{bpVal}</Text>
+                    <Text style={[st.lrValText, bpVal !== '--' && { color: EV.abnormal }]}>{bpVal}</Text>
                     <Text style={st.lrUnitText}>mmHg</Text>
                   </View>
                 </TouchableOpacity>
@@ -1327,37 +1340,38 @@ export default function Home({ navigation }) {
     ];
 
     return (
-      <View style={{ flex: 1, backgroundColor: '#ffffff' }}>
+      <View style={{ flex: 1, backgroundColor: EV.surface }}>
         <LinearGradient
           colors={SCREEN_BG_COLORS}
           style={st.fullGradient}
         >
           <SafeAreaView style={{ flex: 1 }} edges={['top']}>
+            <View style={st.headerSafeWrap}>
+              <ThreeDotMenu
+                visible={showMenu}
+                onClose={() => setShowMenu(false)}
+                onLookupPatient={openLookupPatient}
+                onFollowUp={openFollowUp}
+              />
+              <AppHeader
+                color={EV.navyMid}
+                onNotifications={openNotifications}
+                onMenuPress={() => setShowMenu(true)}
+              />
+            </View>
             <ScrollView
               contentContainerStyle={st.scrollContainer}
               showsVerticalScrollIndicator={false}
               bounces={true}
               overScrollMode="never"
+              keyboardShouldPersistTaps="always"
             >
-              <ThreeDotMenu
-                visible={showMenu}
-                onClose={() => setShowMenu(false)}
-                onLookupPatient={openLookupPatient}
-                onLookupRPM={openLookupRPM}
-                onLookupCCM={openLookupCCM}
-                onFollowUp={openFollowUp}
-              />
-              <AppHeader
-                color="#1B2A47"
-                onNotifications={() => navigation.navigate('Notifications')}
-                onMenuPress={() => setShowMenu(true)}
-              />
               <RoleIntro
 
                 title={patientName || 'Dashboard'}
                 practiceName={practiceName}
                 subtitle="Your assigned patient panel is prioritized by uploads, alerts, and billing readiness."
-                color="#1B2A47"
+                color={EV.navyMid}
               />
 
               <CapsulePanelSummary
@@ -1375,10 +1389,10 @@ export default function Home({ navigation }) {
                 navigation={navigation}
               />
 
-              <SectionTitle title="Recent Uploads" subtitle="Latest patient syncs" actionLabel="Patients" actionColor="#1B2A47" onPress={() => navigation.navigate('Patients')} />
+              <SectionTitle title="Recent Uploads" subtitle="Latest patient syncs" actionLabel="Patients" actionColor={EV.navyMid} onPress={() => navigation.navigate('Patients')} />
 
               {isCaregiverLoading && caregiverPatients.length === 0 ? (
-                <ActivityIndicator size="small" color="#1b2a47" style={{ marginVertical: 20 }} />
+                <ActivityIndicator size="small" color={EV.navyMid} style={{ marginVertical: 20 }} />
               ) : (
                 <View style={st.uploadList}>
                   {recentUploads.map((p) => {
@@ -1399,19 +1413,18 @@ export default function Home({ navigation }) {
                 </View>
               )}
 
-              <SectionTitle title="Critical Alerts" actionLabel="See all" actionColor="#687382" onPress={() => navigation.navigate('Patients')} />
+              <SectionTitle title="Critical Alerts" actionLabel="See all" actionColor={EV.muted} onPress={() => navigation.navigate('Patients')} />
 
               {criticalPatients.length === 0 ? (
                 <View style={st.emptyAlertCard}><Text style={st.emptyAlertText}>No critical alerts for now.</Text></View>
               ) : (
                 <View style={st.criticalCard}>
-                  {criticalPatients.slice(0, 4).map((p, index) => {
+                  {criticalPatients.slice(0, 4).map((p) => {
                     const isCritical = p.status === 'Critical' || p.status === 'Locked';
                     const reading = p.data_summary ? `Blood pressure ${p.data_summary} with repeat high reading` : 'Measurement outside configured target range';
                     return (
                       <CriticalAlertRow
                         key={String(p.id)}
-                        icon={index % 2 === 0 ? 'warning-amber' : 'notification-important'}
                         name={`${p.first_name} ${p.last_name}`}
                         detail={reading}
                         severity={isCritical ? 'Critical' : 'High'}
@@ -1490,37 +1503,38 @@ export default function Home({ navigation }) {
     ];
 
     return (
-      <View style={{ flex: 1, backgroundColor: '#ffffff' }}>
+      <View style={{ flex: 1, backgroundColor: EV.surface }}>
         <LinearGradient
           colors={SCREEN_BG_COLORS}
           style={st.fullGradient}
         >
           <SafeAreaView style={{ flex: 1 }} edges={['top']}>
+            <View style={st.headerSafeWrap}>
+              <ThreeDotMenu
+                visible={showMenu}
+                onClose={() => setShowMenu(false)}
+                onLookupPatient={openLookupPatient}
+                onFollowUp={openFollowUp}
+              />
+              <AppHeader
+                color={EV.navy}
+                onNotifications={openNotifications}
+                onMenuPress={() => setShowMenu(true)}
+              />
+            </View>
             <ScrollView
               contentContainerStyle={st.scrollContainer}
               showsVerticalScrollIndicator={false}
               bounces={true}
               overScrollMode="never"
+              keyboardShouldPersistTaps="always"
             >
-              <ThreeDotMenu
-                visible={showMenu}
-                onClose={() => setShowMenu(false)}
-                onLookupPatient={openLookupPatient}
-                onLookupRPM={openLookupRPM}
-                onLookupCCM={openLookupCCM}
-                onFollowUp={openFollowUp}
-              />
-              <AppHeader
-                color="#071B34"
-                onNotifications={() => navigation.navigate('Notifications')}
-                onMenuPress={() => setShowMenu(true)}
-              />
               <RoleIntro
 
                 title={patientName || 'Dashboard'}
                 practiceName={practiceName}
                 // subtitle="Your patient panel is organized by review urgency, uploads, alerts, and billing readiness."
-                color="#9B1230"
+                color={EV.blue}
               />
 
               <CapsulePanelSummary
@@ -1538,16 +1552,15 @@ export default function Home({ navigation }) {
                 navigation={navigation}
               />
 
-              <SectionTitle title="Critical Alerts" actionLabel="See all" actionColor="#687382" onPress={() => navigation.navigate('Patients')} />
+              <SectionTitle title="Critical Alerts" actionLabel="See all" actionColor={EV.muted} onPress={() => navigation.navigate('Patients')} />
 
               {criticalPatients.length === 0 ? (
                 <View style={st.emptyAlertCard}><Text style={st.emptyAlertText}>No critical alerts for now.</Text></View>
               ) : (
                 <View style={st.criticalCard}>
-                  {criticalPatients.slice(0, 4).map((p, index) => (
+                  {criticalPatients.slice(0, 4).map((p) => (
                     <CriticalAlertRow
                       key={String(p.id)}
-                      icon={index % 2 === 0 ? 'warning-amber' : 'notification-important'}
                       name={`${p.first_name} ${p.last_name}`}
                       detail={p.data_summary ? `Blood pressure ${p.data_summary} requires provider review` : 'Reading outside configured clinical threshold'}
                       severity={p.status === 'Critical' || p.status === 'Locked' ? 'Critical' : 'High'}
@@ -1606,6 +1619,12 @@ const st = StyleSheet.create({
   fullGradient: {
     flex: 1,
   },
+  headerSafeWrap: {
+    zIndex: 30,
+    elevation: 30,
+    paddingHorizontal: Math.max(scaleWidth(16), 16),
+    backgroundColor: 'transparent',
+  },
   scrollContainer: {
     paddingBottom: PREMIUM_BOTTOM_NAV_CLEARANCE,
     paddingHorizontal: Math.max(scaleWidth(16), 16),
@@ -1617,6 +1636,7 @@ const st = StyleSheet.create({
     alignItems: 'center',
     paddingTop: scaleHeight(4),
     paddingBottom: scaleHeight(14),
+    zIndex: 30,
   },
   topbarActions: {
     flexDirection: 'row',
@@ -1630,7 +1650,7 @@ const st = StyleSheet.create({
     width: scaleWidth(7),
     height: scaleWidth(7),
     borderRadius: scaleWidth(4),
-    backgroundColor: '#d32f2f',
+    backgroundColor: EV.criticalStrong,
   },
   evLogo: {
     width: Math.min(scaleWidth(152), 172),
@@ -1642,10 +1662,10 @@ const st = StyleSheet.create({
     borderRadius: scaleWidth(14),
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#ffffff',
+    backgroundColor: EV.surface,
     borderWidth: 1,
-    borderColor: '#e8ecf0',
-    shadowColor: '#071B34',
+    borderColor: EV.line,
+    shadowColor: EV.navy,
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.12,
     shadowRadius: 16,
@@ -1662,14 +1682,14 @@ const st = StyleSheet.create({
   },
   evTitle: {
     marginTop: scaleHeight(4),
-    color: '#071B34',
+    color: EV.navy,
     fontSize: scaleFont(26),
     lineHeight: scaleHeight(31),
     fontWeight: '800',
   },
   evSubtitle: {
     marginTop: scaleHeight(6),
-    color: '#687382',
+    color: EV.muted,
     fontSize: scaleFont(13),
     lineHeight: scaleHeight(20),
     fontWeight: '600',
@@ -1693,12 +1713,12 @@ const st = StyleSheet.create({
     position: 'absolute',
     top: scaleHeight(64),
     right: Math.max(scaleWidth(16), 16),
-    backgroundColor: '#ffffff',
+    backgroundColor: EV.surface,
     borderRadius: scaleWidth(14),
     minWidth: scaleWidth(180),
     borderWidth: 1,
-    borderColor: '#e8ecf0',
-    shadowColor: '#071B34',
+    borderColor: EV.line,
+    shadowColor: EV.navy,
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.14,
     shadowRadius: 20,
@@ -1717,11 +1737,11 @@ const st = StyleSheet.create({
   menuItemText: {
     fontSize: scaleFont(14),
     fontWeight: '700',
-    color: '#071B34',
+    color: EV.navy,
   },
   menuDivider: {
     height: 1,
-    backgroundColor: '#e8ecf0',
+    backgroundColor: EV.line,
     marginHorizontal: scaleWidth(12),
   },
   evSectionHeader: {
@@ -1733,12 +1753,12 @@ const st = StyleSheet.create({
     marginBottom: scaleHeight(10),
   },
   evSectionTitle: {
-    color: '#071B34',
+    color: EV.navy,
     fontSize: scaleFont(16),
     fontWeight: '800',
   },
   evSectionSubtitle: {
-    color: '#687382',
+    color: EV.muted,
     fontSize: scaleFont(11),
     fontWeight: '700',
     marginTop: scaleHeight(2),
@@ -1758,7 +1778,7 @@ const st = StyleSheet.create({
     marginTop: 0,
     fontSize: scaleFont(12),
     fontWeight: '800',
-    color: '#687382',
+    color: EV.muted,
   },
   evSectionAction: {
     fontSize: scaleFont(12),
@@ -1767,6 +1787,16 @@ const st = StyleSheet.create({
   capsuleCarouselWrap: {
     marginVertical: scaleHeight(12),
     width: '100%',
+    zIndex: 1,
+  },
+  capsuleCarouselClip: {
+    width: '100%',
+    overflow: 'hidden',
+  },
+  capsuleCarouselTrack: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: scaleHeight(2),
   },
   capsuleCarouselContent: {
     paddingHorizontal: Math.max(scaleWidth(16), 16),
@@ -1781,11 +1811,6 @@ const st = StyleSheet.create({
     borderRadius: scaleWidth(24),
     borderWidth: 1.5,
     marginRight: scaleWidth(10),
-    shadowColor: '#071B34',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 6,
-    elevation: 2,
   },
   capsuleDot: {
     width: scaleWidth(8),
@@ -1815,7 +1840,7 @@ const st = StyleSheet.create({
     marginBottom: scaleHeight(4),
     borderRadius: scaleWidth(30),
     overflow: 'hidden',
-    shadowColor: '#071B34',
+    shadowColor: EV.navy,
     shadowOffset: { width: 0, height: 24 },
     shadowOpacity: 0.28,
     shadowRadius: 52,
@@ -1874,12 +1899,12 @@ const st = StyleSheet.create({
     fontWeight: '700',
   },
   uploadList: {
-    backgroundColor: '#ffffff',
+    backgroundColor: EV.surface,
     borderRadius: scaleWidth(24),
     paddingHorizontal: scaleWidth(16),
     borderWidth: 1,
-    borderColor: '#e8ecf0',
-    shadowColor: '#071B34',
+    borderColor: EV.line,
+    shadowColor: EV.navy,
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.12,
     shadowRadius: 16,
@@ -1899,10 +1924,10 @@ const st = StyleSheet.create({
     borderRadius: scaleWidth(15),
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#edf2f7',
+    backgroundColor: EV.bluePale,
   },
   uploadAvatarText: {
-    color: '#2F5F8F',
+    color: EV.blueDeep,
     fontSize: scaleFont(13),
     fontWeight: '800',
   },
@@ -1911,13 +1936,13 @@ const st = StyleSheet.create({
     minWidth: 0,
   },
   uploadName: {
-    color: '#071B34',
+    color: EV.navy,
     fontSize: scaleFont(13),
     fontWeight: '800',
   },
   uploadDetail: {
     marginTop: scaleHeight(3),
-    color: '#687382',
+    color: EV.muted,
     fontSize: scaleFont(11),
     lineHeight: scaleHeight(15),
     fontWeight: '600',
@@ -1929,17 +1954,15 @@ const st = StyleSheet.create({
     backgroundColor: 'rgba(47,95,143,0.1)',
   },
   uploadPillText: {
-    color: '#2F5F8F',
+    color: EV.blueDeep,
     fontSize: scaleFont(9),
     fontWeight: '800',
   },
   criticalCard: {
     borderRadius: scaleWidth(24),
     paddingHorizontal: scaleWidth(16),
-    backgroundColor: '#ffffff',
-    borderWidth: 1,
-    borderColor: 'rgba(198,40,40,0.18)',
-    shadowColor: '#071B34',
+    backgroundColor: EV.surface,
+    shadowColor: EV.navy,
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.12,
     shadowRadius: 16,
@@ -1960,20 +1983,20 @@ const st = StyleSheet.create({
     borderRadius: scaleWidth(14),
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(198,40,40,0.1)',
+    backgroundColor: 'rgba(196, 22, 46, 0.1)',
   },
   criticalText: {
     flex: 1,
     minWidth: 0,
   },
   criticalName: {
-    color: '#071B34',
+    color: EV.navy,
     fontSize: scaleFont(13),
     fontWeight: '800',
   },
   criticalDetail: {
     marginTop: scaleHeight(3),
-    color: '#687382',
+    color: EV.muted,
     fontSize: scaleFont(11),
     lineHeight: scaleHeight(15),
     fontWeight: '600',
@@ -1986,10 +2009,10 @@ const st = StyleSheet.create({
     alignItems: 'center',
   },
   severityCritical: {
-    backgroundColor: '#C62828',
+    backgroundColor: EV.criticalStrong,
   },
   severityHigh: {
-    backgroundColor: '#9B1230',
+    backgroundColor: EV.critical,
   },
   severityText: {
     color: '#fff',
@@ -2006,7 +2029,7 @@ const st = StyleSheet.create({
     alignItems: 'center',
   },
   emptyAlertText: {
-    color: '#687382',
+    color: EV.muted,
     fontSize: scaleFont(12),
     fontWeight: '800',
   },
@@ -2014,6 +2037,8 @@ const st = StyleSheet.create({
     marginTop: scaleHeight(16),
     marginBottom: scaleHeight(12),
     width: '100%',
+    zIndex: 2,
+    elevation: 4,
   },
   dbCountsHeaderRow: {
     flexDirection: 'row',
@@ -2024,45 +2049,42 @@ const st = StyleSheet.create({
   dbCountsHeaderTitle: {
     fontSize: scaleFont(18),
     fontWeight: '800',
-    color: '#071B34',
+    color: EV.navy,
   },
   dbCountsHeaderSub: {
     fontSize: scaleFont(13),
     fontWeight: '600',
-    color: '#94A3B8',
+    color: EV.mutedLight,
   },
   dbCountsCardContainer: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: EV.surface,
     borderRadius: scaleWidth(20),
     borderWidth: 1,
-    borderColor: '#E2E8F0',
+    borderColor: EV.border,
     paddingHorizontal: scaleWidth(18),
-    shadowColor: '#071B34',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.04,
-    shadowRadius: 12,
-    elevation: 3,
+    overflow: 'hidden',
   },
   dbCountsRow: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: scaleHeight(16),
+    minHeight: scaleHeight(52),
   },
   dbCountsRowDivider: {
     borderBottomWidth: 1,
-    borderBottomColor: '#F1F5F9',
+    borderBottomColor: EV.border,
   },
   dbCountsIndex: {
     fontSize: scaleFont(13),
     fontWeight: '700',
-    color: '#CBD5E0',
+    color: EV.mutedLight,
     width: scaleWidth(28),
   },
   dbCountsRowTitle: {
     flex: 1,
     fontSize: scaleFont(15),
     fontWeight: '700',
-    color: '#071B34',
+    color: EV.navy,
   },
   dbCountsRightWrap: {
     flexDirection: 'row',
@@ -2076,7 +2098,7 @@ const st = StyleSheet.create({
   dbCountsHelperTag: {
     alignSelf: 'flex-start',
     marginTop: scaleHeight(10),
-    backgroundColor: '#EFF6FF',
+    backgroundColor: EV.bluePale,
     paddingHorizontal: scaleWidth(14),
     paddingVertical: scaleHeight(6),
     borderRadius: scaleWidth(14),
@@ -2084,7 +2106,7 @@ const st = StyleSheet.create({
   dbCountsHelperText: {
     fontSize: scaleFont(12),
     fontWeight: '700',
-    color: '#2563EB',
+    color: EV.blue,
   },
   lrHeaderWrap: {
     marginTop: scaleHeight(12),
@@ -2094,21 +2116,21 @@ const st = StyleSheet.create({
   lrHeaderTitle: {
     fontSize: scaleFont(20),
     fontWeight: '800',
-    color: '#071B34',
+    color: EV.navy,
   },
   lrHeaderSub: {
     fontSize: scaleFont(13),
     fontWeight: '500',
-    color: '#94A3B8',
+    color: EV.mutedLight,
     marginTop: scaleHeight(2),
   },
   lrCardContainer: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: EV.surface,
     borderRadius: scaleWidth(20),
     borderWidth: 1,
-    borderColor: '#E2E8F0',
+    borderColor: EV.border,
     paddingHorizontal: scaleWidth(20),
-    shadowColor: '#071B34',
+    shadowColor: EV.navy,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.04,
     shadowRadius: 12,
@@ -2123,7 +2145,7 @@ const st = StyleSheet.create({
   },
   lrRowDivider: {
     borderBottomWidth: 1,
-    borderBottomColor: '#CBD5E1',
+    borderBottomColor: EV.border,
     borderStyle: 'solid',
   },
   lrMeta: {
@@ -2133,12 +2155,12 @@ const st = StyleSheet.create({
   lrName: {
     fontSize: scaleFont(16),
     fontWeight: '800',
-    color: '#071B34',
+    color: EV.navy,
   },
   lrTime: {
     fontSize: scaleFont(11),
     fontWeight: '700',
-    color: '#94A3B8',
+    color: EV.mutedLight,
     marginTop: scaleHeight(4),
     letterSpacing: 0.5,
   },
@@ -2149,12 +2171,12 @@ const st = StyleSheet.create({
   lrValText: {
     fontSize: scaleFont(22),
     fontWeight: '800',
-    color: '#071B34',
+    color: EV.navy,
   },
   lrUnitText: {
     fontSize: scaleFont(11),
     fontWeight: '600',
-    color: '#94A3B8',
+    color: EV.mutedLight,
     marginTop: scaleHeight(2),
   },
   trendCarouselWrap: {
@@ -2165,13 +2187,13 @@ const st = StyleSheet.create({
     alignItems: 'center',
   },
   trendSlideCard: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: EV.surface,
     borderRadius: scaleWidth(20),
     borderWidth: 1,
-    borderColor: '#E2E8F0',
+    borderColor: EV.border,
     padding: scaleWidth(16),
     marginRight: scaleWidth(12),
-    shadowColor: '#071B34',
+    shadowColor: EV.navy,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.04,
     shadowRadius: 12,
@@ -2186,7 +2208,7 @@ const st = StyleSheet.create({
   trendSlideTitle: {
     fontSize: scaleFont(14),
     fontWeight: '800',
-    color: '#071B34',
+    color: EV.navy,
   },
   trendSlideLegendRow: {
     flexDirection: 'row',
@@ -2204,14 +2226,14 @@ const st = StyleSheet.create({
     width: scaleWidth(8),
     height: scaleWidth(8),
     borderRadius: scaleWidth(4),
-    backgroundColor: '#CBD5E1',
+    backgroundColor: EV.border,
   },
   trendDotItemActive: {
     width: scaleWidth(22),
-    backgroundColor: '#071B34',
+    backgroundColor: EV.navy,
   },
   miniCountTitle: {
-    color: '#687382',
+    color: EV.muted,
     fontSize: scaleFont(12),
     fontWeight: '800',
     marginBottom: scaleHeight(4),
@@ -2230,17 +2252,17 @@ const st = StyleSheet.create({
     gap: scaleWidth(2),
   },
   miniCountViewText: {
-    color: '#2F5F8F',
+    color: EV.blueDeep,
     fontSize: scaleFont(12),
     fontWeight: '800',
   },
   cptCard: {
     borderRadius: scaleWidth(24),
     padding: scaleWidth(16),
-    backgroundColor: '#ffffff',
+    backgroundColor: EV.surface,
     borderWidth: 1,
-    borderColor: '#e8ecf0',
-    shadowColor: '#071B34',
+    borderColor: EV.line,
+    shadowColor: EV.navy,
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.12,
     shadowRadius: 16,
@@ -2253,7 +2275,7 @@ const st = StyleSheet.create({
     marginBottom: scaleHeight(14),
   },
   cptHeaderTitle: {
-    color: '#071B34',
+    color: EV.navy,
     fontSize: scaleFont(14),
     fontWeight: '800',
     flex: 1,
@@ -2268,22 +2290,26 @@ const st = StyleSheet.create({
     width: scaleWidth(8),
     height: scaleWidth(8),
     borderRadius: scaleWidth(4),
-    backgroundColor: '#2e7d32',
+    backgroundColor: EV.blueDeep,
   },
   cptLegendLabel: {
     fontSize: scaleFont(11),
     fontWeight: '700',
   },
   cptHeaderMeta: {
-    color: '#687382',
+    color: EV.muted,
     fontSize: scaleFont(11),
     fontWeight: '800',
   },
   cptRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: scaleHeight(14),
+    paddingVertical: scaleHeight(14),
     gap: scaleWidth(10),
+  },
+  cptRowDivider: {
+    borderBottomWidth: 1,
+    borderBottomColor: EV.border,
   },
   cptMeta: {
     flex: 1,
@@ -2299,24 +2325,24 @@ const st = StyleSheet.create({
     marginBottom: scaleHeight(2),
   },
   cptCodePillText: {
-    color: '#ffffff',
+    color: EV.surface,
     fontSize: scaleFont(11),
     fontWeight: '800',
     letterSpacing: 0.3,
   },
   cptDesc: {
-    color: '#687382',
+    color: EV.muted,
     fontSize: scaleFont(11),
     fontWeight: '600',
     lineHeight: scaleFont(15),
   },
   cptCode: {
-    color: '#071B34',
+    color: EV.navy,
     fontSize: scaleFont(13),
     fontWeight: '800',
   },
   cptCount: {
-    color: '#687382',
+    color: EV.muted,
     fontSize: scaleFont(11),
     fontWeight: '800',
   },
@@ -2340,7 +2366,7 @@ const st = StyleSheet.create({
     lineHeight: scaleFont(18),
   },
   cptCountLabel: {
-    color: '#9ba5b4',
+    color: EV.mutedLight,
     fontSize: scaleFont(9),
     fontWeight: '700',
     textTransform: 'uppercase',
@@ -2358,13 +2384,13 @@ const st = StyleSheet.create({
     borderRadius: 999,
   },
   trendCard: {
-    backgroundColor: '#ffffff',
+    backgroundColor: EV.surface,
     borderRadius: scaleWidth(24),
     padding: scaleWidth(16),
     marginBottom: scaleHeight(2),
     borderWidth: 1,
-    borderColor: '#e8ecf0',
-    shadowColor: '#071B34',
+    borderColor: EV.line,
+    shadowColor: EV.navy,
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.12,
     shadowRadius: 16,
@@ -2387,7 +2413,7 @@ const st = StyleSheet.create({
     borderRadius: scaleWidth(4),
   },
   legendLabel: {
-    color: '#687382',
+    color: EV.muted,
     fontSize: scaleFont(11),
     fontWeight: '800',
   },
@@ -2398,7 +2424,7 @@ const st = StyleSheet.create({
     width: scaleWidth(8),
     height: scaleWidth(8),
     borderRadius: scaleWidth(4),
-    backgroundColor: '#d32f2f',
+    backgroundColor: EV.criticalStrong,
     borderWidth: 2,
     borderColor: '#fff',
   },
@@ -2407,7 +2433,7 @@ const st = StyleSheet.create({
     marginBottom: scaleHeight(12),
     borderRadius: scaleWidth(30),
     overflow: 'hidden',
-    shadowColor: '#071B34',
+    shadowColor: EV.navy,
     shadowOffset: {
       width: 0,
       height: 18,
@@ -2509,7 +2535,7 @@ const st = StyleSheet.create({
     alignItems: 'center',
     borderWidth: 1,
     borderColor: 'rgba(15, 23, 42, 0.07)',
-    shadowColor: '#0f172a',
+    shadowColor: EV.textMain,
     shadowOffset: {
       width: 0,
       height: 10,
@@ -2519,16 +2545,16 @@ const st = StyleSheet.create({
     elevation: 3,
   },
   alertRed: {
-    backgroundColor: '#fff2f4',
-    borderColor: 'rgba(211, 47, 47, 0.20)',
+    backgroundColor: EV.criticalBg,
+    borderColor: 'rgba(196, 22, 46, 0.20)',
   },
   alertYellow: {
-    backgroundColor: '#fff8e1',
-    borderColor: 'rgba(192, 138, 13, 0.20)',
+    backgroundColor: EV.bluePale,
+    borderColor: 'rgba(17, 119, 198, 0.20)',
   },
   alertGreen: {
-    backgroundColor: '#f0f9f2',
-    borderColor: 'rgba(46, 125, 50, 0.18)',
+    backgroundColor: '#EFF8FC',
+    borderColor: 'rgba(0, 119, 182, 0.18)',
   },
   alertDot: {
     width: scaleWidth(8),
@@ -2542,7 +2568,7 @@ const st = StyleSheet.create({
   alertTitle: {
     fontSize: scaleFont(12.5),
     fontWeight: '800',
-    color: '#111c33',
+    color: EV.navy,
     letterSpacing: 0,
   },
   alertSub: {
@@ -2566,14 +2592,14 @@ const st = StyleSheet.create({
     flexGrow: 1,
     flexBasis: '30%',
     minWidth: scaleWidth(96),
-    backgroundColor: '#ffffff',
+    backgroundColor: EV.surface,
     borderRadius: scaleWidth(18),
     paddingVertical: scaleHeight(12),
     paddingHorizontal: scaleWidth(4),
     alignItems: 'center',
     borderWidth: 1,
     borderColor: 'rgba(15, 23, 42, 0.055)',
-    shadowColor: '#0f172a',
+    shadowColor: EV.textMain,
     shadowOffset: {
       width: 0,
       height: 4,
@@ -2589,7 +2615,7 @@ const st = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: scaleHeight(6),
-    shadowColor: '#0f172a',
+    shadowColor: EV.textMain,
     shadowOffset: {
       width: 0,
       height: 6,
@@ -2613,7 +2639,7 @@ const st = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: scaleWidth(10),
-    shadowColor: '#0f172a',
+    shadowColor: EV.textMain,
     shadowOffset: {
       width: 0,
       height: 8,
@@ -2628,7 +2654,7 @@ const st = StyleSheet.create({
     fontWeight: '700',
   },
   flaggedRow: {
-    backgroundColor: '#ffffff',
+    backgroundColor: EV.surface,
     borderRadius: scaleWidth(20),
     paddingVertical: scaleHeight(10),
     paddingHorizontal: scaleWidth(14),
@@ -2637,7 +2663,7 @@ const st = StyleSheet.create({
     alignItems: 'center',
     borderWidth: 1,
     borderColor: 'rgba(15, 23, 42, 0.065)',
-    shadowColor: '#0f172a',
+    shadowColor: EV.textMain,
     shadowOffset: {
       width: 0,
       height: 6,
@@ -2648,11 +2674,11 @@ const st = StyleSheet.create({
   },
   frCritical: {
     borderColor: 'rgba(198, 40, 40, 0.16)',
-    backgroundColor: '#fff9f9',
+    backgroundColor: EV.criticalBg,
   },
   frReview: {
     borderColor: 'rgba(7, 27, 52, 0.065)',
-    backgroundColor: '#ffffff',
+    backgroundColor: EV.surface,
   },
   frInfo: {
     flex: 1,
@@ -2661,7 +2687,7 @@ const st = StyleSheet.create({
   frName: {
     fontSize: scaleFont(12),
     fontWeight: '700',
-    color: '#1b2a47',
+    color: EV.navyMid,
   },
   frCond: {
     fontSize: scaleFont(11),
@@ -2674,7 +2700,7 @@ const st = StyleSheet.create({
     borderRadius: scaleWidth(10),
     borderWidth: 1,
     marginLeft: scaleWidth(8),
-    shadowColor: '#0f172a',
+    shadowColor: EV.textMain,
     shadowOffset: {
       width: 0,
       height: 2,
@@ -2684,23 +2710,23 @@ const st = StyleSheet.create({
     elevation: 1,
   },
   frActionCritical: {
-    backgroundColor: '#fff2f4',
+    backgroundColor: EV.criticalBg,
     borderColor: 'rgba(211, 47, 47, 0.15)',
   },
   frActionReview: {
-    backgroundColor: '#fff8e1',
-    borderColor: 'rgba(251, 192, 45, 0.25)',
+    backgroundColor: EV.bluePale,
+    borderColor: 'rgba(17, 119, 198, 0.22)',
   },
   frActionTextCritical: {
     fontSize: scaleFont(10),
     fontWeight: '800',
-    color: '#d32f2f',
+    color: EV.criticalStrong,
     textTransform: 'uppercase',
   },
   frActionTextReview: {
     fontSize: scaleFont(10),
     fontWeight: '800',
-    color: '#b58505',
+    color: EV.blue,
     textTransform: 'uppercase',
   },
 });

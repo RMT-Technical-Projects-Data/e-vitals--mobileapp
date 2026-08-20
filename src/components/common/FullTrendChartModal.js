@@ -18,7 +18,7 @@ import { lockToLandscape, lockToPortrait } from '../../utils/orientationHelper';
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
 /* ──────────────────────  COLORS  ────────────────────── */
-const THEME_PRIMARY = '#071B34';
+const THEME_PRIMARY = '#0b1f3f';
 const CHART_SECONDARY = '#1B3A5C';
 const WHITE = '#FFFFFF';
 const TEXT_MUTED = '#687382';

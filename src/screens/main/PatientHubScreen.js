@@ -31,8 +31,8 @@ const scaleWidth = (size) => Math.min((width / guidelineBaseWidth) * size, size 
 const scaleFont = (size) => Math.min((width / guidelineBaseWidth) * size, size * 1.2);
 
 const SCREEN_BG_COLORS = ['#ffffff', '#ffffff', '#ffffff'];
-const PANEL_ACCENT = '#071B34';
-const TEXT_DARK = '#071B34';
+const PANEL_ACCENT = '#0b1f3f';
+const TEXT_DARK = '#0b1f3f';
 const TEXT_MUTED = '#687382';
 
 const RPM_SERVICE_TYPES = ['General', 'Call via others'];
@@ -226,23 +226,23 @@ const VitalUploadCard = ({
         const sys = Number(parts[0].trim());
         const dia = Number(parts[1].trim());
         if (sys > 140 || dia > 90) valueColor = '#d32f2f'; // High
-        else if (sys < 100 || dia < 60) valueColor = '#f57c00'; // Low
-        else valueColor = '#15803d'; // Normal
+        else if (sys < 100 || dia < 60) valueColor = '#C53030'; // Low
+        else valueColor = '#0b1f3f'; // Normal
       }
     } else if (title === 'Blood Glucose') {
       const bgNum = Number(String(primary).replace(/[^\d.-]/g, ''));
       if (!Number.isNaN(bgNum) && bgNum > 0) {
         if (bgNum > 110) valueColor = '#d32f2f';
-        else if (bgNum < 60) valueColor = '#f57c00';
-        else valueColor = '#15803d';
+        else if (bgNum < 60) valueColor = '#C53030';
+        else valueColor = '#0b1f3f';
       }
     } else if (title === 'Weight') {
       const wtNum = Number(String(primary).replace(/[^\d.-]/g, ''));
       if (!Number.isNaN(wtNum) && wtNum > 0) {
         const wtLbs = unit === 'kg' ? wtNum * 2.20462 : wtNum;
         if (wtLbs > 220) valueColor = '#d32f2f';
-        else if (wtLbs < 66) valueColor = '#f57c00';
-        else valueColor = '#15803d';
+        else if (wtLbs < 66) valueColor = '#C53030';
+        else valueColor = '#0b1f3f';
       }
     }
   }
@@ -253,8 +253,8 @@ const VitalUploadCard = ({
     if (pulseMatch) {
       const pNum = Number(pulseMatch[0]);
       if (pNum > 100) secondaryColor = '#d32f2f';
-      else if (pNum < 60) secondaryColor = '#f57c00';
-      else secondaryColor = '#15803d';
+      else if (pNum < 60) secondaryColor = '#C53030';
+      else secondaryColor = '#0b1f3f';
     }
   }
 
@@ -707,9 +707,9 @@ export default function PatientHubScreen({ navigation, route }) {
                   let color = '#6C757D';
                   let label = getStatusLabel(patient.status);
                   if (numeric === 2 || raw === 'active' || raw === 'stable') {
-                    bg = '#DDF8DD'; color = '#15803d';
+                    bg = '#DDF8DD'; color = '#0b1f3f';
                   } else if (numeric === 3 || raw === 'pending' || raw === 'review') {
-                    bg = '#FEF3C7'; color = '#D97706';
+                    bg = '#caf0f8'; color = '#1177c6';
                   } else if (numeric === 4 || raw === 'locked') {
                     bg = '#E6DDF8'; color = '#490565';
                   } else if (raw === 'critical') {

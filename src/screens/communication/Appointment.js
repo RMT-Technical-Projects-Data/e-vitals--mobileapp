@@ -661,7 +661,7 @@ export default function AppointmentForm() {
                   style={styles.backButton}
                   onPress={() => (navigation.canGoBack() ? navigation.goBack() : navigation.navigate('Home'))}
                 >
-                  <MaterialIcons name="arrow-back" size={21} color="#071B34" />
+                  <MaterialIcons name="arrow-back" size={21} color="#0b1f3f" />
                 </TouchableOpacity>
                 <Text style={styles.topbarTitle}>Appointments</Text>
                 <View style={styles.topbarSpacer} />
@@ -955,7 +955,7 @@ const styles = StyleSheet.create({
   },
   topbarTitle: {
     flex: 1,
-    color: '#071B34',
+    color: '#0b1f3f',
     fontSize: scaleFont(20),
     lineHeight: scaleFont(24),
     fontWeight: '800',
@@ -974,7 +974,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.86)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.78)',
-    shadowColor: '#071B34',
+    shadowColor: '#0b1f3f',
     shadowOffset: { width: 0, height: 12 },
     shadowOpacity: 0.08,
     shadowRadius: 26,
@@ -1000,13 +1000,13 @@ const styles = StyleSheet.create({
     fontSize: scaleFont(22),
     lineHeight: scaleFont(28),
     fontWeight: '800',
-    color: '#071B34',
+    color: '#0b1f3f',
     marginBottom: scaleHeight(14),
   },
   sectionTitle: {
     fontSize: scaleFont(16),
     fontWeight: '800',
-    color: '#071B34',
+    color: '#0b1f3f',
     marginTop: scaleHeight(20),
     marginBottom: scaleHeight(10),
   },
@@ -1020,7 +1020,7 @@ const styles = StyleSheet.create({
     marginBottom: scaleHeight(10),
     borderWidth: 1,
     borderColor: '#e8ecf0',
-    shadowColor: '#071B34',
+    shadowColor: '#0b1f3f',
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.12,
     shadowRadius: 16,
@@ -1049,7 +1049,7 @@ const styles = StyleSheet.create({
   upcomingName: {
     fontSize: scaleFont(16),
     fontWeight: '700',
-    color: '#071B34',
+    color: '#0b1f3f',
     marginBottom: scaleHeight(2),
   },
   upcomingRole: {
@@ -1076,7 +1076,7 @@ const styles = StyleSheet.create({
     marginTop: scaleHeight(8),
     fontSize: scaleFont(15),
     fontWeight: '700',
-    color: '#071B34',
+    color: '#0b1f3f',
   },
   emptyUpcomingSubtext: {
     marginTop: scaleHeight(4),
@@ -1110,14 +1110,14 @@ const styles = StyleSheet.create({
     marginBottom: scaleHeight(10),
     alignItems: 'center',
     backgroundColor: '#ffffff',
-    shadowColor: '#071B34',
+    shadowColor: '#0b1f3f',
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.12,
     shadowRadius: 16,
     elevation: 4,
   },
   personBoxSelected: {
-    borderColor: '#071B34',
+    borderColor: '#0b1f3f',
     borderWidth: 2,
   },
   personImage: {
@@ -1132,7 +1132,7 @@ const styles = StyleSheet.create({
   personName: {
     fontSize: scaleFont(16),
     fontWeight: '700',
-    color: '#071B34',
+    color: '#0b1f3f',
     marginBottom: 4,
   },
   personSpecialty: {
@@ -1146,7 +1146,7 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   joinButton: {
-    backgroundColor: '#071B34',
+    backgroundColor: '#0b1f3f',
     borderRadius: scaleWidth(12),
     minWidth: scaleWidth(72),
     paddingHorizontal: scaleWidth(14),
@@ -1181,7 +1181,7 @@ const styles = StyleSheet.create({
   },
   backButtonText: {
     fontSize: scaleFont(30),
-    color: '#071B34',
+    color: '#0b1f3f',
     fontWeight: '400',
     lineHeight: scaleFont(31),
     marginTop: -2,

@@ -186,7 +186,7 @@ const styles = StyleSheet.create({
   modalTitle: {
     fontSize: scale(20),
     fontWeight: 'bold',
-    color: '#071b34',
+    color: '#0b1f3f',
     marginBottom: scale(12),
   },
   modalMessage: {
@@ -225,7 +225,7 @@ const styles = StyleSheet.create({
     flex: 1.2,
     height: scale(44),
     borderRadius: scale(8),
-    backgroundColor: '#071b34',
+    backgroundColor: '#0b1f3f',
     justifyContent: 'center',
     alignItems: 'center',
   },

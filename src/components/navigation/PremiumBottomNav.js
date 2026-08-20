@@ -80,7 +80,7 @@ export default function PremiumBottomNav({ active, navigation, role, unreadMessa
         { key: 'settings', label: 'Settings', icon: 'settings', route: 'Settings' },
       ];
 
-  const activeColor = '#071B34';
+  const activeColor = '#0b1f3f';
 
   return (
     <View style={styles.wrap} pointerEvents="box-none">
@@ -96,7 +96,7 @@ export default function PremiumBottomNav({ active, navigation, role, unreadMessa
               accessibilityLabel={item.label}
             >
               <View style={{ position: 'relative' }}>
-                <MaterialIcons name={item.icon} size={19} color={isActive ? activeColor : '#687382'} />
+                <MaterialIcons name={item.icon} size={19} color={isActive ? activeColor : '#64748b'} />
                 {item.key === 'messages' && unreadMessages > 0 && (
                   <View style={styles.navBadge}>
                     <Text style={styles.navBadgeText}>{unreadMessages > 99 ? '99+' : unreadMessages}</Text>
@@ -132,7 +132,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.94)',
     borderWidth: 1.5,
     borderColor: '#d0d8e2',
-    shadowColor: '#071B34',
+    shadowColor: '#0b1f3f',
     shadowOffset: { width: 0, height: 18 },
     shadowOpacity: 0.16,
     shadowRadius: 34,

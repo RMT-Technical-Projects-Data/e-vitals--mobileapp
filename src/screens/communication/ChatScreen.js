@@ -49,9 +49,9 @@ const scaleFont = (size) => Math.min((width / guidelineBaseWidth) * size, size *
 
 const SCREEN_BG_COLORS = ['#ffffff', '#ffffff', '#ffffff'];
 const CHAT_BG = '#ffffff';
-const TEXT_DARK = '#071B34';
+const TEXT_DARK = '#0b1f3f';
 const TEXT_MUTED = '#687382';
-const ACCENT_COLOR = '#071B34';
+const ACCENT_COLOR = '#0b1f3f';
 
 // ─── Role Definitions & Permissible Matrix ─────────────────────────────────────
 
@@ -1277,7 +1277,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.86)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.78)',
-    shadowColor: '#071B34',
+    shadowColor: '#0b1f3f',
     shadowOffset: { width: 0, height: 12 },
     shadowOpacity: 0.08,
     shadowRadius: 26,
@@ -1290,7 +1290,7 @@ const styles = StyleSheet.create({
   topbarTitle: {
     fontSize: scaleFont(20),
     fontWeight: '800',
-    color: '#071B34',
+    color: '#0b1f3f',
     textAlign: 'center',
     flex: 1,
     marginHorizontal: scaleWidth(8),
@@ -1320,7 +1320,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(7,27,52,0.06)',
   },
   convoFilterPillActive: {
-    backgroundColor: '#071B34',
+    backgroundColor: '#0b1f3f',
   },
   convoFilterText: {
     fontSize: scaleFont(12),
@@ -1339,10 +1339,10 @@ const styles = StyleSheet.create({
     width: scaleWidth(56),
     height: scaleWidth(56),
     borderRadius: scaleWidth(28),
-    backgroundColor: '#071B34',
+    backgroundColor: '#0b1f3f',
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#071B34',
+    shadowColor: '#0b1f3f',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.35,
     shadowRadius: 6,
@@ -1361,13 +1361,13 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#e8ecf0',
     minHeight: scaleWidth(50),
-    shadowColor: '#071B34',
+    shadowColor: '#0b1f3f',
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.12,
     shadowRadius: 16,
     elevation: 5,
   },
-  searchInput: { flex: 1, color: '#071B34', fontSize: scaleFont(14), fontWeight: '700' },
+  searchInput: { flex: 1, color: '#0b1f3f', fontSize: scaleFont(14), fontWeight: '700' },
   listContent: { flexGrow: 1, paddingBottom: PREMIUM_BOTTOM_NAV_CLEARANCE + scaleHeight(12) },
   chatRow: {
     flexDirection: 'row',
@@ -1431,10 +1431,10 @@ const styles = StyleSheet.create({
   editedLabel: { fontSize: scaleFont(10), color: '#8696a0', fontStyle: 'italic' },
 
   // Inline Edit
-  editInput: { fontSize: scaleFont(14), color: '#111b21', borderBottomWidth: 1, borderBottomColor: '#0052CC', paddingVertical: scaleHeight(4), minWidth: scaleWidth(120) },
+  editInput: { fontSize: scaleFont(14), color: '#111b21', borderBottomWidth: 1, borderBottomColor: '#1177c6', paddingVertical: scaleHeight(4), minWidth: scaleWidth(120) },
   editActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: scaleWidth(12), marginTop: scaleHeight(6) },
   editCancel: { color: TEXT_MUTED, fontWeight: '700', fontSize: scaleFont(13) },
-  editSave: { color: '#0052CC', fontWeight: '800', fontSize: scaleFont(13) },
+  editSave: { color: '#1177c6', fontWeight: '800', fontSize: scaleFont(13) },
 
   // Composer
   composer: { flexDirection: 'row', alignItems: 'flex-end', paddingHorizontal: scaleWidth(10), paddingVertical: scaleHeight(8), backgroundColor: '#f0f2f5', borderTopWidth: 1, borderTopColor: 'rgba(7,27,52,0.06)' },
@@ -1452,7 +1452,7 @@ const styles = StyleSheet.create({
   modalSearchInput: { flex: 1, marginLeft: 8, fontSize: scaleFont(14), color: TEXT_DARK, fontWeight: '600' },
   modalRoleTabs: { flexDirection: 'row', paddingHorizontal: 16, marginBottom: 10, gap: 6 },
   modalRoleTab: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 14, backgroundColor: '#F1F5F9' },
-  modalRoleTabActive: { backgroundColor: '#071B34' },
+  modalRoleTabActive: { backgroundColor: '#0b1f3f' },
   modalRoleTabText: { fontSize: scaleFont(11), fontWeight: '700', color: TEXT_MUTED },
   modalRoleTabTextActive: { color: '#fff' },
   userRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 18, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: 'rgba(7,27,52,0.05)' },
@@ -1474,7 +1474,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     zIndex: 9999,
-    backgroundColor: '#071B34',
+    backgroundColor: '#0b1f3f',
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: scaleWidth(16),
