@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -20,6 +20,14 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import apiService from '../../services/apiService';
 import { useAuth } from '../../context/AuthContext';
 import { unlockAllOrientations, lockToLandscape } from '../../utils/orientationHelper';
+import {
+  MAX_BIOMETRIC_ATTEMPTS,
+  authenticateWithBiometrics,
+  canPromptBiometricLogin,
+  getBiometricStatus,
+  getSavedCredentials,
+  offerBiometricAfterLogin,
+} from '../../services/biometricAuth';
 
 const HERO_IMAGE = require('../../assets/images/tablet-login-background.jpeg');
 const LOGO_IMAGE = require('../../assets/images/batch_06/logo5.png');
@@ -64,6 +72,10 @@ const Login = ({ navigation }) => {
   const [otp, setOtp] = useState('');
   const [feedback, setFeedback] = useState('');
   const [feedbackTone, setFeedbackTone] = useState('error');
+  const [biometricLabel, setBiometricLabel] = useState(Platform.OS === 'ios' ? 'Face ID' : 'Biometric login');
+  const [showBiometricButton, setShowBiometricButton] = useState(false);
+  const failedBiometricAttempts = useRef(0);
+  const biometricPromptedRef = useRef(false);
 
   useEffect(() => {
     if (isTablet) {
@@ -85,6 +97,26 @@ const Login = ({ navigation }) => {
 
     restoreRememberedUsername().catch(error => {
       console.warn('Could not restore remembered username:', error.message);
+    });
+  }, []);
+
+  useEffect(() => {
+    const prepareBiometrics = async () => {
+      const status = await getBiometricStatus();
+      setBiometricLabel(status.label);
+      const canPrompt = status.available && status.enabled && status.hasCredentials;
+      setShowBiometricButton(canPrompt);
+      if (!canPrompt || biometricPromptedRef.current) {
+        return;
+      }
+      biometricPromptedRef.current = true;
+      setTimeout(() => {
+        promptBiometricLogin(true);
+      }, 450);
+    };
+
+    prepareBiometrics().catch(error => {
+      console.warn('Could not prepare biometric login:', error.message);
     });
   }, []);
 
@@ -154,9 +186,88 @@ const Login = ({ navigation }) => {
     }
   };
 
-  const handleLogin = async () => {
-    clearFeedback();
+  const finishAuthenticatedSession = async (data, loginUsername, loginPassword) => {
+    await persistUserSession(data);
+    await saveRememberedUsername();
+    await offerBiometricAfterLogin(loginUsername, loginPassword);
+    login();
+  };
 
+  const loginWithCredentials = async (loginUsername, loginPassword, fromBiometric = false) => {
+    clearFeedback();
+    setIsLoading(true);
+    try {
+      const data = await apiService.login(loginUsername, loginPassword, rememberMe);
+
+      if (data.requires_otp) {
+        setUsername(loginUsername);
+        setPassword(loginPassword);
+        setShowOtp(true);
+        showFeedback('Enter the verification code sent to you.', 'success');
+        return;
+      }
+
+      failedBiometricAttempts.current = 0;
+      await finishAuthenticatedSession(data, loginUsername, loginPassword);
+    } catch (error) {
+      let errorMessage = error.message || 'Login failed. Please try again.';
+      if (error.message?.includes('timeout') || error.message?.includes('connect')) {
+        errorMessage =
+          'Cannot connect to server. Please check your internet connection and try again.';
+      }
+      if (fromBiometric) {
+        errorMessage = `${errorMessage} Please sign in with your credentials.`;
+        setShowBiometricButton(false);
+      }
+      showFeedback(errorMessage);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const promptBiometricLogin = async (autoRetry = false) => {
+    if (failedBiometricAttempts.current >= MAX_BIOMETRIC_ATTEMPTS || isLoading) {
+      return;
+    }
+
+    const canPrompt = await canPromptBiometricLogin();
+    if (!canPrompt) {
+      setShowBiometricButton(false);
+      return;
+    }
+
+    const result = await authenticateWithBiometrics(`Sign in with ${biometricLabel}`);
+    if (result.success) {
+      const creds = await getSavedCredentials();
+      if (!creds?.username || !creds?.password) {
+        setShowBiometricButton(false);
+        showFeedback(`${biometricLabel} is unavailable. Please sign in with your credentials.`);
+        return;
+      }
+      setUsername(creds.username);
+      setPassword(creds.password);
+      await loginWithCredentials(creds.username, creds.password, true);
+      return;
+    }
+
+    if (result.cancelled) {
+      return;
+    }
+
+    failedBiometricAttempts.current += 1;
+    if (failedBiometricAttempts.current >= MAX_BIOMETRIC_ATTEMPTS) {
+      setShowBiometricButton(false);
+      showFeedback(`${biometricLabel} failed twice. Please sign in with your credentials.`);
+      return;
+    }
+
+    showFeedback(`${biometricLabel} not recognized. Try again.`);
+    if (autoRetry) {
+      await promptBiometricLogin(true);
+    }
+  };
+
+  const handleLogin = async () => {
     if (!username.trim()) {
       showFeedback('Please enter your username.');
       return;
@@ -166,29 +277,7 @@ const Login = ({ navigation }) => {
       return;
     }
 
-    setIsLoading(true);
-    try {
-      const data = await apiService.login(username, password, rememberMe);
-
-      if (data.requires_otp) {
-        setShowOtp(true);
-        showFeedback('Enter the verification code sent to you.', 'success');
-        return;
-      }
-
-      await persistUserSession(data);
-      await saveRememberedUsername();
-      login();
-    } catch (error) {
-      let errorMessage = error.message || 'Login failed. Please try again.';
-      if (error.message?.includes('timeout') || error.message?.includes('connect')) {
-        errorMessage =
-          'Cannot connect to server. Please check your internet connection and try again.';
-      }
-      showFeedback(errorMessage);
-    } finally {
-      setIsLoading(false);
-    }
+    await loginWithCredentials(username, password);
   };
 
   const handleVerifyOtp = async () => {
@@ -202,9 +291,8 @@ const Login = ({ navigation }) => {
     setIsLoading(true);
     try {
       const data = await apiService.verifyOTP(otp.trim());
-      await persistUserSession(data);
-      await saveRememberedUsername();
-      login();
+      failedBiometricAttempts.current = 0;
+      await finishAuthenticatedSession(data, username, password);
     } catch (error) {
       showFeedback(error.message || 'Invalid OTP code.');
     } finally {
@@ -248,8 +336,10 @@ const Login = ({ navigation }) => {
               end={{ x: 1, y: 1 }}
               style={styles.primaryButton}
             >
-              <Text style={styles.primaryButtonText}>{isLoading ? 'Verifying...' : 'Verify OTP'}</Text>
-              {!isLoading ? <MaterialIcons name="arrow-forward" size={18} color="#fff" /> : null}
+              <View style={styles.primaryButtonInner}>
+                <Text style={styles.primaryButtonText}>{isLoading ? 'Verifying...' : 'Verify OTP'}</Text>
+                {!isLoading ? <MaterialIcons name="arrow-forward" size={18} color="#fff" style={styles.primaryButtonIcon} /> : null}
+              </View>
             </LinearGradient>
           </TouchableOpacity>
         </>
@@ -348,10 +438,28 @@ const Login = ({ navigation }) => {
             end={{ x: 1, y: 1 }}
             style={styles.primaryButton}
           >
-            <Text style={styles.primaryButtonText}>{isLoading ? 'Signing in...' : 'Sign In'}</Text>
-            {!isLoading ? <MaterialIcons name="arrow-forward" size={18} color="#fff" /> : null}
+            <View style={styles.primaryButtonInner}>
+              <Text style={styles.primaryButtonText}>{isLoading ? 'Signing in...' : 'Sign In'}</Text>
+              {!isLoading ? <MaterialIcons name="arrow-forward" size={18} color="#fff" style={styles.primaryButtonIcon} /> : null}
+            </View>
           </LinearGradient>
         </TouchableOpacity>
+
+        {showBiometricButton ? (
+          <TouchableOpacity
+            style={styles.biometricButton}
+            onPress={() => promptBiometricLogin(false)}
+            disabled={isLoading}
+            activeOpacity={0.8}
+          >
+            <MaterialIcons
+              name={Platform.OS === 'ios' ? 'face' : 'fingerprint'}
+              size={22}
+              color={COLORS.navy}
+            />
+            <Text style={styles.biometricButtonText}>Sign in with {biometricLabel}</Text>
+          </TouchableOpacity>
+        ) : null}
 
         <View style={styles.secureLine}>
           <MaterialIcons name="verified-user" size={15} color={COLORS.navy} style={{ opacity: 0.75 }} />
@@ -362,8 +470,8 @@ const Login = ({ navigation }) => {
   };
 
   const cardMaxWidth = isTablet ? 520 : Math.min(width - 32, 430);
-  const logoWidth = isTablet ? ms(150) : ms(130);
-  const logoHeight = isTablet ? ms(48) : ms(42);
+  const logoWidth = isTablet ? ms(180) : ms(168);
+  const logoHeight = isTablet ? ms(58) : ms(54);
 
   return (
     <View style={styles.screenRoot}>
@@ -622,7 +730,7 @@ const styles = StyleSheet.create({
   },
   primaryButtonWrap: {
     width: '100%',
-    borderRadius: 16,
+    borderRadius: 18,
     overflow: 'hidden',
     marginTop: 2,
     shadowColor: COLORS.blue,
@@ -633,10 +741,17 @@ const styles = StyleSheet.create({
   },
   primaryButton: {
     height: 58,
+    width: '100%',
+    borderRadius: 18,
+    overflow: 'hidden',
+  },
+  primaryButtonInner: {
+    flex: 1,
+    width: '100%',
+    height: '100%',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
     paddingHorizontal: 20,
   },
   primaryButtonText: {
@@ -644,6 +759,32 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '800',
     letterSpacing: 0.2,
+    textAlign: 'center',
+    lineHeight: 22,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
+  },
+  primaryButtonIcon: {
+    marginLeft: 8,
+  },
+  biometricButton: {
+    width: '100%',
+    marginTop: 14,
+    minHeight: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(11, 42, 74, 0.16)',
+    backgroundColor: 'rgba(255, 255, 255, 0.55)',
+    paddingHorizontal: 16,
+    gap: 8,
+  },
+  biometricButtonText: {
+    color: COLORS.navy,
+    fontSize: 15,
+    fontWeight: '700',
   },
   secureLine: {
     width: '100%',

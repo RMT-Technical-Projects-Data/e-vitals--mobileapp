@@ -20,6 +20,11 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '../../context/AuthContext';
 import apiService from '../../services/apiService';
 import PremiumBottomNav from '../../components/navigation/PremiumBottomNav';
+import {
+  disableBiometricLogin,
+  enableBiometricLogin,
+  getBiometricStatus,
+} from '../../services/biometricAuth';
 
 
 const { width, height } = Dimensions.get('window');
@@ -45,6 +50,9 @@ const SettingsScreen = ({ navigation }) => {
   const [userRole, setUserRole] = useState('patient');
 
   const [isNotificationsEnabled, setIsNotificationsEnabled] = useState(true);
+  const [isBiometricAvailable, setIsBiometricAvailable] = useState(false);
+  const [isBiometricEnabled, setIsBiometricEnabled] = useState(false);
+  const [biometricLabel, setBiometricLabel] = useState(Platform.OS === 'ios' ? 'Face ID' : 'Biometric login');
   const [isSupportModalVisible, setIsSupportModalVisible] = useState(false);
   const [isSessionModalVisible, setIsSessionModalVisible] = useState(false);
   const [sessionTimeInput, setSessionTimeInput] = useState('30');
@@ -78,6 +86,11 @@ const SettingsScreen = ({ navigation }) => {
         }
         setSessionTime(sessionMinutes);
       }
+
+      const biometricStatus = await getBiometricStatus();
+      setIsBiometricAvailable(biometricStatus.available);
+      setIsBiometricEnabled(biometricStatus.enabled);
+      setBiometricLabel(biometricStatus.label);
 
       // Also try fetching from API to keep it fresh
       const settingsResult = await apiService.getAccountSettings();
@@ -116,6 +129,29 @@ const SettingsScreen = ({ navigation }) => {
   };
 
   const toggleSwitch = () => setIsNotificationsEnabled(previousState => !previousState);
+
+  const toggleBiometricLogin = async () => {
+    if (!isBiometricAvailable) {
+      Alert.alert(
+        biometricLabel,
+        `${biometricLabel} is not available on this device.`,
+      );
+      return;
+    }
+
+    if (isBiometricEnabled) {
+      await disableBiometricLogin();
+      setIsBiometricEnabled(false);
+      return;
+    }
+
+    await enableBiometricLogin();
+    setIsBiometricEnabled(true);
+    Alert.alert(
+      `${biometricLabel} enabled`,
+      `Sign out and sign in once with your password to activate ${biometricLabel}. After 2 failed attempts, you can use your credentials.`,
+    );
+  };
 
   const handleSendSupport = () => {
     if (!supportMessage.trim()) {
@@ -230,6 +266,34 @@ const SettingsScreen = ({ navigation }) => {
               </TouchableOpacity>
             </View>
             <View style={styles.divider} />
+
+            {isBiometricAvailable ? (
+              <>
+                <View style={styles.settingRow}>
+                  <View style={styles.iconBox}>
+                    <MaterialIcons
+                      name={Platform.OS === 'ios' ? 'face' : 'fingerprint'}
+                      size={scaleWidth(20)}
+                      color={NAVY_BLUE}
+                    />
+                  </View>
+                  <View style={styles.settingTextContainer}>
+                    <Text style={styles.settingTitle}>{biometricLabel}</Text>
+                    <Text style={styles.settingSubtitle}>
+                      Sign in faster. After 2 failed attempts, use your password.
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    style={[styles.toggleContainer, isBiometricEnabled ? styles.toggleActive : styles.toggleInactive]}
+                    onPress={toggleBiometricLogin}
+                    activeOpacity={1}
+                  >
+                    <View style={[styles.toggleCircle, isBiometricEnabled ? styles.circleActive : styles.circleInactive]} />
+                  </TouchableOpacity>
+                </View>
+                <View style={styles.divider} />
+              </>
+            ) : null}
 
             {/* Session Timeout */}
             <TouchableOpacity style={styles.settingRow} onPress={handleOpenSessionModal}>

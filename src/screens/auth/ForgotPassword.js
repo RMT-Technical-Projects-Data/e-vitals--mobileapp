@@ -280,8 +280,8 @@ const ForgotPassword = ({ navigation }) => {
   );
 
   const cardMaxWidth = isTablet ? 520 : Math.min(width - 32, 430);
-  const logoWidth = isTablet ? ms(150) : ms(130);
-  const logoHeight = isTablet ? ms(48) : ms(42);
+  const logoWidth = isTablet ? ms(180) : ms(168);
+  const logoHeight = isTablet ? ms(58) : ms(54);
 
   return (
     <View style={styles.screenRoot}>
@@ -303,17 +303,7 @@ const ForgotPassword = ({ navigation }) => {
         />
 
         <SafeAreaView style={styles.safeArea} edges={['top', 'bottom', 'left', 'right']}>
-          {/* Brand mark and Back button header */}
           <View style={[styles.brandRow, { paddingTop: 8 }]}>
-            <TouchableOpacity
-              onPress={() => navigation.goBack()}
-              style={styles.backButton}
-              activeOpacity={0.7}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-            >
-              <MaterialIcons name="arrow-back-ios" size={18} color={COLORS.navy} />
-            </TouchableOpacity>
-
             <Image
               source={LOGO_IMAGE}
               resizeMode="contain"
@@ -334,6 +324,15 @@ const ForgotPassword = ({ navigation }) => {
             >
               {/* Glassmorphic centered card */}
               <View style={[styles.glassCard, { maxWidth: cardMaxWidth }]}>
+                <TouchableOpacity
+                  onPress={() => navigation.goBack()}
+                  style={styles.cardBackButton}
+                  activeOpacity={0.7}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                >
+                  <MaterialIcons name="arrow-back" size={22} color={COLORS.navy} />
+                </TouchableOpacity>
+
                 {renderStepIndicator()}
 
                 {step === 1 && (
@@ -382,8 +381,10 @@ const ForgotPassword = ({ navigation }) => {
                         end={{ x: 1, y: 1 }}
                         style={styles.primaryButton}
                       >
-                        <Text style={styles.primaryButtonText}>{isLoading ? 'Sending OTP...' : 'Send OTP'}</Text>
-                        {!isLoading ? <MaterialIcons name="arrow-forward" size={18} color="#fff" /> : null}
+                        <View style={styles.primaryButtonInner}>
+                          <Text style={styles.primaryButtonText}>{isLoading ? 'Sending OTP...' : 'Send OTP'}</Text>
+                          {!isLoading ? <MaterialIcons name="arrow-forward" size={18} color="#fff" style={styles.primaryButtonIcon} /> : null}
+                        </View>
                       </LinearGradient>
                     </TouchableOpacity>
                   </>
@@ -437,8 +438,10 @@ const ForgotPassword = ({ navigation }) => {
                         end={{ x: 1, y: 1 }}
                         style={styles.primaryButton}
                       >
-                        <Text style={styles.primaryButtonText}>{isLoading ? 'Verifying...' : 'Verify OTP'}</Text>
-                        {!isLoading ? <MaterialIcons name="arrow-forward" size={18} color="#fff" /> : null}
+                        <View style={styles.primaryButtonInner}>
+                          <Text style={styles.primaryButtonText}>{isLoading ? 'Verifying...' : 'Verify OTP'}</Text>
+                          {!isLoading ? <MaterialIcons name="arrow-forward" size={18} color="#fff" style={styles.primaryButtonIcon} /> : null}
+                        </View>
                       </LinearGradient>
                     </TouchableOpacity>
 
@@ -546,19 +549,14 @@ const ForgotPassword = ({ navigation }) => {
                         end={{ x: 1, y: 1 }}
                         style={styles.primaryButton}
                       >
-                        <Text style={styles.primaryButtonText}>{isLoading ? 'Resetting...' : 'Reset Password'}</Text>
-                        {!isLoading ? <MaterialIcons name="arrow-forward" size={18} color="#fff" /> : null}
+                        <View style={styles.primaryButtonInner}>
+                          <Text style={styles.primaryButtonText}>{isLoading ? 'Resetting...' : 'Reset Password'}</Text>
+                          {!isLoading ? <MaterialIcons name="arrow-forward" size={18} color="#fff" style={styles.primaryButtonIcon} /> : null}
+                        </View>
                       </LinearGradient>
                     </TouchableOpacity>
                   </>
                 )}
-
-                <TouchableOpacity
-                  onPress={() => navigation.navigate('Login')}
-                  style={styles.backToLoginTouch}
-                >
-                  <Text style={styles.backToLoginText}>Back to Sign In</Text>
-                </TouchableOpacity>
 
                 <View style={styles.secureLine}>
                   <MaterialIcons name="verified-user" size={15} color={COLORS.navy} style={{ opacity: 0.75 }} />
@@ -590,21 +588,21 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 24,
-    gap: 12,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.25,
     shadowRadius: 6,
     elevation: 4,
   },
-  backButton: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: 'rgba(255, 255, 255, 0.75)',
+  cardBackButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 4,
+    marginBottom: 10,
+    marginLeft: -6,
+    backgroundColor: 'rgba(11, 42, 74, 0.06)',
   },
   keyboardWrap: {
     flex: 1,
@@ -784,7 +782,7 @@ const styles = StyleSheet.create({
   },
   primaryButtonWrap: {
     width: '100%',
-    borderRadius: 16,
+    borderRadius: 18,
     overflow: 'hidden',
     marginTop: 22,
     shadowColor: COLORS.blue,
@@ -795,10 +793,17 @@ const styles = StyleSheet.create({
   },
   primaryButton: {
     height: 56,
+    width: '100%',
+    borderRadius: 18,
+    overflow: 'hidden',
+  },
+  primaryButtonInner: {
+    flex: 1,
+    width: '100%',
+    height: '100%',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
     paddingHorizontal: 20,
   },
   primaryButtonText: {
@@ -806,6 +811,13 @@ const styles = StyleSheet.create({
     fontSize: 16.5,
     fontWeight: '800',
     letterSpacing: 0.2,
+    textAlign: 'center',
+    lineHeight: 22,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
+  },
+  primaryButtonIcon: {
+    marginLeft: 8,
   },
   resendTouch: {
     alignSelf: 'center',
@@ -817,16 +829,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(28, 111, 217, 0.4)',
-  },
-  backToLoginTouch: {
-    alignSelf: 'center',
-    marginTop: 18,
-  },
-  backToLoginText: {
-    color: COLORS.navy,
-    opacity: 0.85,
-    fontSize: 14,
-    fontWeight: '700',
   },
   secureLine: {
     width: '100%',

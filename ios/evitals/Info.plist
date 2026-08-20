@@ -38,6 +38,8 @@
 		<string>_http._tcp</string>
 		<string>_metro._tcp</string>
 	</array>
+	<key>NSFaceIDUsageDescription</key>
+	<string>eVitals uses Face ID so you can sign in quickly and securely. After two failed Face ID attempts, you can sign in with your password.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string></string>
 	<key>RCTNewArchEnabled</key>

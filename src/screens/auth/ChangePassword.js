@@ -17,6 +17,8 @@ import {
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { colors, fonts } from '../../config/globall';
 import apiService from '../../services/apiService';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { updateSavedPassword } from '../../services/biometricAuth';
 
 const { width, height } = Dimensions.get('window');
 
@@ -110,6 +112,13 @@ export default function ChangePassword({ navigation }) {
       const result = await apiService.changePassword(currentPassword.trim(), trimmedNewPassword);
       
       if (result && result.success) {
+        try {
+          const userStr = await AsyncStorage.getItem('user');
+          const user = userStr ? JSON.parse(userStr) : null;
+          await updateSavedPassword(user?.email || user?.username, trimmedNewPassword);
+        } catch (biometricError) {
+          console.warn('Could not update Face ID credentials:', biometricError.message);
+        }
         Alert.alert('Success', 'Password changed successfully!', [
           {
             text: 'OK',
