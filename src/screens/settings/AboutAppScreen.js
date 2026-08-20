@@ -25,7 +25,7 @@ const WHITE = '#FFFFFF';
 
 const AboutAppScreen = ({ navigation }) => {
     return (
-            <SafeAreaView style={styles.fullScreenContainer}>
+        <SafeAreaView style={styles.fullScreenContainer}>
             <StatusBar barStyle="dark-content" backgroundColor={WHITE} />
 
             <View style={styles.topbar}>
@@ -74,7 +74,7 @@ const AboutAppScreen = ({ navigation }) => {
                     {/* Company Card */}
                     <View style={styles.card}>
                         <Text style={styles.cardTitle}>Company</Text>
-                        <Text style={styles.companyText}>© 2025 E-Vitals. All rights reserved.</Text>
+                        <Text style={styles.companyText}>© 2026 E-Vitals. All rights reserved.</Text>
                     </View>
 
                     {/* Support Card */}

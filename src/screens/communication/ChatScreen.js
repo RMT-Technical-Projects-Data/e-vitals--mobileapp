@@ -424,8 +424,8 @@ const ChatScreen = ({ navigation }) => {
       }
     });
 
-    socket.on('disconnect', () => {});
-    socket.on('connect_error', () => {});
+    socket.on('disconnect', () => { });
+    socket.on('connect_error', () => { });
   }, [scrollToBottom, loadChats]);
 
   // ── Banner Notification ──────────────────────────────────────────────────────
@@ -911,9 +911,16 @@ const ChatScreen = ({ navigation }) => {
     <View style={styles.listScreen}>
       {/* Header — matches PatientsScreen topbar */}
       <View style={styles.topbar}>
-        <View style={styles.topbarActionButton} />
+        <TouchableOpacity
+          style={styles.topbarActionButton}
+          onPress={() => (navigation.canGoBack() ? navigation.goBack() : navigation.navigate('Home'))}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          accessibilityLabel="Go back"
+        >
+          <MaterialIcons name="arrow-back" size={21} color={TEXT_DARK} />
+        </TouchableOpacity>
         <Text style={styles.topbarTitle}>Messages</Text>
-        <View style={styles.topbarActionButton} />
+        <View style={styles.topbarSpacer} />
       </View>
 
       <View style={styles.searchWrap}>
@@ -970,13 +977,15 @@ const ChatScreen = ({ navigation }) => {
       )}
 
       {/* WhatsApp Style Floating Action Button (FAB) */}
-      <TouchableOpacity
-        style={styles.whatsappFab}
-        onPress={openNewChatModal}
-        activeOpacity={0.85}
-        accessibilityLabel="New conversation">
-        <MaterialIcons name="add" size={28} color="#fff" />
-      </TouchableOpacity>
+      {userRoleId !== ROLES.PATIENT && (
+        <TouchableOpacity
+          style={styles.whatsappFab}
+          onPress={openNewChatModal}
+          activeOpacity={0.85}
+          accessibilityLabel="New conversation">
+          <MaterialIcons name="add" size={28} color="#fff" />
+        </TouchableOpacity>
+      )}
     </View>
   );
 
@@ -998,11 +1007,11 @@ const ChatScreen = ({ navigation }) => {
               {peerIsTyping
                 ? <Text style={styles.topbarSubtitle}>typing…</Text>
                 : <Text style={styles.topbarSubtitle}>
-                    {resolveRoleLabel(selectedContact?.role_id || selectedContact?.role_name)}
-                  </Text>
+                  {resolveRoleLabel(selectedContact?.role_id || selectedContact?.role_name)}
+                </Text>
               }
             </View>
-            <View style={styles.topbarActionButton} />
+            <View style={styles.topbarSpacer} />
           </View>
         </SafeAreaView>
       </View>
@@ -1275,11 +1284,15 @@ const styles = StyleSheet.create({
     elevation: 3,
     flexShrink: 0,
   },
+  topbarSpacer: {
+    width: Math.max(scaleWidth(42), 42),
+  },
   topbarTitle: {
     fontSize: scaleFont(20),
     fontWeight: '800',
     color: '#071B34',
     textAlign: 'center',
+    flex: 1,
     marginHorizontal: scaleWidth(8),
   },
   topbarSubtitle: {

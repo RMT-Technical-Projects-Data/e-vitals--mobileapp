@@ -34,10 +34,9 @@ import ChatScreen from '../../screens/communication/ChatScreen';
 import AIModulesScreen from '../../screens/ai/AIModulesScreen';
 import SettingsScreen from '../../screens/settings/SettingsScreen';
 import PatientsScreen from '../../screens/main/PatientsScreen';
-import Appointment from '../../screens/communication/Appointment';
 
 const Tab = createBottomTabNavigator();
-const PREMIUM_NAV_ROUTES = new Set(['Home', 'Patients', 'Chat', 'Schedule', 'Settings']);
+const PREMIUM_NAV_ROUTES = new Set(['Home', 'Patients', 'Chat', 'Settings']);
 
 /**
  * GlobalBottomBar component defines the primary navigation for the application.
@@ -169,8 +168,6 @@ export default function GlobalBottomBar({ navigation }) {
             iconSource = require('../../assets/images/batch_08/user-2.png');
           } else if (route.name === 'Chat') {
             iconSource = require('../../assets/images/batch_02/chat.png');
-          } else if (route.name === 'Schedule') {
-            iconSource = require('../../assets/images/batch_02/calendar.png');
           } else if (route.name === 'Settings') {
             iconSource = require('../../assets/images/batch_08/settings.png');
           }
@@ -196,7 +193,6 @@ export default function GlobalBottomBar({ navigation }) {
       <Tab.Screen name="Home" component={Home} />
       <Tab.Screen name="Patients" component={PatientsScreen} />
       <Tab.Screen name="Chat" component={ChatScreen} />
-      <Tab.Screen name="Schedule" component={Appointment} />
       <Tab.Screen name="Settings" component={SettingsScreen} />
     </Tab.Navigator>
   );

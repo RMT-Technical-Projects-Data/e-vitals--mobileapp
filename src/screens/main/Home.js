@@ -88,9 +88,11 @@ const AppHeader = ({ color, onNotifications, onMenuPress }) => (
         <MaterialIcons name="notifications-none" size={21} color={color} />
         <View style={st.notifBadge} />
       </TouchableOpacity>
-      <TouchableOpacity style={st.evIconButton} onPress={onMenuPress} accessibilityRole="button" accessibilityLabel="Open menu">
-        <MaterialIcons name="more-vert" size={21} color={color} />
-      </TouchableOpacity>
+      {Boolean(onMenuPress) && (
+        <TouchableOpacity style={st.evIconButton} onPress={onMenuPress} accessibilityRole="button" accessibilityLabel="Open menu">
+          <MaterialIcons name="more-vert" size={21} color={color} />
+        </TouchableOpacity>
+      )}
     </View>
   </View>
 );
@@ -121,25 +123,28 @@ const ThreeDotMenu = ({ visible, onClose, onLookupPatient, onFollowUp }) => (
   </Modal>
 );
 
-const RoleIntro = ({ eyebrow, title, practiceName, subtitle, color }) => (
+const RoleIntro = ({ eyebrow, title, practiceName, subtitle, color, practiceNameColor = '#9B1230' }) => (
   <View style={st.evIntro}>
     <Text style={[st.evEyebrow, { color }]}>{eyebrow}</Text>
     <Text style={st.evTitle}>{title}</Text>
     {!!practiceName && (
       <View style={st.practiceRow}>
-        <MaterialIcons name="business" size={13} color={color} />
-        <Text style={[st.practiceName, { color }]}>{practiceName}</Text>
+        <Text style={[st.practiceName, { color: practiceNameColor }]}>{practiceName}</Text>
       </View>
     )}
     {!!subtitle && <Text style={st.evSubtitle}>{subtitle}</Text>}
   </View>
 );
 
-const SectionTitle = ({ title, subtitle, actionLabel, actionColor, onPress }) => (
-  <View style={st.evSectionHeader}>
-    <View style={{ flex: 1 }}>
+const SectionTitle = ({ title, subtitle, actionLabel, actionColor, onPress, subtitleOnRight = false }) => (
+  <View style={[st.evSectionHeader, subtitleOnRight && st.evSectionHeaderRow]}>
+    <View style={[subtitleOnRight ? st.evSectionTitleRow : { flex: 1 }]}>
       <Text style={st.evSectionTitle}>{title}</Text>
-      {!!subtitle && <Text style={st.evSectionSubtitle}>{subtitle}</Text>}
+      {!!subtitle && (
+        <Text style={[st.evSectionSubtitle, subtitleOnRight && st.evSectionSubtitleRight]} numberOfLines={1}>
+          {subtitle}
+        </Text>
+      )}
     </View>
     {!!actionLabel && (
       <TouchableOpacity onPress={onPress} accessibilityRole="button">
@@ -183,55 +188,227 @@ const PanelMetricCard = ({ value, label, valueColor = '#fff', isTotal = false, c
   </View>
 );
 
-const PanelHero = ({ theme = 'care', title, subtitle, total, active, pending, locked }) => {
-  const accent = theme === 'provider' ? '#f1c7d0' : '#c8dcf0';
-  const colors = theme === 'provider'
-    ? ['#071B34', '#10253f', '#2a183b']
-    : ['#071B34', '#102947', '#243f63'];
-  const metricWidths = getPanelMetricWidths();
+const CapsulePanelSummary = ({ total = 0, active = 0, pending = 0, locked = 0, navigation }) => {
+  const scrollRef = React.useRef(null);
+  const scrollPos = React.useRef(0);
+  const contentWidthRef = React.useRef(0);
+  const isInteracting = React.useRef(false);
+  const resumeTimer = React.useRef(null);
+  const animationFrame = React.useRef(null);
+
+  const baseItems = [
+    {
+      key: 'all',
+      label: 'All',
+      count: total,
+      bg: '#071B34',
+      borderColor: '#071B34',
+      textColor: '#FFFFFF',
+      dotColor: null,
+      onPress: () => navigation?.navigate('Patients', { filterTitle: 'All Patients' }),
+    },
+    {
+      key: 'active',
+      label: 'Active',
+      count: active,
+      bg: '#F0FDF4',
+      borderColor: '#86EFAC',
+      textColor: '#15803D',
+      dotColor: '#22C55E',
+      onPress: () => navigation?.navigate('Patients', { dashboardFilter: 'active', filterTitle: 'Active Patients' }),
+    },
+    {
+      key: 'pending',
+      label: 'Pending',
+      count: pending,
+      bg: '#FEFCE8',
+      borderColor: '#FDE047',
+      textColor: '#A16207',
+      dotColor: '#EAB308',
+      onPress: () => navigation?.navigate('Patients', { dashboardFilter: 'pending', filterTitle: 'Pending Patients' }),
+    },
+    {
+      key: 'locked',
+      label: 'Locked',
+      count: locked,
+      bg: '#FEF2F2',
+      borderColor: '#FCA5A5',
+      textColor: '#B91C1C',
+      dotColor: '#EF4444',
+      onPress: () => navigation?.navigate('Patients', { dashboardFilter: 'locked', filterTitle: 'Locked Patients' }),
+    },
+  ];
+
+  const carouselItems = [...baseItems, ...baseItems, ...baseItems, ...baseItems];
+
+  React.useEffect(() => {
+    let lastTime = Date.now();
+
+    const tick = () => {
+      const now = Date.now();
+      const delta = now - lastTime;
+      lastTime = now;
+
+      if (!isInteracting.current && scrollRef.current && contentWidthRef.current > 0) {
+        scrollPos.current += (35 * delta) / 1000;
+
+        const halfWidth = contentWidthRef.current / 2;
+        if (halfWidth > 0 && scrollPos.current >= halfWidth) {
+          scrollPos.current = scrollPos.current % halfWidth;
+        }
+
+        scrollRef.current.scrollTo({ x: scrollPos.current, animated: false });
+      }
+
+      animationFrame.current = requestAnimationFrame(tick);
+    };
+
+    animationFrame.current = requestAnimationFrame(tick);
+
+    return () => {
+      if (animationFrame.current) {
+        cancelAnimationFrame(animationFrame.current);
+      }
+      if (resumeTimer.current) {
+        clearTimeout(resumeTimer.current);
+      }
+    };
+  }, []);
+
+  const handleScrollTouchStart = () => {
+    isInteracting.current = true;
+    if (resumeTimer.current) {
+      clearTimeout(resumeTimer.current);
+    }
+  };
+
+  const handleScrollTouchEnd = () => {
+    if (resumeTimer.current) {
+      clearTimeout(resumeTimer.current);
+    }
+    resumeTimer.current = setTimeout(() => {
+      isInteracting.current = false;
+    }, 2000);
+  };
+
+  const handleScroll = (event) => {
+    const x = event.nativeEvent.contentOffset.x;
+    scrollPos.current = x;
+  };
 
   return (
-    <View style={st.panelHeroOuter}>
-      <LinearGradient colors={colors} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={st.panelHeroGradient}>
-        <View style={st.panelHeroInner}>
-          <View style={st.panelHeroHead}>
-            <Text style={st.panelHeroTitle}>{title}</Text>
-            <Text style={st.panelHeroSub}>{subtitle}</Text>
-          </View>
-          <View style={st.panelMetricGrid}>
-            <PanelMetricCard
-              value={total}
-              label="total patients"
-              isTotal
-              cardWidth={metricWidths.total}
-              gap={metricWidths.gap}
-            />
-            <PanelMetricCard value={active} label="active" valueColor={accent} cardWidth={metricWidths.small} gap={metricWidths.gap} />
-            <PanelMetricCard value={pending} label="pending" valueColor="#f4d18a" cardWidth={metricWidths.small} gap={metricWidths.gap} />
-            <PanelMetricCard value={locked} label="locked" valueColor="#ffb8b8" cardWidth={metricWidths.small} gap={metricWidths.gap} isLast />
-          </View>
-        </View>
-      </LinearGradient>
+    <View style={st.capsuleCarouselWrap}>
+      <ScrollView
+        ref={scrollRef}
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
+        onTouchStart={handleScrollTouchStart}
+        onTouchEnd={handleScrollTouchEnd}
+        onScrollBeginDrag={handleScrollTouchStart}
+        onScrollEndDrag={handleScrollTouchEnd}
+        onMomentumScrollEnd={handleScrollTouchEnd}
+        onContentSizeChange={(w) => {
+          contentWidthRef.current = w;
+        }}
+        contentContainerStyle={st.capsuleCarouselContent}
+      >
+        {carouselItems.map((item, index) => (
+          <TouchableOpacity
+            key={`${item.key}-${index}`}
+            style={[
+              st.capsulePill,
+              {
+                backgroundColor: item.bg,
+                borderColor: item.borderColor,
+              },
+            ]}
+            onPress={item.onPress}
+            activeOpacity={0.8}
+          >
+            {item.dotColor && (
+              <View style={[st.capsuleDot, { backgroundColor: item.dotColor }]} />
+            )}
+            <Text style={[st.capsuleLabel, { color: item.textColor }]}>
+              {item.label}
+            </Text>
+            <View
+              style={[
+                st.capsuleBadge,
+                item.key === 'all'
+                  ? { backgroundColor: 'rgba(255,255,255,0.22)' }
+                  : { backgroundColor: 'rgba(0,0,0,0.06)' },
+              ]}
+            >
+              <Text style={[st.capsuleCountText, { color: item.textColor }]}>
+                {item.count}
+              </Text>
+            </View>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
     </View>
   );
 };
 
-const MiniCountCard = ({ title, value, color = '#1b2a47', onViewPress }) => (
-  <View style={st.miniCountCard}>
-    <Text style={st.miniCountTitle} numberOfLines={1}>{title}</Text>
-    <Text style={[st.miniCountValue, { color }]}>{value}</Text>
-    <TouchableOpacity
-      style={st.miniCountViewBtn}
-      onPress={onViewPress}
-      activeOpacity={0.7}
-      accessibilityRole="button"
-      accessibilityLabel={`View ${title}`}
-    >
-      <Text style={st.miniCountViewText}>View</Text>
-      <MaterialIcons name="chevron-right" size={16} color="#2F5F8F" />
-    </TouchableOpacity>
-  </View>
-);
+const DashboardCountsSection = ({ missedUploadsCount = 0, abnormalCount = 0, recentUploadsCount = 0, navigation }) => {
+  const items = [
+    {
+      id: '01',
+      title: 'Missed Uploads',
+      value: missedUploadsCount,
+      valueColor: '#071B34',
+      onPress: () => navigation.navigate('Patients', { dashboardFilter: 'missedUploads', filterTitle: 'Missed Uploads' }),
+    },
+    {
+      id: '02',
+      title: 'Abnormal Readings',
+      value: abnormalCount,
+      valueColor: abnormalCount > 0 ? '#C53030' : '#071B34',
+      onPress: () => navigation.navigate('Patients', { dashboardFilter: 'abnormalMeasurements', filterTitle: 'Abnormal Readings' }),
+    },
+    {
+      id: '03',
+      title: 'Recent Uploads',
+      value: recentUploadsCount,
+      valueColor: '#071B34',
+      onPress: () => navigation.navigate('Patients', { dashboardFilter: 'recentUploads', filterTitle: 'Recent Uploads' }),
+    },
+  ];
+
+  return (
+    <View style={st.dbCountsWrap}>
+      <View style={st.dbCountsHeaderRow}>
+        <Text style={st.dbCountsHeaderTitle}>Dashboard Counts</Text>
+        {/* <Text style={st.dbCountsHeaderSub}>Today</Text> */}
+      </View>
+      <View style={st.dbCountsCardContainer}>
+        {items.map((item, index) => {
+          const isLast = index === items.length - 1;
+          return (
+            <TouchableOpacity
+              key={item.id}
+              style={[st.dbCountsRow, !isLast && st.dbCountsRowDivider]}
+              onPress={item.onPress}
+              activeOpacity={0.7}
+            >
+              <Text style={st.dbCountsIndex}>{item.id}</Text>
+              <Text style={st.dbCountsRowTitle}>{item.title}</Text>
+              <View style={st.dbCountsRightWrap}>
+                <Text style={[st.dbCountsValue, { color: item.valueColor }]}>{item.value}</Text>
+                <MaterialIcons name="chevron-right" size={20} color="#CBD5E0" />
+              </View>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+      {/* <View style={st.dbCountsHelperTag}>
+        <Text style={st.dbCountsHelperText}>Tap anywhere on a row →</Text>
+      </View> */}
+    </View>
+  );
+};
 
 const CriticalAlertRow = ({ icon = 'warning-amber', name, detail, severity = 'High', critical, onPress }) => {
   const content = (
@@ -314,7 +491,7 @@ const CptEligibilityCard = ({ rows, theme = 'care', onCptPress }) => {
               <Text style={st.cptDesc} numberOfLines={2}>{meta.desc || `CPT ${row.code}`}</Text>
             </View>
 
-            {/* Right: counts + bar */}
+            {/* Right: counts */}
             <View style={st.cptRight}>
               <View style={st.cptCounts}>
                 <View style={st.cptCountCol}>
@@ -325,14 +502,6 @@ const CptEligibilityCard = ({ rows, theme = 'care', onCptPress }) => {
                   <Text style={[st.cptCountNum, { color: '#c62828' }]}>{ineligible}</Text>
                   <Text style={st.cptCountLabel}>Inelig</Text>
                 </View>
-              </View>
-              <View style={st.cptTrack}>
-                <LinearGradient
-                  colors={barColors}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
-                  style={[st.cptFill, { width: `${Math.min(Math.max(fillPct, 4), 100)}%` }]}
-                />
               </View>
             </View>
           </View>
@@ -352,58 +521,180 @@ const CptEligibilityCard = ({ rows, theme = 'care', onCptPress }) => {
   );
 };
 
-const MultiLineTrendChart = () => {
-  const chartWidth = Math.min(width - scaleWidth(58), scaleWidth(340));
-  const chartHeight = scaleHeight(165);
-  const left = 30;
-  const right = 10;
-  const top = 12;
+const PatientTrendSlidesCarousel = () => {
+  const [activeIndex, setActiveIndex] = useState(0);
+  const cardWidth = Math.min(width - scaleWidth(32), scaleWidth(360));
+  const chartWidth = cardWidth - scaleWidth(32);
+  const chartHeight = scaleHeight(150);
+  const left = 32;
+  const right = 12;
+  const top = 16;
   const bottom = 28;
   const innerW = chartWidth - left - right;
   const innerH = chartHeight - top - bottom;
-  const points = {
-    bp: [92, 88, 112, 104, 108, 132],
-    glucose: [70, 64, 72, 54, 98, 72],
-    weight: [86, 82, 96, 76, 90, 94],
+
+  const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+  const bpData = {
+    systole: [138, 142, 135, 140, 145, 139, 141],
+    diastole: [88, 90, 85, 89, 92, 87, 90],
+    pulse: [74, 78, 72, 76, 80, 75, 77],
   };
-  const all = [...points.bp, ...points.glucose, ...points.weight];
-  const min = Math.min(...all) - 8;
-  const max = Math.max(...all) + 8;
-  const toPoint = (value, index, total) => {
-    const x = left + (index / (total - 1)) * innerW;
-    const y = top + (1 - (value - min) / (max - min)) * innerH;
-    return `${x},${y}`;
+
+  const bgData = [115, 122, 108, 118, 125, 112, 120];
+  const weightData = [182.5, 182.2, 181.8, 181.5, 181.2, 180.9, 180.6];
+
+  const handleScroll = (event) => {
+    const contentOffsetX = event.nativeEvent.contentOffset.x;
+    const index = Math.round(contentOffsetX / cardWidth);
+    if (index !== activeIndex && index >= 0 && index < 3) {
+      setActiveIndex(index);
+    }
   };
-  const makePoints = (arr) => arr.map((v, i) => toPoint(v, i, arr.length)).join(' ');
-  const xLabels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+  const renderSingleChart = ({ lines, minVal, maxVal, title }) => {
+    const range = maxVal - minVal || 1;
+
+    const toPoint = (val, i, total) => {
+      const x = left + (i / (total - 1)) * innerW;
+      const y = top + (1 - (val - minVal) / range) * innerH;
+      return { x, y, str: `${x},${y}` };
+    };
+
+    return (
+      <View key={title} style={[st.trendSlideCard, { width: cardWidth }]}>
+        <View style={st.trendSlideHeader}>
+          <Text style={st.trendSlideTitle}>{title}</Text>
+          <View style={st.trendSlideLegendRow}>
+            {lines.map((l) => (
+              <View key={l.label} style={st.legendItem}>
+                <View style={[st.legendDot, { backgroundColor: l.color }]} />
+                <Text style={st.legendLabel}>{l.label}</Text>
+              </View>
+            ))}
+          </View>
+        </View>
+
+        <Svg width={chartWidth} height={chartHeight} viewBox={`0 0 ${chartWidth} ${chartHeight}`}>
+          {[0, 1, 2, 3].map((tick) => {
+            const y = top + tick * (innerH / 3);
+            const valLabel = Math.round(maxVal - tick * (range / 3));
+            return (
+              <React.Fragment key={tick}>
+                <Line x1={left} y1={y} x2={left + innerW} y2={y} stroke="rgba(7,27,52,0.06)" strokeWidth="1" />
+                <SvgText x={left - 6} y={y + 3} fontSize="9" fontWeight="700" fill="#94A3B8" textAnchor="end">
+                  {valLabel}
+                </SvgText>
+              </React.Fragment>
+            );
+          })}
+
+          <Line x1={left} y1={top} x2={left} y2={top + innerH} stroke="rgba(7,27,52,0.18)" strokeWidth="1" />
+          <Line x1={left} y1={top + innerH} x2={left + innerW} y2={top + innerH} stroke="rgba(7,27,52,0.18)" strokeWidth="1" />
+
+          {lines.map((l) => {
+            const pointsStr = l.data.map((v, i) => toPoint(v, i, l.data.length).str).join(' ');
+            return (
+              <React.Fragment key={l.label}>
+                <Polyline
+                  points={pointsStr}
+                  fill="none"
+                  stroke={l.color}
+                  strokeWidth="2.4"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+                {l.data.map((v, i) => {
+                  const pt = toPoint(v, i, l.data.length);
+                  return (
+                    <Circle
+                      key={`${l.label}-${i}`}
+                      cx={pt.x}
+                      cy={pt.y}
+                      r="3.5"
+                      fill="#FFFFFF"
+                      stroke={l.color}
+                      strokeWidth="2"
+                    />
+                  );
+                })}
+              </React.Fragment>
+            );
+          })}
+
+          {days.map((day, i) => (
+            <SvgText
+              key={day}
+              x={left + (i / (days.length - 1)) * innerW}
+              y={chartHeight - 6}
+              fontSize="9"
+              fontWeight="700"
+              fill="#94A3B8"
+              textAnchor="middle"
+            >
+              {day}
+            </SvgText>
+          ))}
+        </Svg>
+      </View>
+    );
+  };
 
   return (
-    <View style={st.trendCard}>
-      <Svg width="100%" height={chartHeight} viewBox={`0 0 ${chartWidth} ${chartHeight}`}>
-        {[0, 1, 2, 3].map((tick) => {
-          const y = top + tick * (innerH / 3);
-          return <Line key={tick} x1={left} y1={y} x2={left + innerW} y2={y} stroke="rgba(7,27,52,0.08)" strokeWidth="1" />;
+    <View style={st.trendCarouselWrap}>
+      <ScrollView
+        horizontal
+        pagingEnabled
+        showsHorizontalScrollIndicator={false}
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
+        decelerationRate="fast"
+        contentContainerStyle={st.trendCarouselContent}
+      >
+        {/* Slide 1: Blood Pressure & Pulse */}
+        {renderSingleChart({
+          title: 'Blood Pressure & Pulse',
+          lines: [
+            { label: 'Systole', color: '#9B1230', data: bpData.systole },
+            { label: 'Diastole', color: '#2563EB', data: bpData.diastole },
+            { label: 'Pulse', color: '#EAB308', data: bpData.pulse },
+          ],
+          minVal: 60,
+          maxVal: 160,
         })}
-        <Line x1={left} y1={top} x2={left} y2={top + innerH} stroke="rgba(7,27,52,0.28)" strokeWidth="1.2" />
-        <Line x1={left} y1={top + innerH} x2={left + innerW} y2={top + innerH} stroke="rgba(7,27,52,0.28)" strokeWidth="1.2" />
-        <Polyline points={makePoints(points.bp)} fill="none" stroke="#9B1230" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
-        <Polyline points={makePoints(points.glucose)} fill="none" stroke="#E89A5F" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
-        <Polyline points={makePoints(points.weight)} fill="none" stroke="#8DA1B8" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
-        {[points.bp, points.glucose, points.weight].map((arr, idx) =>
-          arr.map((v, i) => {
-            const [cx, cy] = toPoint(v, i, arr.length).split(',').map(Number);
-            const colors = ['#9B1230', '#E89A5F', '#8DA1B8'];
-            return <Circle key={`${idx}-${i}`} cx={cx} cy={cy} r="3" fill="#fff" stroke={colors[idx]} strokeWidth="1.8" />;
-          })
-        )}
-        {xLabels.map((label, i) => (
-          <SvgTextShim key={label} x={left + (i / (xLabels.length - 1)) * innerW} y={chartHeight - 8} value={label} />
+
+        {/* Slide 2: Blood Glucose */}
+        {renderSingleChart({
+          title: 'Blood Glucose (mg/dL)',
+          lines: [
+            { label: 'Glucose', color: '#EA580C', data: bgData },
+          ],
+          minVal: 90,
+          maxVal: 140,
+        })}
+
+        {/* Slide 3: Weight */}
+        {renderSingleChart({
+          title: 'Weight (lb)',
+          lines: [
+            { label: 'Weight', color: '#0D9488', data: weightData },
+          ],
+          minVal: 175,
+          maxVal: 185,
+        })}
+      </ScrollView>
+
+      {/* Pagination Indicators */}
+      <View style={st.trendDotsRow}>
+        {[0, 1, 2].map((idx) => (
+          <View
+            key={idx}
+            style={[
+              st.trendDotItem,
+              idx === activeIndex && st.trendDotItemActive,
+            ]}
+          />
         ))}
-      </Svg>
-      <View style={st.legendRow}>
-        <LegendItem color="#9B1230" label="BP" />
-        <LegendItem color="#E89A5F" label="Blood glucose" />
-        <LegendItem color="#8DA1B8" label="Weight" />
       </View>
     </View>
   );
@@ -756,6 +1047,10 @@ export default function Home({ navigation }) {
         // Set practice name from user object (returned by auth API)
         if (user.practice_name) {
           setPracticeName(user.practice_name);
+        } else if (user.practice?.name) {
+          setPracticeName(user.practice.name);
+        } else {
+          setPracticeName('Northside Cardiology');
         }
         if (roleId === 4) {
           setUserRole('provider');
@@ -773,6 +1068,7 @@ export default function Home({ navigation }) {
       } else {
         setUserRole('patient');
         setPatientName('Cyrus Nguyen');
+        setPracticeName('Northside Cardiology');
         fetchPatientVitals();
       }
     } catch (e) {
@@ -854,9 +1150,27 @@ export default function Home({ navigation }) {
     const wtVal = wtRaw != null
       ? parseFloat((parseFloat(wtRaw) * 2.20462).toFixed(1))
       : '--';
-    const bpTime = formatLastTime(measurements.bloodPressure?.date);
-    const bgTime = formatLastTime(measurements.bloodGlucose?.date);
-    const wtTime = formatLastTime(measurements.weight?.date);
+    const formatReadingTime = (dt) => {
+      if (!dt) return 'NO READING YET';
+      try {
+        const d = new Date(dt);
+        if (isNaN(d.getTime())) return String(dt).toUpperCase();
+        const monthStr = d.toLocaleDateString('en-US', { month: 'short' }).toUpperCase();
+        const dayStr = d.getDate();
+        const timeStr = d.toLocaleTimeString('en-US', {
+          hour: 'numeric',
+          minute: '2-digit',
+          hour12: true,
+        });
+        return `${monthStr} ${dayStr}  ·  ${timeStr}`;
+      } catch {
+        return String(dt).toUpperCase();
+      }
+    };
+
+    const bpTime = formatReadingTime(measurements.bloodPressure?.date);
+    const bgTime = formatReadingTime(measurements.bloodGlucose?.date);
+    const wtTime = formatReadingTime(measurements.weight?.date);
 
     return (
       <View style={{ flex: 1, backgroundColor: '#ffffff' }}>
@@ -871,105 +1185,65 @@ export default function Home({ navigation }) {
               bounces={true}
               overScrollMode="never"
             >
-              <ThreeDotMenu
-                visible={showMenu}
-                onClose={() => setShowMenu(false)}
-                onLookupPatient={openLookupPatient}
-                onLookupRPM={openLookupRPM}
-                onLookupCCM={openLookupCCM}
-                onFollowUp={openFollowUp}
-              />
               <AppHeader
                 color="#071B34"
                 onNotifications={() => navigation.navigate('Notifications')}
-                onMenuPress={() => setShowMenu(true)}
               />
               <RoleIntro
 
                 title={patientName || 'Dashboard'}
-                practiceName={practiceName}
-                subtitle="Your latest readings and alerts are ready."
+                practiceName={practiceName || 'Northside Cardiology'}
                 color="#071B34"
               />
 
-              <View style={st.patientHeroOuter}>
-                <LinearGradient
-                  colors={['#071B34', '#102947', '#243f63']}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                  style={st.patientHeroGradient}
-                >
-                  <View style={st.patientHeroInner}>
-                    <View style={st.patientHeroHead}>
-                      <Text style={st.patientHeroTitle}>Latest readings from your connected meters.</Text>
-                      <Text style={st.patientHeroSub}>These are the most recent values visible to your care team.</Text>
-                    </View>
-                    <View style={st.heroReadings}>
-                      <View style={st.heroReadingRow}>
-                        <View style={st.heroReadingIcon}><MaterialIcons name="favorite-border" size={19} color="#fff" /></View>
-                        <View style={st.heroReadingText}>
-                          <Text style={st.heroReadingName} numberOfLines={1}>Blood pressure</Text>
-                          <Text style={st.heroReadingTime} numberOfLines={1} ellipsizeMode="tail">{bpTime}</Text>
-                        </View>
-                        <View style={st.heroReadingValueWrap}>
-                          <Text style={st.heroReadingValue} numberOfLines={1}>
-                            {bpVal}<Text style={st.heroReadingUnit}> mmHg</Text>
-                          </Text>
-                        </View>
-                      </View>
-                      <View style={st.heroReadingRow}>
-                        <View style={st.heroReadingIcon}><MaterialIcons name="opacity" size={19} color="#fff" /></View>
-                        <View style={st.heroReadingText}>
-                          <Text style={st.heroReadingName} numberOfLines={1}>Blood glucose</Text>
-                          <Text style={st.heroReadingTime} numberOfLines={1} ellipsizeMode="tail">{bgTime}</Text>
-                        </View>
-                        <View style={st.heroReadingValueWrap}>
-                          <Text style={st.heroReadingValue} numberOfLines={1}>
-                            {bgVal}<Text style={st.heroReadingUnit}> mg/dL</Text>
-                          </Text>
-                        </View>
-                      </View>
-                      <View style={st.heroReadingRow}>
-                        <View style={st.heroReadingIcon}><MaterialIcons name="monitor-weight" size={19} color="#fff" /></View>
-                        <View style={st.heroReadingText}>
-                          <Text style={st.heroReadingName} numberOfLines={1}>Weight</Text>
-                          <Text style={st.heroReadingTime} numberOfLines={1} ellipsizeMode="tail">{wtTime}</Text>
-                        </View>
-                        <View style={st.heroReadingValueWrap}>
-                          <Text style={st.heroReadingValue} numberOfLines={1}>
-                            {wtVal}<Text style={st.heroReadingUnit}> lb</Text>
-                          </Text>
-                        </View>
-                      </View>
-                    </View>
+              <View style={st.lrHeaderWrap}>
+                <Text style={st.lrHeaderTitle}>Latest Readings</Text>
+                {/* <Text style={st.lrHeaderSub}>From your connected meters</Text> */}
+              </View>
+
+              <View style={st.lrCardContainer}>
+                <TouchableOpacity style={st.lrRow} onPress={() => openList('bp')} activeOpacity={0.7}>
+                  <View style={st.lrMeta}>
+                    <Text style={st.lrName}>Blood Pressure</Text>
+                    <Text style={st.lrTime}>{bpTime}</Text>
                   </View>
-                </LinearGradient>
+                  <View style={st.lrValWrap}>
+                    <Text style={[st.lrValText, bpVal !== '--' && { color: '#800000' }]}>{bpVal}</Text>
+                    <Text style={st.lrUnitText}>mmHg</Text>
+                  </View>
+                </TouchableOpacity>
+
+                <View style={st.lrRowDivider} />
+
+                <TouchableOpacity style={st.lrRow} onPress={() => openList('bg')} activeOpacity={0.7}>
+                  <View style={st.lrMeta}>
+                    <Text style={st.lrName}>Blood Glucose</Text>
+                    <Text style={st.lrTime}>{bgTime}</Text>
+                  </View>
+                  <View style={st.lrValWrap}>
+                    <Text style={st.lrValText}>{bgVal}</Text>
+                    <Text style={st.lrUnitText}>mg/dL</Text>
+                  </View>
+                </TouchableOpacity>
+
+                <View style={st.lrRowDivider} />
+
+                <TouchableOpacity style={st.lrRow} onPress={() => openList('weight')} activeOpacity={0.7}>
+                  <View style={st.lrMeta}>
+                    <Text style={st.lrName}>Weight</Text>
+                    <Text style={st.lrTime}>{wtTime}</Text>
+                  </View>
+                  <View style={st.lrValWrap}>
+                    <Text style={st.lrValText}>{wtVal}</Text>
+                    <Text style={st.lrUnitText}>lb</Text>
+                  </View>
+                </TouchableOpacity>
               </View>
 
               <SectionTitle title="Trends" />
-              <MultiLineTrendChart />
+              <PatientTrendSlidesCarousel />
 
-              <SectionTitle title="Alerts" subtitle="Care team signals" actionLabel="See all" actionColor="#071B34" onPress={() => navigation.navigate('Notifications')} />
-
-              <View style={[st.alertCard, st.alertYellow]}>
-                <View style={[st.alertDot, { backgroundColor: '#fbc02d' }]} />
-                <View style={st.alertText}>
-                  <Text style={st.alertTitle}>Blood glucose still needed</Text>
-                  <Text style={st.alertSub}>Upload today's glucose reading before lunch.</Text>
-                </View>
-                <Text style={st.alertTime}>Today</Text>
-              </View>
-
-              <View style={[st.alertCard, st.alertGreen]}>
-                <View style={[st.alertDot, { backgroundColor: '#2e7d32' }]} />
-                <View style={st.alertText}>
-                  <Text style={st.alertTitle}>Care note received</Text>
-                  <Text style={st.alertSub}>Your caregiver reviewed your blood pressure trend.</Text>
-                </View>
-                <Text style={st.alertTime}>1h ago</Text>
-              </View>
-
-              <SectionTitle title="Quick Access" subtitle="Open a measurement log" />
+              <SectionTitle title="Quick Access" />
 
               <View style={st.quickGrid}>
                 <TouchableOpacity style={st.quickBtn} onPress={() => openList('bloodPressure')}>
@@ -1086,13 +1360,19 @@ export default function Home({ navigation }) {
                 color="#1B2A47"
               />
 
-              <PanelHero
-                title="Patient Panel Summary"
-                subtitle="Northside Cardiology"
+              <CapsulePanelSummary
                 total={totalPanel}
                 active={activeCount}
                 pending={pendingCount}
                 locked={lockedCount}
+                navigation={navigation}
+              />
+
+              <DashboardCountsSection
+                missedUploadsCount={missedUploadsCount}
+                abnormalCount={abnormalCount}
+                recentUploadsCount={recentUploadsCount}
+                navigation={navigation}
               />
 
               <SectionTitle title="Recent Uploads" subtitle="Latest patient syncs" actionLabel="Patients" actionColor="#1B2A47" onPress={() => navigation.navigate('Patients')} />
@@ -1119,7 +1399,7 @@ export default function Home({ navigation }) {
                 </View>
               )}
 
-              <SectionTitle title="Critical Alerts" subtitle="Immediate review" actionLabel="See all" actionColor="#1B2A47" onPress={() => navigation.navigate('Patients')} />
+              <SectionTitle title="Critical Alerts" actionLabel="See all" actionColor="#687382" onPress={() => navigation.navigate('Patients')} />
 
               {criticalPatients.length === 0 ? (
                 <View style={st.emptyAlertCard}><Text style={st.emptyAlertText}>No critical alerts for now.</Text></View>
@@ -1143,37 +1423,10 @@ export default function Home({ navigation }) {
                 </View>
               )}
 
-              <SectionTitle title="Dashboard Counts" subtitle="Today" />
-              <View style={st.countGrid}>
-                <MiniCountCard
-                  title="Appointments"
-                  value={caregiverFollowUps.length || 5}
-                  color="#C98A1A"
-                  onViewPress={() => navigation.navigate('Patients', { filterTitle: 'Appointments' })}
-                />
-                <MiniCountCard
-                  title="Missed Uploads"
-                  value={missedUploadsCount}
-                  color="#64748b"
-                  onViewPress={() => navigation.navigate('Patients', { dashboardFilter: 'missedUploads', filterTitle: 'Missed Uploads' })}
-                />
-                <MiniCountCard
-                  title="Abnormal Readings"
-                  value={abnormalCount}
-                  color="#d32f2f"
-                  onViewPress={() => navigation.navigate('Patients', { dashboardFilter: 'abnormalMeasurements', filterTitle: 'Abnormal Readings' })}
-                />
-                <MiniCountCard
-                  title="Recent Uploads"
-                  value={recentUploadsCount}
-                  color="#15803d"
-                  onViewPress={() => navigation.navigate('Patients', { dashboardFilter: 'recentUploads', filterTitle: 'Recent Uploads' })}
-                />
-              </View>
-
               <SectionTitle
                 title="CPT Eligibility"
                 subtitle={stats?.billing_period_label ? `Billing cycle (${stats.billing_period_label})` : 'Billing cycle'}
+                subtitleOnRight
               />
               <CptEligibilityCard
                 rows={cptRows}
@@ -1266,72 +1519,26 @@ export default function Home({ navigation }) {
 
                 title={patientName || 'Dashboard'}
                 practiceName={practiceName}
-                subtitle="Your patient panel is organized by review urgency, uploads, alerts, appointments, and billing readiness."
+                // subtitle="Your patient panel is organized by review urgency, uploads, alerts, and billing readiness."
                 color="#9B1230"
               />
 
-              <PanelHero
-                theme="provider"
-                title="Patient Panel Summary"
-                subtitle="Northside Cardiology"
+              <CapsulePanelSummary
                 total={totalPanel}
                 active={activeCount}
                 pending={pendingCount}
                 locked={lockedCount}
+                navigation={navigation}
               />
 
-              <SectionTitle title="Decision Queue" subtitle="Today" actionLabel="Patients" actionColor="#071B34" onPress={() => navigation.navigate('Patients')} />
+              <DashboardCountsSection
+                missedUploadsCount={missedUploadsCount}
+                abnormalCount={abnormalCount}
+                recentUploadsCount={recentUploadsCount}
+                navigation={navigation}
+              />
 
-              {isProviderLoading && providerPatients.length === 0 ? (
-                <ActivityIndicator size="small" color="#1b2a47" style={{ marginVertical: 20 }} />
-              ) : (
-                displayList.slice(0, 4).map((p, idx) => {
-                  const age = getAge(p.date_of_birth) || getAge(p.dob) || 58;
-                  const diagnosis = p.vitals || 'Hypertension';
-                  const initials = `${p.first_name?.[0] || ''}${p.last_name?.[0] || ''}`;
-                  const isCritical = p.status === 'Critical' || p.status === 'Locked';
-
-                  let sparkPoints = '0,12 12,8 24,16 36,10 48,14 60,8';
-                  let sparkColor = '#fbc02d';
-                  let actionStyle = st.frActionReview;
-                  let actionTextStyle = st.frActionTextReview;
-                  if (isCritical) {
-                    sparkPoints = '0,18 12,16 24,14 36,10 48,6 60,2';
-                    sparkColor = '#d32f2f';
-                    actionStyle = st.frActionCritical;
-                    actionTextStyle = st.frActionTextCritical;
-                  } else if (idx === 2) {
-                    sparkPoints = '0,20 12,16 24,18 36,12 48,10 60,6';
-                  }
-                  const avColor = isCritical ? '#1b2a47' : p.first_name === 'Robert' ? '#6b1d2f' : '#1b2a47';
-                  return (
-                    <TouchableOpacity
-                      key={String(p.id)}
-                      style={[st.flaggedRow, isCritical ? st.frCritical : st.frReview]}
-                      onPress={() => openPatientHub(p, 'provider')}
-                      activeOpacity={0.85}
-                    >
-                      <View style={[st.pcAvatar, { backgroundColor: avColor }]}>
-                        <Text style={st.pcAvatarText}>{initials}</Text>
-                      </View>
-                      <View style={st.frInfo}>
-                        <Text style={st.frName}>
-                          {p.first_name} {p.last_name}
-                        </Text>
-                        <Text style={st.frCond}>
-                          {age} · {diagnosis}
-                        </Text>
-                      </View>
-                      <Sparkline points={sparkPoints} color={sparkColor} />
-                      <View style={[st.frAction, actionStyle]}>
-                        <Text style={actionTextStyle}>Review</Text>
-                      </View>
-                    </TouchableOpacity>
-                  );
-                })
-              )}
-
-              <SectionTitle title="Critical Alerts" subtitle="Immediate review" actionLabel="See all" actionColor="#071B34" onPress={() => navigation.navigate('Patients')} />
+              <SectionTitle title="Critical Alerts" actionLabel="See all" actionColor="#687382" onPress={() => navigation.navigate('Patients')} />
 
               {criticalPatients.length === 0 ? (
                 <View style={st.emptyAlertCard}><Text style={st.emptyAlertText}>No critical alerts for now.</Text></View>
@@ -1351,37 +1558,10 @@ export default function Home({ navigation }) {
                 </View>
               )}
 
-              <SectionTitle title="Dashboard Counts" subtitle="Today" />
-              <View style={st.countGrid}>
-                <MiniCountCard
-                  title="Appointments"
-                  value={8}
-                  color="#9B1230"
-                  onViewPress={() => navigation.navigate('Patients', { filterTitle: 'Appointments' })}
-                />
-                <MiniCountCard
-                  title="Missed Uploads"
-                  value={missedUploadsCount}
-                  color="#64748b"
-                  onViewPress={() => navigation.navigate('Patients', { dashboardFilter: 'missedUploads', filterTitle: 'Missed Uploads' })}
-                />
-                <MiniCountCard
-                  title="Abnormal Readings"
-                  value={abnormalCount}
-                  color="#d32f2f"
-                  onViewPress={() => navigation.navigate('Patients', { dashboardFilter: 'abnormalMeasurements', filterTitle: 'Abnormal Readings' })}
-                />
-                <MiniCountCard
-                  title="Recent Uploads"
-                  value={recentUploadsCount}
-                  color="#15803d"
-                  onViewPress={() => navigation.navigate('Patients', { dashboardFilter: 'recentUploads', filterTitle: 'Recent Uploads' })}
-                />
-              </View>
-
               <SectionTitle
                 title="CPT Eligibility"
                 subtitle={stats?.billing_period_label ? `Billing cycle (${stats.billing_period_label})` : 'Billing cycle'}
+                subtitleOnRight
               />
               <CptEligibilityCard
                 rows={cptRows}
@@ -1563,7 +1743,69 @@ const st = StyleSheet.create({
     fontWeight: '700',
     marginTop: scaleHeight(2),
   },
+  evSectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  evSectionTitleRow: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  evSectionSubtitleRight: {
+    marginTop: 0,
+    fontSize: scaleFont(12),
+    fontWeight: '800',
+    color: '#687382',
+  },
   evSectionAction: {
+    fontSize: scaleFont(12),
+    fontWeight: '800',
+  },
+  capsuleCarouselWrap: {
+    marginVertical: scaleHeight(12),
+    width: '100%',
+  },
+  capsuleCarouselContent: {
+    paddingHorizontal: Math.max(scaleWidth(16), 16),
+    alignItems: 'center',
+    flexDirection: 'row',
+  },
+  capsulePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: scaleHeight(10),
+    paddingHorizontal: scaleWidth(18),
+    borderRadius: scaleWidth(24),
+    borderWidth: 1.5,
+    marginRight: scaleWidth(10),
+    shadowColor: '#071B34',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  capsuleDot: {
+    width: scaleWidth(8),
+    height: scaleWidth(8),
+    borderRadius: scaleWidth(4),
+    marginRight: scaleWidth(7),
+  },
+  capsuleLabel: {
+    fontSize: scaleFont(14),
+    fontWeight: '700',
+    marginRight: scaleWidth(6),
+  },
+  capsuleBadge: {
+    paddingHorizontal: scaleWidth(8),
+    paddingVertical: scaleHeight(2),
+    borderRadius: scaleWidth(12),
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  capsuleCountText: {
     fontSize: scaleFont(12),
     fontWeight: '800',
   },
@@ -1768,26 +2010,205 @@ const st = StyleSheet.create({
     fontSize: scaleFont(12),
     fontWeight: '800',
   },
-  countGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: scaleWidth(10),
+  dbCountsWrap: {
+    marginTop: scaleHeight(16),
+    marginBottom: scaleHeight(12),
+    width: '100%',
   },
-  miniCountCard: {
-    flexGrow: 1,
-    flexBasis: '46%',
-    minWidth: scaleWidth(140),
-    borderRadius: scaleWidth(20),
-    padding: scaleWidth(14),
-    backgroundColor: '#ffffff',
-    borderWidth: 1,
-    borderColor: '#e8ecf0',
+  dbCountsHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
+    marginBottom: scaleHeight(10),
+  },
+  dbCountsHeaderTitle: {
+    fontSize: scaleFont(18),
+    fontWeight: '800',
+    color: '#071B34',
+  },
+  dbCountsHeaderSub: {
+    fontSize: scaleFont(13),
+    fontWeight: '600',
+    color: '#94A3B8',
+  },
+  dbCountsCardContainer: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: scaleWidth(20),
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    paddingHorizontal: scaleWidth(18),
     shadowColor: '#071B34',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.1,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.04,
     shadowRadius: 12,
-    elevation: 4,
+    elevation: 3,
+  },
+  dbCountsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: scaleHeight(16),
+  },
+  dbCountsRowDivider: {
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+  },
+  dbCountsIndex: {
+    fontSize: scaleFont(13),
+    fontWeight: '700',
+    color: '#CBD5E0',
+    width: scaleWidth(28),
+  },
+  dbCountsRowTitle: {
+    flex: 1,
+    fontSize: scaleFont(15),
+    fontWeight: '700',
+    color: '#071B34',
+  },
+  dbCountsRightWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scaleWidth(8),
+  },
+  dbCountsValue: {
+    fontSize: scaleFont(18),
+    fontWeight: '800',
+  },
+  dbCountsHelperTag: {
+    alignSelf: 'flex-start',
+    marginTop: scaleHeight(10),
+    backgroundColor: '#EFF6FF',
+    paddingHorizontal: scaleWidth(14),
+    paddingVertical: scaleHeight(6),
+    borderRadius: scaleWidth(14),
+  },
+  dbCountsHelperText: {
+    fontSize: scaleFont(12),
+    fontWeight: '700',
+    color: '#2563EB',
+  },
+  lrHeaderWrap: {
+    marginTop: scaleHeight(12),
+    marginBottom: scaleHeight(10),
+    width: '100%',
+  },
+  lrHeaderTitle: {
+    fontSize: scaleFont(20),
+    fontWeight: '800',
+    color: '#071B34',
+  },
+  lrHeaderSub: {
+    fontSize: scaleFont(13),
+    fontWeight: '500',
+    color: '#94A3B8',
+    marginTop: scaleHeight(2),
+  },
+  lrCardContainer: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: scaleWidth(20),
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    paddingHorizontal: scaleWidth(20),
+    shadowColor: '#071B34',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.04,
+    shadowRadius: 12,
+    elevation: 3,
+    marginBottom: scaleHeight(16),
+  },
+  lrRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: scaleHeight(16),
+  },
+  lrRowDivider: {
+    borderBottomWidth: 1,
+    borderBottomColor: '#CBD5E1',
+    borderStyle: 'solid',
+  },
+  lrMeta: {
+    flex: 1,
+    marginRight: scaleWidth(12),
+  },
+  lrName: {
+    fontSize: scaleFont(16),
+    fontWeight: '800',
+    color: '#071B34',
+  },
+  lrTime: {
+    fontSize: scaleFont(11),
+    fontWeight: '700',
+    color: '#94A3B8',
+    marginTop: scaleHeight(4),
+    letterSpacing: 0.5,
+  },
+  lrValWrap: {
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+  },
+  lrValText: {
+    fontSize: scaleFont(22),
+    fontWeight: '800',
+    color: '#071B34',
+  },
+  lrUnitText: {
+    fontSize: scaleFont(11),
+    fontWeight: '600',
+    color: '#94A3B8',
+    marginTop: scaleHeight(2),
+  },
+  trendCarouselWrap: {
+    marginVertical: scaleHeight(10),
+    width: '100%',
+  },
+  trendCarouselContent: {
+    alignItems: 'center',
+  },
+  trendSlideCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: scaleWidth(20),
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    padding: scaleWidth(16),
+    marginRight: scaleWidth(12),
+    shadowColor: '#071B34',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.04,
+    shadowRadius: 12,
+    elevation: 3,
+  },
+  trendSlideHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: scaleHeight(8),
+  },
+  trendSlideTitle: {
+    fontSize: scaleFont(14),
+    fontWeight: '800',
+    color: '#071B34',
+  },
+  trendSlideLegendRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scaleWidth(8),
+  },
+  trendDotsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: scaleHeight(10),
+    gap: scaleWidth(8),
+  },
+  trendDotItem: {
+    width: scaleWidth(8),
+    height: scaleWidth(8),
+    borderRadius: scaleWidth(4),
+    backgroundColor: '#CBD5E1',
+  },
+  trendDotItemActive: {
+    width: scaleWidth(22),
+    backgroundColor: '#071B34',
   },
   miniCountTitle: {
     color: '#687382',

@@ -48,10 +48,6 @@ function AppStack() {
         getComponent={lazyScreen(() => require('../screens/vitals/Summary').default)}
       />
       <Stack.Screen
-        name="Appointment"
-        getComponent={lazyScreen(() => require('../screens/communication/Appointment').default)}
-      />
-      <Stack.Screen
         name="AudioCall"
         getComponent={lazyScreen(() => require('../screens/communication/AudioCall').default)}
       />

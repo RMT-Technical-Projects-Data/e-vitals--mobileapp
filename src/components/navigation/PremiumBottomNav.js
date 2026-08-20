@@ -64,21 +64,18 @@ export default function PremiumBottomNav({ active, navigation, role, unreadMessa
     ? [
       { key: 'home', label: 'Home', icon: 'home', route: 'Home' },
       { key: 'messages', label: 'Messages', icon: 'chat-bubble-outline', route: 'Chat' },
-      { key: 'appointments', label: 'Appts', icon: 'calendar-today', route: 'Appointment' },
       { key: 'settings', label: 'Settings', icon: 'settings', route: 'Settings' },
     ]
     : resolvedRole === 'provider'
       ? [
         { key: 'review', label: 'Home', icon: 'dashboard', route: 'Home' },
         { key: 'patients', label: 'Patients', icon: 'groups', route: 'Patients' },
-        { key: 'appointments', label: 'Appts', icon: 'calendar-today', route: 'Appointment' },
         { key: 'messages', label: 'Messages', icon: 'chat-bubble-outline', route: 'Chat' },
         { key: 'settings', label: 'Settings', icon: 'settings', route: 'Settings' },
       ]
       : [
         { key: 'queue', label: 'Home', icon: 'dashboard', route: 'Home' },
         { key: 'patients', label: 'Patients', icon: 'groups', route: 'Patients' },
-        { key: 'appointments', label: 'Appts', icon: 'calendar-today', route: 'Appointment' },
         { key: 'messages', label: 'Messages', icon: 'chat-bubble-outline', route: 'Chat' },
         { key: 'settings', label: 'Settings', icon: 'settings', route: 'Settings' },
       ];
