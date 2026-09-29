@@ -4,8 +4,10 @@ import notifee, { AndroidImportance, EventType } from '@notifee/react-native';
 import apiService from './apiService';
 import { getActiveChatUserId } from '../utils/activeChatState';
 import { setPendingChatOpenUserId } from '../utils/pendingChatNavigation';
+import { setPendingAbnormalReviewsOpen } from '../utils/pendingAbnormalNavigation';
 
 const CHAT_CHANNEL_ID = 'chat_messages';
+const ABNORMAL_CHANNEL_ID = 'abnormal_readings';
 
 const ensureAndroidNotificationPermission = async () => {
   if (Platform.OS !== 'android' || Platform.Version < 33) {
@@ -28,7 +30,7 @@ const ensureIosNotificationPermission = async () => {
   );
 };
 
-const ensureNotificationChannel = async () => {
+const ensureNotificationChannels = async () => {
   if (Platform.OS !== 'android') return;
 
   await notifee.createChannel({
@@ -37,14 +39,30 @@ const ensureNotificationChannel = async () => {
     importance: AndroidImportance.HIGH,
     sound: 'default',
   });
+
+  await notifee.createChannel({
+    id: ABNORMAL_CHANNEL_ID,
+    name: 'Abnormal Readings',
+    importance: AndroidImportance.HIGH,
+    sound: 'default',
+  });
 };
 
 const normalizePayload = (remoteMessage) => {
   const data = remoteMessage?.data || {};
   const notification = remoteMessage?.notification || {};
+  const type = data.type || '';
+
+  const defaultTitle = type === 'abnormal_assignment'
+    ? 'Abnormal Reading Assigned'
+    : 'New message';
+  const defaultBody = type === 'abnormal_assignment'
+    ? 'You have been assigned an abnormal reading to review.'
+    : 'You have a new chat message';
+
   return {
-    title: notification.title || data.title || 'New message',
-    body: notification.body || data.body || data.message || 'You have a new chat message',
+    title: notification.title || data.title || defaultTitle,
+    body: notification.body || data.body || data.message || defaultBody,
     data,
   };
 };
@@ -55,18 +73,45 @@ const shouldSkipNotification = (data) => (
   && getActiveChatUserId() === String(data.from_user_id)
 );
 
-const displayChatNotification = async (remoteMessage) => {
+const getNotificationMeta = (data) => {
+  if (data.type === 'abnormal_assignment') {
+    const collapseKey = data.measurement_id
+      ? `abnormal-${data.practice_id}-${data.patient_id}-${data.vital_type}-${data.measurement_id}`
+      : `abnormal-${data.practice_id}-${data.patient_id}`;
+    return {
+      channelId: ABNORMAL_CHANNEL_ID,
+      notificationId: collapseKey,
+      tag: collapseKey,
+    };
+  }
+
+  const notificationId = data.message_id
+    ? `chat-${data.message_id}`
+    : `chat-${data.from_user_id || 'unknown'}-${Date.now()}`;
+
+  return {
+    channelId: CHAT_CHANNEL_ID,
+    notificationId,
+    tag: notificationId,
+  };
+};
+
+const displayRemoteNotification = async (remoteMessage, { isForeground = false } = {}) => {
+  // Background: FCM already shows notification+data payloads in the tray.
+  // Foreground: the OS does not — we must display via Notifee ourselves.
+  if (!isForeground && remoteMessage?.notification) {
+    return;
+  }
+
   const { title, body, data } = normalizePayload(remoteMessage);
 
   if (shouldSkipNotification(data)) {
     return;
   }
 
-  await ensureNotificationChannel();
+  await ensureNotificationChannels();
 
-  const notificationId = data.message_id
-    ? `chat-${data.message_id}`
-    : `chat-${data.from_user_id || 'unknown'}-${Date.now()}`;
+  const { channelId, notificationId, tag } = getNotificationMeta(data);
 
   await notifee.displayNotification({
     id: notificationId,
@@ -74,25 +119,44 @@ const displayChatNotification = async (remoteMessage) => {
     body,
     data,
     android: {
-      channelId: CHAT_CHANNEL_ID,
+      channelId,
       pressAction: { id: 'default' },
       smallIcon: 'ic_notification',
-      tag: notificationId,
+      tag,
+      importance: AndroidImportance.HIGH,
+    },
+    ios: {
+      foregroundPresentationOptions: {
+        alert: true,
+        badge: true,
+        sound: true,
+      },
     },
   });
 };
 
-const queueChatNavigation = (remoteMessage, onOpenChat) => {
+const routeNotificationPress = (remoteMessage, handlers = {}) => {
   const data = remoteMessage?.data || remoteMessage?.notification?.data || {};
-  if (data.type !== 'chat_message' || !data.from_user_id) {
+
+  if (data.type === 'chat_message' && data.from_user_id) {
+    const fromUserId = String(data.from_user_id);
+    setPendingChatOpenUserId(fromUserId);
+    if (typeof handlers.onOpenChat === 'function') {
+      handlers.onOpenChat(fromUserId);
+    }
     return;
   }
 
-  const fromUserId = String(data.from_user_id);
-  setPendingChatOpenUserId(fromUserId);
-
-  if (typeof onOpenChat === 'function') {
-    onOpenChat(fromUserId);
+  if (data.type === 'abnormal_assignment') {
+    setPendingAbnormalReviewsOpen();
+    if (typeof handlers.onOpenAssignedReviews === 'function') {
+      handlers.onOpenAssignedReviews({
+        practiceId: data.practice_id,
+        patientId: data.patient_id,
+        vitalType: data.vital_type,
+        measurementId: data.measurement_id,
+      });
+    }
   }
 };
 
@@ -113,6 +177,16 @@ export const captureInitialNotificationIntent = async () => {
 
     if (notifeeData?.type === 'chat_message' && notifeeData.from_user_id) {
       setPendingChatOpenUserId(notifeeData.from_user_id);
+      return;
+    }
+
+    if (fcmData?.type === 'abnormal_assignment') {
+      setPendingAbnormalReviewsOpen();
+      return;
+    }
+
+    if (notifeeData?.type === 'abnormal_assignment') {
+      setPendingAbnormalReviewsOpen();
     }
   } catch (error) {
     console.warn('[push] failed to capture initial notification:', error?.message || error);
@@ -170,20 +244,20 @@ export const unregisterPushTokenFromBackend = async () => {
   }
 };
 
-export const initializePushNotifications = async (onOpenChat) => {
-  await ensureNotificationChannel();
+export const initializePushNotifications = async (handlers = {}) => {
+  await ensureNotificationChannels();
 
   const unsubscribeForegroundEvent = notifee.onForegroundEvent(({ type, detail }) => {
     if (type !== EventType.PRESS) return;
-    queueChatNavigation({ data: detail?.notification?.data || {} }, onOpenChat);
+    routeNotificationPress({ data: detail?.notification?.data || {} }, handlers);
   });
 
   const unsubscribeOnMessage = messaging().onMessage(async (remoteMessage) => {
-    await displayChatNotification(remoteMessage);
+    await displayRemoteNotification(remoteMessage, { isForeground: true });
   });
 
   const unsubscribeOpenedApp = messaging().onNotificationOpenedApp((remoteMessage) => {
-    queueChatNavigation(remoteMessage, onOpenChat);
+    routeNotificationPress(remoteMessage, handlers);
   });
 
   const unsubscribeTokenRefresh = messaging().onTokenRefresh(async () => {
@@ -201,9 +275,5 @@ export const initializePushNotifications = async (onOpenChat) => {
 };
 
 export const handleBackgroundMessage = async (remoteMessage) => {
-  if (remoteMessage?.notification) {
-    return;
-  }
-
-  await displayChatNotification(remoteMessage);
+  await displayRemoteNotification(remoteMessage, { isForeground: false });
 };

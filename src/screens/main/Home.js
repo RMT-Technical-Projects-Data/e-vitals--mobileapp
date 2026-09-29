@@ -350,7 +350,13 @@ const CapsulePanelSummary = ({ total = 0, active = 0, pending = 0, locked = 0, n
   );
 };
 
-const DashboardCountsSection = ({ missedUploadsCount = 0, abnormalCount = 0, recentUploadsCount = 0, navigation }) => {
+const DashboardCountsSection = ({
+  missedUploadsCount = 0,
+  abnormalCount = 0,
+  recentUploadsCount = 0,
+  assignedReviewsCount = 0,
+  navigation,
+}) => {
   const openDashboardCount = (dashboardFilter, filterTitle) => {
     if (!navigation?.navigate) return;
     navigation.navigate({
@@ -381,6 +387,13 @@ const DashboardCountsSection = ({ missedUploadsCount = 0, abnormalCount = 0, rec
     },
     {
       id: '03',
+      title: 'Assigned Reviews',
+      value: assignedReviewsCount,
+      valueColor: assignedReviewsCount > 0 ? EV.abnormal : EV.navy,
+      onPress: () => navigation?.navigate?.('AssignedAbnormalReviews'),
+    },
+    {
+      id: '04',
       title: 'Recent Uploads',
       value: recentUploadsCount,
       valueColor: EV.navy,
@@ -828,6 +841,7 @@ export default function Home({ navigation }) {
   const [providerDashboardStats, setProviderDashboardStats] = useState(null);
   const [practiceId, setPracticeId] = useState(null);
   const [patientTableId, setPatientTableId] = useState(null);
+  const [assignedReviewsCount, setAssignedReviewsCount] = useState(0);
 
   // --- Fetch Handlers ---
   const fetchPatientVitals = useCallback(async () => {
@@ -1045,6 +1059,17 @@ export default function Home({ navigation }) {
     }
   }, []);
 
+  const fetchAssignedReviewsCount = useCallback(async (practiceIdValue = null) => {
+    try {
+      const res = await apiService.getAssignedAbnormalReviews(practiceIdValue);
+      const list = Array.isArray(res?.data) ? res.data : [];
+      setAssignedReviewsCount(list.length);
+    } catch (error) {
+      console.warn('Failed to fetch assigned reviews count:', error?.message || error);
+      setAssignedReviewsCount(0);
+    }
+  }, []);
+
   const loadUserData = useCallback(async () => {
     try {
       const userStr = await AsyncStorage.getItem('user');
@@ -1063,11 +1088,14 @@ export default function Home({ navigation }) {
           setUserRole('provider');
           setPatientName(user.first_name ? `Dr. ${user.first_name} ${user.last_name}` : user.name || 'Elena Reyes');
           fetchProviderDashboardData(user);
+          fetchAssignedReviewsCount(user.practice_id);
         } else if (roleId === 5 || roleId === 7) {
           setUserRole('caregiver');
           setPatientName(`${user.first_name || 'Maria'} ${user.last_name || 'Johnson'}`);
           fetchCaregiverPatientsList(user);
+          fetchAssignedReviewsCount(user.practice_id);
         } else {
+          setAssignedReviewsCount(0);
           setUserRole('patient');
           setPatientName(`${user.first_name || 'Cyrus'} ${user.last_name || 'Nguyen'}`);
           fetchPatientVitals();
@@ -1081,7 +1109,7 @@ export default function Home({ navigation }) {
     } catch (e) {
       console.warn('Failed to load user data on home screen:', e);
     }
-  }, [fetchProviderDashboardData, fetchCaregiverPatientsList, fetchPatientVitals]);
+  }, [fetchProviderDashboardData, fetchCaregiverPatientsList, fetchPatientVitals, fetchAssignedReviewsCount]);
 
   useEffect(() => {
     loadUserData();
@@ -1396,6 +1424,7 @@ export default function Home({ navigation }) {
                 missedUploadsCount={missedUploadsCount}
                 abnormalCount={abnormalCount}
                 recentUploadsCount={recentUploadsCount}
+                assignedReviewsCount={assignedReviewsCount}
                 navigation={navigation}
               />
 
@@ -1559,6 +1588,7 @@ export default function Home({ navigation }) {
                 missedUploadsCount={missedUploadsCount}
                 abnormalCount={abnormalCount}
                 recentUploadsCount={recentUploadsCount}
+                assignedReviewsCount={assignedReviewsCount}
                 navigation={navigation}
               />
 

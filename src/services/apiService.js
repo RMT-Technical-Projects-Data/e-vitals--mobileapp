@@ -1178,6 +1178,75 @@ const apiService = {
     const response = await apiRequest(`/users/${userId}/assigned-practices`, { method: 'GET' });
     return readApiResponse(response, 'Failed to get assigned practices');
   },
+
+  getAssignedAbnormalReviews: async (practiceId = null) => {
+    let endpoint = API_ENDPOINTS.GET_ASSIGNED_ABNORMAL_REVIEWS;
+    if (practiceId && practiceId !== 'all') {
+      endpoint = `/practices/${practiceId}/patients/assigned-abnormal-reviews`;
+    }
+    const response = await apiRequest(endpoint, { method: 'GET' });
+    return readApiResponse(response, 'Failed to get assigned abnormal reviews');
+  },
+
+  getPatientAbnormalReadings: async (practiceId, patientId, params = {}) => {
+    let endpoint = API_ENDPOINTS.GET_PATIENT_ABNORMAL_READINGS(practiceId, patientId);
+    const query = Object.entries(params)
+      .filter(([, value]) => value != null && value !== '')
+      .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
+      .join('&');
+    if (query) endpoint += `?${query}`;
+    const response = await apiRequest(endpoint, { method: 'GET' });
+    return readApiResponse(response, 'Failed to get patient abnormal readings');
+  },
+
+  reviewPatientAbnormal: async (practiceId, patientId) => {
+    const response = await apiRequest(
+      API_ENDPOINTS.REVIEW_PATIENT_ABNORMAL(practiceId, patientId),
+      { method: 'PUT' },
+    );
+    return readApiResponse(response, 'Failed to mark patient review complete');
+  },
+
+  reviewPatientMeasurement: async (practiceId, patientId, vitalType, measurementId) => {
+    const response = await apiRequest(
+      API_ENDPOINTS.REVIEW_MEASUREMENT(practiceId, patientId, vitalType, measurementId),
+      { method: 'PUT' },
+    );
+    return readApiResponse(response, 'Failed to mark measurement reviewed');
+  },
+
+  assignMeasurementReading: async (practiceId, patientId, vitalType, measurementId, payload) => {
+    const response = await apiRequest(
+      API_ENDPOINTS.ASSIGN_MEASUREMENT(practiceId, patientId, vitalType, measurementId),
+      {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      },
+    );
+    return readApiResponse(response, 'Failed to assign measurement reading');
+  },
+
+  assignPatientCaregiverForReview: async (practiceId, patientId, payload) => {
+    const response = await apiRequest(
+      API_ENDPOINTS.ASSIGN_PATIENT_CAREGIVER(practiceId, patientId),
+      {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      },
+    );
+    return readApiResponse(response, 'Failed to assign caregiver');
+  },
+
+  assignPatientProviderForReview: async (practiceId, patientId, payload) => {
+    const response = await apiRequest(
+      API_ENDPOINTS.ASSIGN_PATIENT_PROVIDER(practiceId, patientId),
+      {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      },
+    );
+    return readApiResponse(response, 'Failed to assign provider');
+  },
 };
 
 export default apiService;

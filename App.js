@@ -13,6 +13,10 @@ import {
   consumePendingChatOpenUserId,
   setPendingChatOpenUserId,
 } from './src/utils/pendingChatNavigation';
+import {
+  consumePendingAbnormalReviewsOpen,
+  setPendingAbnormalReviewsOpen,
+} from './src/utils/pendingAbnormalNavigation';
 
 function RootNavigator() {
   return <AppNavigator />;
@@ -37,8 +41,19 @@ function PushNotificationBootstrap() {
       navigationRef.current.navigate('Chat', { openUserId: fromUserId });
     };
 
+    const openAssignedReviewsFromNotification = () => {
+      if (!navigationRef.current?.isReady?.()) {
+        setPendingAbnormalReviewsOpen();
+        return;
+      }
+      navigationRef.current.navigate('AssignedAbnormalReviews');
+    };
+
     let cleanup = () => {};
-    initializePushNotifications(openChatFromNotification)
+    initializePushNotifications({
+      onOpenChat: openChatFromNotification,
+      onOpenAssignedReviews: openAssignedReviewsFromNotification,
+    })
       .then((unsubscribe) => {
         if (typeof unsubscribe === 'function') {
           cleanup = unsubscribe;
@@ -55,14 +70,20 @@ function PushNotificationBootstrap() {
     if (!isAuthReady || !isLoggedIn) return undefined;
 
     const pendingUserId = consumePendingChatOpenUserId();
-    if (!pendingUserId) return undefined;
+    const pendingAssignedReviews = consumePendingAbnormalReviewsOpen();
+
+    if (!pendingUserId && !pendingAssignedReviews) return undefined;
 
     let attempts = 0;
     const maxAttempts = 30;
 
     const tryNavigate = () => {
       if (navigationRef.current?.isReady?.()) {
-        navigationRef.current.navigate('Chat', { openUserId: pendingUserId });
+        if (pendingUserId) {
+          navigationRef.current.navigate('Chat', { openUserId: pendingUserId });
+        } else if (pendingAssignedReviews) {
+          navigationRef.current.navigate('AssignedAbnormalReviews');
+        }
         return;
       }
 

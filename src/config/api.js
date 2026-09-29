@@ -159,6 +159,23 @@ export const API_ENDPOINTS = {
   PUSH_UNREGISTER: '/push/unregister',
   PUSH_STATUS: '/push/status',
 
+  // Abnormal reading assignment & review
+  GET_ASSIGNED_ABNORMAL_REVIEWS: '/patients/assigned-abnormal-reviews',
+  GET_PATIENT_ABNORMAL_READINGS: (practiceId, patientId) =>
+    `/practices/${practiceId}/patients/${patientId}/abnormal-readings`,
+  REVIEW_PATIENT_ABNORMAL: (practiceId, patientId) =>
+    `/practices/${practiceId}/patients/${patientId}/review`,
+  REVIEW_MEASUREMENT: (practiceId, patientId, vitalType, measurementId) =>
+    `/practices/${practiceId}/patients/${patientId}/measurements/${vitalType}/${measurementId}/review`,
+  ASSIGN_MEASUREMENT: (practiceId, patientId, vitalType, measurementId) =>
+    `/practices/${practiceId}/patients/${patientId}/measurements/${vitalType}/${measurementId}/assign`,
+  UNASSIGN_MEASUREMENT: (practiceId, patientId, vitalType, measurementId) =>
+    `/practices/${practiceId}/patients/${patientId}/measurements/${vitalType}/${measurementId}/unassign`,
+  ASSIGN_PATIENT_CAREGIVER: (practiceId, patientId) =>
+    `/practices/${practiceId}/patients/${patientId}/assign-caregiver`,
+  ASSIGN_PATIENT_PROVIDER: (practiceId, patientId) =>
+    `/practices/${practiceId}/patients/${patientId}/assign-provider`,
+
   // ... Add other endpoints as needed
 };
 

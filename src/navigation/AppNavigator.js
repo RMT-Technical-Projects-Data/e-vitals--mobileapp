@@ -116,6 +116,10 @@ function AppStack() {
         name="Notifications"
         getComponent={lazyScreen(() => require('../screens/settings/Notifications').default)}
       />
+      <Stack.Screen
+        name="AssignedAbnormalReviews"
+        getComponent={lazyScreen(() => require('../screens/reviews/AssignedAbnormalReviewsScreen').default)}
+      />
     </Stack.Navigator>
   );
 }
