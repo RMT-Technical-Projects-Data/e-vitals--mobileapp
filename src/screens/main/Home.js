@@ -14,6 +14,7 @@ import {
   Modal,
   Animated,
   Easing,
+  AppState,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
@@ -26,10 +27,10 @@ import PremiumBottomNav, { PREMIUM_BOTTOM_NAV_CLEARANCE } from '../../components
 import { EV } from '../../config/colors';
 import {
   DEFAULT_VITAL_TARGETS,
-  getBpVitalColor,
   getVitalColor,
   normalizeWeightToLbs,
 } from '../../utils/measurementUtils';
+import { subscribeAbnormalAssignmentReceived } from '../../utils/abnormalAssignmentEvents';
 
 const { width, height } = Dimensions.get('window');
 const guidelineBaseWidth = 375;
@@ -229,7 +230,11 @@ const CapsulePanelSummary = ({ total = 0, active = 0, pending = 0, locked = 0, n
       borderColor: EV.navy,
       textColor: EV.navy,
       dotColor: EV.navy,
-      onPress: () => navigation?.navigate('Patients', { filterTitle: 'All Patients' }),
+      onPress: () => navigation?.navigate('Patients', {
+        dashboardFilter: null,
+        filterTitle: null,
+        filterToken: Date.now(),
+      }),
     },
     {
       key: 'active',
@@ -239,7 +244,11 @@ const CapsulePanelSummary = ({ total = 0, active = 0, pending = 0, locked = 0, n
       borderColor: EV.accent,
       textColor: EV.blueDeep,
       dotColor: EV.accent,
-      onPress: () => navigation?.navigate('Patients', { dashboardFilter: 'active', filterTitle: 'Active Patients' }),
+      onPress: () => navigation?.navigate('Patients', {
+        dashboardFilter: 'active',
+        filterTitle: 'Active Patients',
+        filterToken: Date.now(),
+      }),
     },
     {
       key: 'pending',
@@ -249,7 +258,11 @@ const CapsulePanelSummary = ({ total = 0, active = 0, pending = 0, locked = 0, n
       borderColor: EV.blue,
       textColor: EV.navy,
       dotColor: EV.blue,
-      onPress: () => navigation?.navigate('Patients', { dashboardFilter: 'pending', filterTitle: 'Pending Patients' }),
+      onPress: () => navigation?.navigate('Patients', {
+        dashboardFilter: 'pending',
+        filterTitle: 'Pending Patients',
+        filterToken: Date.now(),
+      }),
     },
     {
       key: 'locked',
@@ -259,7 +272,11 @@ const CapsulePanelSummary = ({ total = 0, active = 0, pending = 0, locked = 0, n
       borderColor: EV.navyMid,
       textColor: EV.navyMid,
       dotColor: EV.navyMid,
-      onPress: () => navigation?.navigate('Patients', { dashboardFilter: 'locked', filterTitle: 'Locked Patients' }),
+      onPress: () => navigation?.navigate('Patients', {
+        dashboardFilter: 'locked',
+        filterTitle: 'Locked Patients',
+        filterToken: Date.now(),
+      }),
     },
   ];
 
@@ -1121,6 +1138,23 @@ export default function Home({ navigation }) {
     }, [loadUserData])
   );
 
+  useEffect(() => {
+    const unsubscribePush = subscribeAbnormalAssignmentReceived(() => {
+      fetchAssignedReviewsCount();
+    });
+
+    const appStateSub = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') {
+        fetchAssignedReviewsCount();
+      }
+    });
+
+    return () => {
+      unsubscribePush();
+      appStateSub.remove();
+    };
+  }, [fetchAssignedReviewsCount]);
+
   const getFormattedDate = () => {
     return new Date().toLocaleDateString('en-US', {
       weekday: 'long',
@@ -1195,7 +1229,10 @@ export default function Home({ navigation }) {
     const wtVal = wtLbs != null ? parseFloat(wtLbs.toFixed(1)) : '--';
 
     const t = DEFAULT_VITAL_TARGETS;
-    const bpColor = getBpVitalColor(bpVal, t);
+    const bpParts = bpVal.split('/');
+    const hasSplitBp = bpParts.length === 2 && bpVal !== '--';
+    const sysColor = hasSplitBp ? getVitalColor(bpParts[0], t.systolicMin, t.systolicMax) : null;
+    const diaColor = hasSplitBp ? getVitalColor(bpParts[1], t.diastolicMin, t.diastolicMax) : null;
     const bgColor = getVitalColor(bgVal, t.glucoseMin, t.glucoseMax);
     const wtColor = getVitalColor(wtVal, t.weightMin, t.weightMax);
     const formatReadingTime = (dt) => {
@@ -1259,7 +1296,15 @@ export default function Home({ navigation }) {
                     <Text style={st.lrTime}>{bpTime}</Text>
                   </View>
                   <View style={st.lrValWrap}>
-                    <Text style={[st.lrValText, bpVal !== '--' && { color: bpColor }]}>{bpVal}</Text>
+                    {hasSplitBp ? (
+                      <View style={st.lrBpRow}>
+                        <Text style={[st.lrValText, { color: sysColor }]}>{bpParts[0].trim()}</Text>
+                        <Text style={st.lrSlash}>/</Text>
+                        <Text style={[st.lrValText, { color: diaColor }]}>{bpParts[1].trim()}</Text>
+                      </View>
+                    ) : (
+                      <Text style={st.lrValText}>{bpVal}</Text>
+                    )}
                     <Text style={st.lrUnitText}>mmHg</Text>
                   </View>
                 </TouchableOpacity>
@@ -2212,6 +2257,16 @@ const st = StyleSheet.create({
     fontSize: scaleFont(22),
     fontWeight: '800',
     color: EV.navy,
+  },
+  lrBpRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+  },
+  lrSlash: {
+    fontSize: scaleFont(18),
+    fontWeight: '700',
+    color: '#64748b',
+    marginHorizontal: 2,
   },
   lrUnitText: {
     fontSize: scaleFont(11),

@@ -5,6 +5,7 @@ import apiService from './apiService';
 import { getActiveChatUserId } from '../utils/activeChatState';
 import { setPendingChatOpenUserId } from '../utils/pendingChatNavigation';
 import { setPendingAbnormalReviewsOpen } from '../utils/pendingAbnormalNavigation';
+import { emitAbnormalAssignmentReceived } from '../utils/abnormalAssignmentEvents';
 
 const CHAT_CHANNEL_ID = 'chat_messages';
 const ABNORMAL_CHANNEL_ID = 'abnormal_readings';
@@ -135,6 +136,12 @@ const displayRemoteNotification = async (remoteMessage, { isForeground = false }
   });
 };
 
+const notifyAbnormalAssignmentReceived = (remoteMessage) => {
+  const data = remoteMessage?.data || {};
+  if (data.type !== 'abnormal_assignment') return;
+  emitAbnormalAssignmentReceived(data);
+};
+
 const routeNotificationPress = (remoteMessage, handlers = {}) => {
   const data = remoteMessage?.data || remoteMessage?.notification?.data || {};
 
@@ -148,6 +155,7 @@ const routeNotificationPress = (remoteMessage, handlers = {}) => {
   }
 
   if (data.type === 'abnormal_assignment') {
+    emitAbnormalAssignmentReceived(data);
     setPendingAbnormalReviewsOpen();
     if (typeof handlers.onOpenAssignedReviews === 'function') {
       handlers.onOpenAssignedReviews({
@@ -254,6 +262,7 @@ export const initializePushNotifications = async (handlers = {}) => {
 
   const unsubscribeOnMessage = messaging().onMessage(async (remoteMessage) => {
     await displayRemoteNotification(remoteMessage, { isForeground: true });
+    notifyAbnormalAssignmentReceived(remoteMessage);
   });
 
   const unsubscribeOpenedApp = messaging().onNotificationOpenedApp((remoteMessage) => {
@@ -276,4 +285,5 @@ export const initializePushNotifications = async (handlers = {}) => {
 
 export const handleBackgroundMessage = async (remoteMessage) => {
   await displayRemoteNotification(remoteMessage, { isForeground: false });
+  notifyAbnormalAssignmentReceived(remoteMessage);
 };

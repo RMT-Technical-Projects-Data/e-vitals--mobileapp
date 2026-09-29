@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -12,18 +12,17 @@ import {
   Dimensions,
   Pressable,
   PanResponder,
+  AppState,
 } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { useFocusEffect } from '@react-navigation/native';
 import apiService from '../../services/apiService';
-import {
-  DEFAULT_VITAL_TARGETS,
-  getBpVitalColor,
-  getVitalColor,
-  MEASUREMENT_COLORS,
-} from '../../utils/measurementUtils';
+import { MEASUREMENT_COLORS } from '../../utils/measurementUtils';
+import { subscribeAbnormalAssignmentReceived } from '../../utils/abnormalAssignmentEvents';
+import { getAssignedReadingVitalColors } from '../../utils/patientVitalTargets';
+import PulseIcon from '../../components/common/PulseIcon';
 
 const { width } = Dimensions.get('window');
 const guidelineBaseWidth = 375;
@@ -34,8 +33,6 @@ const DARK = '#0b1f3f';
 const MUTED = '#687382';
 const BORDER = '#e8ecf0';
 const WHITE = '#ffffff';
-const VITAL_TARGETS = DEFAULT_VITAL_TARGETS;
-
 const ABNORMAL_STATUS = { letter: 'A', bg: '#FDE8E8', color: '#d32f2f' };
 
 const patientGroupKey = (item) => `${item.practice_id}_${item.patient_id}`;
@@ -143,34 +140,87 @@ const AssignedAbnormalReviewsScreen = ({ navigation }) => {
   const [assigneesLoading, setAssigneesLoading] = useState(false);
   const [assigningId, setAssigningId] = useState(null);
   const [activeReadingByPatient, setActiveReadingByPatient] = useState({});
+  const [scheduleCache, setScheduleCache] = useState({ practice: {}, patient: {} });
 
   const groupedPatients = useMemo(
     () => groupAssignedByPatient(assignedReadings),
     [assignedReadings],
   );
 
-  const fetchAssigned = useCallback(async (isRefresh = false) => {
+  const loadScheduleTargetsForReadings = useCallback(async (list) => {
+    const practiceIds = [...new Set((list || []).map((item) => item.practice_id).filter(Boolean))];
+    const patientPairs = [...new Set(
+      (list || [])
+        .filter((item) => item.practice_id && item.patient_id)
+        .map((item) => `${item.practice_id}_${item.patient_id}`),
+    )];
+
+    const nextCache = { practice: {}, patient: {} };
+
+    await Promise.all(practiceIds.map(async (practiceId) => {
+      try {
+        const res = await apiService.getPracticeScheduleTargets(practiceId);
+        nextCache.practice[practiceId] = res?.data || {};
+      } catch (error) {
+        console.warn(`Failed to load practice schedule targets (${practiceId}):`, error?.message || error);
+      }
+    }));
+
+    await Promise.all(patientPairs.map(async (pairKey) => {
+      const [practiceId, patientId] = pairKey.split('_');
+      try {
+        const res = await apiService.getPatientScheduleTargets(practiceId, patientId);
+        nextCache.patient[pairKey] = res?.data || {};
+      } catch (error) {
+        console.warn(`Failed to load patient schedule targets (${pairKey}):`, error?.message || error);
+      }
+    }));
+
+    setScheduleCache(nextCache);
+  }, []);
+
+  const fetchAssigned = useCallback(async ({ refresh = false, silent = false } = {}) => {
     try {
-      if (isRefresh) setRefreshing(true);
-      else setLoading(true);
+      if (refresh) setRefreshing(true);
+      else if (!silent) setLoading(true);
 
       const res = await apiService.getAssignedAbnormalReviews();
       const list = Array.isArray(res?.data) ? res.data : [];
       setAssignedReadings(list);
+      loadScheduleTargetsForReadings(list);
     } catch (error) {
       console.warn('Failed to fetch assigned abnormal reviews:', error?.message || error);
-      Alert.alert('Error', error?.message || 'Failed to load assigned reviews');
+      if (!silent) {
+        Alert.alert('Error', error?.message || 'Failed to load assigned reviews');
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [loadScheduleTargetsForReadings]);
 
   useFocusEffect(
     useCallback(() => {
-      fetchAssigned(false);
+      fetchAssigned();
     }, [fetchAssigned]),
   );
+
+  useEffect(() => {
+    const unsubscribePush = subscribeAbnormalAssignmentReceived(() => {
+      fetchAssigned({ silent: true });
+    });
+
+    const appStateSub = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') {
+        fetchAssigned({ silent: true });
+      }
+    });
+
+    return () => {
+      unsubscribePush();
+      appStateSub.remove();
+    };
+  }, [fetchAssigned]);
 
   const reviewOneReading = async (reading) => {
     if (!reading.practice_id || !reading.patient_id) return false;
@@ -351,17 +401,15 @@ const AssignedAbnormalReviewsScreen = ({ navigation }) => {
     const bpDisplay = values.sys != null && values.dia != null
       ? `${values.sys}/${values.dia}`
       : '--';
-    const bpColor = getBpVitalColor(bpDisplay);
     const weightDisplay = values.weight != null ? Number(values.weight).toFixed(1) : '--';
-    const pulseColor = values.pulse != null
-      ? getVitalColor(values.pulse, VITAL_TARGETS.pulseMin, VITAL_TARGETS.pulseMax)
-      : MEASUREMENT_COLORS.pulseMissing;
-    const glucoseColor = values.glucose != null
-      ? getVitalColor(values.glucose, VITAL_TARGETS.glucoseMin, VITAL_TARGETS.glucoseMax)
-      : MEASUREMENT_COLORS.missing;
-    const weightColor = values.weight != null
-      ? getVitalColor(values.weight, VITAL_TARGETS.weightMin, VITAL_TARGETS.weightMax)
-      : MEASUREMENT_COLORS.missing;
+    const {
+      sysColor,
+      diaColor,
+      pulseColor,
+      glucoseColor,
+      weightColor,
+      isPulseAbnormal,
+    } = getAssignedReadingVitalColors(activeReading, values, scheduleCache);
 
     const swipeHandlers = buildReadingSwipeHandlers(groupKey, readings.length);
 
@@ -405,18 +453,24 @@ const AssignedAbnormalReviewsScreen = ({ navigation }) => {
               <View style={[st.pcVital, st.pcVitalSingle]}>
                 <Text style={st.pvLbl}>BP (mmHg)</Text>
                 <View style={st.pvValueRow}>
-                  <Text
-                    style={[st.pvVal, { color: bpColor }]}
-                    numberOfLines={1}
-                    adjustsFontSizeToFit
-                    minimumFontScale={0.7}
-                  >
-                    {bpDisplay}
-                  </Text>
-                  {values.pulse != null ? (
-                    <Text style={[st.pvPulse, { color: pulseColor }]} numberOfLines={1}>
-                      {' '}P{values.pulse}
+                  {values.sys != null && values.dia != null ? (
+                    <>
+                      <Text style={[st.pvVal, { color: sysColor }]} numberOfLines={1}>{values.sys}</Text>
+                      <Text style={st.bpSlash}>/</Text>
+                      <Text style={[st.pvVal, { color: diaColor }]} numberOfLines={1}>{values.dia}</Text>
+                    </>
+                  ) : (
+                    <Text style={[st.pvVal, { color: MEASUREMENT_COLORS.missing }]} numberOfLines={1}>
+                      {bpDisplay}
                     </Text>
+                  )}
+                  {values.pulse != null ? (
+                    <View style={st.pvPulseWrap}>
+                      <Text style={[st.pvPulse, { color: pulseColor }]} numberOfLines={1}>
+                        {values.pulse}
+                      </Text>
+                      <PulseIcon isAbnormal={isPulseAbnormal} size={scaleFont(11)} />
+                    </View>
                   ) : null}
                 </View>
               </View>
@@ -559,7 +613,7 @@ const AssignedAbnormalReviewsScreen = ({ navigation }) => {
               refreshControl={(
                 <RefreshControl
                   refreshing={refreshing}
-                  onRefresh={() => fetchAssigned(true)}
+                  onRefresh={() => fetchAssigned({ refresh: true })}
                   tintColor={DARK}
                 />
               )}
@@ -865,6 +919,18 @@ const st = StyleSheet.create({
     color: DARK,
     lineHeight: scaleFont(14),
     flexShrink: 1,
+  },
+  bpSlash: {
+    fontSize: scaleFont(12),
+    fontWeight: '700',
+    color: '#64748b',
+    marginHorizontal: 1,
+  },
+  pvPulseWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginLeft: scaleWidth(4),
+    flexShrink: 0,
   },
   pvPulse: {
     fontSize: scaleFont(10),

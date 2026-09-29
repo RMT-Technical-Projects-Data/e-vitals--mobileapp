@@ -19,11 +19,12 @@ import apiService from '../../services/apiService';
 import DatePickerModal from '../../components/common/DatePickerModal';
 import {
   DEFAULT_VITAL_TARGETS,
-  getBpVitalColor,
+  checkPulseValue,
   getVitalColor,
   MEASUREMENT_COLORS,
   normalizeWeightToLbs,
 } from '../../utils/measurementUtils';
+import PulseIcon from '../../components/common/PulseIcon';
 
 const { width } = Dimensions.get('window');
 const guidelineBaseWidth = 375;
@@ -672,8 +673,13 @@ export default function LookupPatient({ navigation }) {
                 const vitalPills = getPatientVitalPills(item);
                 const statusMeta = getPatientStatusMeta(item.status);
 
-                const bpColor = getBpVitalColor(vitals.bp);
+                const pulseStatus = vitals.pulse != null ? checkPulseValue(vitals.pulse, VITAL_TARGETS) : null;
                 const pulseColor = vitals.pulse != null ? getVitalColor(vitals.pulse, VITAL_TARGETS.pulseMin, VITAL_TARGETS.pulseMax) : MEASUREMENT_COLORS.pulseMissing;
+                const isPulseAbnormal = pulseStatus === 'high' || pulseStatus === 'low';
+                const bpParts = String(vitals.bp || '').split('/');
+                const hasSplitBp = bpParts.length === 2 && vitals.bp !== '--';
+                const sysColor = hasSplitBp ? getVitalColor(bpParts[0], VITAL_TARGETS.systolicMin, VITAL_TARGETS.systolicMax) : MEASUREMENT_COLORS.missing;
+                const diaColor = hasSplitBp ? getVitalColor(bpParts[1], VITAL_TARGETS.diastolicMin, VITAL_TARGETS.diastolicMax) : MEASUREMENT_COLORS.missing;
                 const glucoseColor = getVitalColor(vitals.glucose, VITAL_TARGETS.glucoseMin, VITAL_TARGETS.glucoseMax);
 
                 const weightNum = normalizeWeightToLbs(vitals.weight);
@@ -725,13 +731,28 @@ export default function LookupPatient({ navigation }) {
                       <View style={st.pcVital}>
                         <Text style={st.pvLbl}>BP (mmHg)</Text>
                         <View style={st.pvValueRow}>
-                          <Text style={[st.pvVal, { color: bpColor }]} numberOfLines={1}>
-                            {vitals.bp}
-                          </Text>
-                          {vitals.pulse != null ? (
-                            <Text style={[st.pvPulse, { color: pulseColor }]} numberOfLines={1}>
-                              {' '}P{vitals.pulse}
+                          {hasSplitBp ? (
+                            <>
+                              <Text style={[st.pvVal, { color: sysColor }]} numberOfLines={1}>
+                                {bpParts[0].trim()}
+                              </Text>
+                              <Text style={st.bpSlash}>/</Text>
+                              <Text style={[st.pvVal, { color: diaColor }]} numberOfLines={1}>
+                                {bpParts[1].trim()}
+                              </Text>
+                            </>
+                          ) : (
+                            <Text style={[st.pvVal, { color: MEASUREMENT_COLORS.missing }]} numberOfLines={1}>
+                              {vitals.bp}
                             </Text>
+                          )}
+                          {vitals.pulse != null ? (
+                            <View style={st.pvPulseWrap}>
+                              <Text style={[st.pvPulse, { color: pulseColor }]} numberOfLines={1}>
+                                {vitals.pulse}
+                              </Text>
+                              <PulseIcon isAbnormal={isPulseAbnormal} size={scaleFont(11)} />
+                            </View>
                           ) : null}
                         </View>
                       </View>
@@ -1203,9 +1224,20 @@ const st = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'baseline',
   },
+  pvPulseWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginLeft: 4,
+  },
   pvVal: {
     fontSize: scaleFont(14),
     fontWeight: '800',
+  },
+  bpSlash: {
+    fontSize: scaleFont(13),
+    fontWeight: '700',
+    color: '#64748b',
+    marginHorizontal: 1,
   },
   pvPulse: {
     fontSize: scaleFont(11),

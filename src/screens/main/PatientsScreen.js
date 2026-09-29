@@ -19,13 +19,9 @@ import { useFocusEffect } from '@react-navigation/native';
 import apiService from '../../services/apiService';
 import PremiumBottomNav, { PREMIUM_BOTTOM_NAV_CLEARANCE } from '../../components/navigation/PremiumBottomNav';
 import AddPatientModal from '../../components/modals/AddPatientModal';
-import {
-  DEFAULT_VITAL_TARGETS,
-  getBpVitalColor,
-  getVitalColor,
-  MEASUREMENT_COLORS,
-  normalizeWeightToLbs,
-} from '../../utils/measurementUtils';
+import { MEASUREMENT_COLORS } from '../../utils/measurementUtils';
+import { getPatientListVitalColors } from '../../utils/patientVitalTargets';
+import PulseIcon from '../../components/common/PulseIcon';
 
 const { width } = Dimensions.get('window');
 const guidelineBaseWidth = 375;
@@ -100,8 +96,6 @@ const getPatientVitalsDisplay = (item) => {
   };
 };
 
-const VITAL_TARGETS = DEFAULT_VITAL_TARGETS;
-
 const getPatientStatusMeta = (status) => {
   const raw = String(status ?? '').trim();
   const lower = raw.toLowerCase();
@@ -150,7 +144,7 @@ const resolveRouteFilterParams = (params = {}) => {
   if (normalizedKey && STATUS_DASHBOARD_KEYS.has(normalizedKey)) {
     return {
       activeFilter: null,
-      activeFilterTitle: filterTitle,
+      activeFilterTitle: null,
       statusFilter: mapStatusToDbCode(normalizedKey),
     };
   }
@@ -190,36 +184,6 @@ const getPatientVitalPills = (item) => {
   const unique = Array.from(new Set(normalized));
   return unique.length > 0 ? unique : ['BP'];
 };
-
-const fallbackPatients = [
-  {
-    id: 'mock-1',
-    first_name: 'Cyrus',
-    last_name: 'Nguyen',
-    status: 4,
-    data_summary: '165/102 (92)',
-    glucose: '118',
-    weight: '74',
-  },
-  {
-    id: 'mock-2',
-    first_name: 'Anna',
-    last_name: 'Lee',
-    status: 3,
-    data_summary: '118/72 (76)',
-    glucose: '142',
-    weight: '68',
-  },
-  {
-    id: 'mock-3',
-    first_name: 'Robert',
-    last_name: 'Mills',
-    status: 2,
-    data_summary: '122/78 (72)',
-    glucose: '105',
-    weight: '80',
-  },
-];
 
 const STATUS_TABS = [
   { key: null, label: 'All', activeBg: '#0b1f3f', inactiveBorder: '#E2E8F0', activeColor: '#FFFFFF', inactiveColor: '#64748B' },
@@ -292,7 +256,7 @@ export default function PatientsScreen({ route, navigation }) {
             search: debouncedSearch || undefined,
             status: !activeFilter ? apiStatusParam : undefined,
             dashboardFilter: activeFilter || undefined,
-            program: activeFilter ? 'rpm' : undefined,
+            program: 'rpm',
             includeDashboardEnrichment: true,
           });
 
@@ -339,28 +303,28 @@ export default function PatientsScreen({ route, navigation }) {
               });
             }
           } else {
-            setPatients(fallbackPatients);
+            setPatients([]);
             setTotalPages(1);
-            setTotalPatients(fallbackPatients.length);
+            setTotalPatients(0);
           }
         } else {
-          setPatients(fallbackPatients);
+          setPatients([]);
           setTotalPages(1);
-          setTotalPatients(fallbackPatients.length);
+          setTotalPatients(0);
         }
       } else {
-        setPatients(fallbackPatients);
+        setPatients([]);
         setTotalPages(1);
-        setTotalPatients(fallbackPatients.length);
+        setTotalPatients(0);
       }
     } catch (error) {
       if (requestId !== fetchRequestIdRef.current) {
         return;
       }
       console.warn('Error fetching patients list screen:', error);
-      setPatients(fallbackPatients);
+      setPatients([]);
       setTotalPages(1);
-      setTotalPatients(fallbackPatients.length);
+      setTotalPatients(0);
     } finally {
       if (requestId === fetchRequestIdRef.current) {
         setIsLoading(false);
@@ -427,12 +391,16 @@ export default function PatientsScreen({ route, navigation }) {
     const vitalPills = getPatientVitalPills(item);
     const statusMeta = getPatientStatusMeta(item.status);
 
-    const bpColor = getBpVitalColor(vitals.bp);
-    const pulseColor = vitals.pulse != null ? getVitalColor(vitals.pulse, VITAL_TARGETS.pulseMin, VITAL_TARGETS.pulseMax) : MEASUREMENT_COLORS.pulseMissing;
-    const glucoseColor = getVitalColor(vitals.glucose, VITAL_TARGETS.glucoseMin, VITAL_TARGETS.glucoseMax);
-
-    const weightNum = normalizeWeightToLbs(vitals.weight);
-    const weightColor = weightNum != null ? getVitalColor(weightNum, VITAL_TARGETS.weightMin, VITAL_TARGETS.weightMax) : MEASUREMENT_COLORS.missing;
+    const {
+      sysColor,
+      diaColor,
+      pulseColor,
+      glucoseColor,
+      weightColor,
+      isPulseAbnormal,
+    } = getPatientListVitalColors(item, vitals);
+    const bpParts = String(vitals.bp || '').split('/');
+    const hasSplitBp = bpParts.length === 2 && vitals.bp !== '--';
 
     return (
       <TouchableOpacity
@@ -474,13 +442,27 @@ export default function PatientsScreen({ route, navigation }) {
           <View style={styles.pcVital}>
             <Text style={styles.pvLbl}>BP (mmHg)</Text>
             <View style={styles.pvValueRow}>
-              <Text style={[styles.pvVal, { color: bpColor }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
-                {vitals.bp}
-              </Text>
-              {vitals.pulse != null ? (
-                <Text style={[styles.pvPulse, { color: pulseColor }]} numberOfLines={1}>
-                  {' '}P{vitals.pulse}
+              {hasSplitBp ? (
+                <>
+                  <Text style={[styles.pvVal, { color: sysColor }]} numberOfLines={1}>{bpParts[0].trim()}</Text>
+                  <Text style={styles.bpSlash}>/</Text>
+                  <Text style={[styles.pvVal, { color: diaColor }]} numberOfLines={1}>{bpParts[1].trim()}</Text>
+                </>
+              ) : (
+                <Text style={[styles.pvVal, { color: MEASUREMENT_COLORS.missing }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
+                  {vitals.bp}
                 </Text>
+              )}
+              {vitals.pulse != null ? (
+                <View style={styles.pvPulseWrap}>
+                  <Text
+                    style={[styles.pvPulse, { color: vitals.pulse != null ? pulseColor : MEASUREMENT_COLORS.pulseMissing }]}
+                    numberOfLines={1}
+                  >
+                    {vitals.pulse}
+                  </Text>
+                  <PulseIcon isAbnormal={isPulseAbnormal} size={scaleFont(11)} />
+                </View>
               ) : null}
             </View>
           </View>
@@ -602,14 +584,16 @@ export default function PatientsScreen({ route, navigation }) {
             />
           </View>
 
-          {/* Filter indication / Status filter bar */}
-          {activeFilterTitle ? (
+          {/* KPI dashboard filter banner (status tabs stay visible for Active/Pending/Locked) */}
+          {activeFilter ? (
             <View style={styles.activeFilterBanner}>
               <View style={styles.activeFilterPill}>
                 <MaterialIcons name="filter-list" size={18} color="#0b1f3f" />
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.activeFilterText}>Filtered by: {activeFilterTitle}</Text>
-                  <Text style={styles.activeFilterSubtext}>Applied on active patients</Text>
+                  <Text style={styles.activeFilterText}>
+                    Filtered by: {activeFilterTitle || activeFilter}
+                  </Text>
+                  <Text style={styles.activeFilterSubtext}>RPM patients matching dashboard criteria</Text>
                 </View>
               </View>
               <TouchableOpacity
@@ -623,8 +607,9 @@ export default function PatientsScreen({ route, navigation }) {
                 <Text style={styles.resetFilterText}>Reset Filter</Text>
               </TouchableOpacity>
             </View>
-          ) : (
-            <View style={styles.statusFilterRow}>
+          ) : null}
+
+          <View style={styles.statusFilterRow}>
               {STATUS_TABS.map((tab) => {
                 const currentCode = mapStatusToDbCode(statusFilter);
                 const isSelected = tab.key === null ? !currentCode : currentCode === tab.key;
@@ -666,8 +651,7 @@ export default function PatientsScreen({ route, navigation }) {
                   </TouchableOpacity>
                 );
               })}
-            </View>
-          )}
+          </View>
 
           {isLoading ? (
             <View style={styles.loadingContainer}>
@@ -994,6 +978,18 @@ const styles = StyleSheet.create({
     color: '#0b1f3f',
     lineHeight: scaleFont(14),
     flexShrink: 1,
+  },
+  bpSlash: {
+    fontSize: scaleFont(12),
+    fontWeight: '700',
+    color: '#64748b',
+    marginHorizontal: 1,
+  },
+  pvPulseWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginLeft: scaleWidth(4),
+    flexShrink: 0,
   },
   pvPulse: {
     fontSize: scaleFont(10),

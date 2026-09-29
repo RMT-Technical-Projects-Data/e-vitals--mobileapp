@@ -26,10 +26,13 @@ import { usePatientSessionTimer } from '../../context/PatientSessionTimerContext
 import { getDashboardTheme } from '../../constants/dashboardThemes';
 import {
   DEFAULT_VITAL_TARGETS,
+  checkBPValues,
+  checkPulseValue,
   getVitalColor,
   MEASUREMENT_COLORS,
   normalizeWeightToLbs,
 } from '../../utils/measurementUtils';
+import PulseIcon from '../../components/common/PulseIcon';
 
 const { width, height: screenHeight } = Dimensions.get('window');
 const guidelineBaseWidth = 375;
@@ -218,6 +221,7 @@ const VitalUploadCard = ({
   dateValue,
   primary,
   secondary,
+  pulse,
   unit,
   onPress,
   accentColor,
@@ -226,20 +230,31 @@ const VitalUploadCard = ({
 
   const t = DEFAULT_VITAL_TARGETS;
   let valueColor = MEASUREMENT_COLORS.missing;
+  let sysColor = MEASUREMENT_COLORS.missing;
+  let diaColor = MEASUREMENT_COLORS.missing;
+  const bpParts = title === 'Blood Pressure' && primary && primary !== '-'
+    ? String(primary).split('/')
+    : null;
+
   if (primary && primary !== '-') {
-    if (title === 'Blood Pressure') {
-      const parts = String(primary).split('/');
-      if (parts.length === 2) {
-        const sysColor = getVitalColor(parts[0].trim(), t.systolicMin, t.systolicMax);
-        const diaColor = getVitalColor(parts[1].trim(), t.diastolicMin, t.diastolicMax);
-        if (sysColor === MEASUREMENT_COLORS.high || diaColor === MEASUREMENT_COLORS.high) {
-          valueColor = MEASUREMENT_COLORS.high;
-        } else if (sysColor === MEASUREMENT_COLORS.low || diaColor === MEASUREMENT_COLORS.low) {
-          valueColor = MEASUREMENT_COLORS.low;
-        } else {
-          valueColor = sysColor;
-        }
-      }
+    if (bpParts && bpParts.length === 2) {
+      const bpCheck = checkBPValues(
+        {
+          systolic_pressure: bpParts[0].trim(),
+          diastolic_pressure: bpParts[1].trim(),
+        },
+        t,
+      );
+      sysColor = bpCheck.sysStatus === 'high'
+        ? MEASUREMENT_COLORS.high
+        : bpCheck.sysStatus === 'low'
+          ? MEASUREMENT_COLORS.low
+          : MEASUREMENT_COLORS.normal;
+      diaColor = bpCheck.diaStatus === 'high'
+        ? MEASUREMENT_COLORS.high
+        : bpCheck.diaStatus === 'low'
+          ? MEASUREMENT_COLORS.low
+          : MEASUREMENT_COLORS.normal;
     } else if (title === 'Blood Glucose') {
       valueColor = getVitalColor(String(primary).replace(/[^\d.-]/g, ''), t.glucoseMin, t.glucoseMax);
     } else if (title === 'Weight') {
@@ -247,6 +262,14 @@ const VitalUploadCard = ({
       valueColor = getVitalColor(wtLbs, t.weightMin, t.weightMax);
     }
   }
+
+  const pulseStatus = pulse != null && pulse !== ''
+    ? checkPulseValue(pulse, t)
+    : null;
+  const pulseColor = pulseStatus
+    ? getVitalColor(pulse, t.pulseMin, t.pulseMax)
+    : TEXT_MUTED;
+  const isPulseAbnormal = pulseStatus === 'high' || pulseStatus === 'low';
 
   let secondaryColor = TEXT_MUTED;
   if (secondary) {
@@ -281,10 +304,27 @@ const VitalUploadCard = ({
         </View>
         <View style={styles.vitalValueCol}>
           <View style={styles.vitalValueRow}>
-            <Text style={[styles.vitalCardValue, { color: valueColor }]}>{primary}</Text>
+            {bpParts && bpParts.length === 2 ? (
+              <>
+                <Text style={[styles.vitalCardValue, { color: sysColor }]}>{bpParts[0].trim()}</Text>
+                <Text style={styles.vitalSlash}>/</Text>
+                <Text style={[styles.vitalCardValue, { color: diaColor }]}>{bpParts[1].trim()}</Text>
+              </>
+            ) : (
+              <Text style={[styles.vitalCardValue, { color: valueColor }]}>{primary}</Text>
+            )}
             {unit ? <Text style={styles.vitalCardUnit}>{unit}</Text> : null}
           </View>
-          {secondary ? <Text style={[styles.vitalCardSecondary, { color: secondaryColor }]}>{secondary}</Text> : null}
+          {pulse != null && pulse !== '' ? (
+            <View style={styles.vitalPulseRow}>
+              <Text style={[styles.vitalCardSecondary, styles.vitalPulseText, { color: pulseColor }]}>
+                {Math.round(Number(pulse))}
+              </Text>
+              <PulseIcon isAbnormal={isPulseAbnormal} size={scaleFont(13)} />
+            </View>
+          ) : secondary ? (
+            <Text style={[styles.vitalCardSecondary, { color: secondaryColor }]}>{secondary}</Text>
+          ) : null}
         </View>
       </View>
     </View>
@@ -763,7 +803,7 @@ export default function PatientHubScreen({ navigation, route }) {
                   onPress={() => openVitalList('bloodPressure')}
                   dateValue={bp?.measure_new_date_time || bp?.measure_date_time || bp?.created_at}
                   primary={bp ? `${Math.round(bp.systolic_pressure)}/${Math.round(bp.diastolic_pressure)}` : '-'}
-                  secondary={bp?.pulse ? `Pulse ${Math.round(bp.pulse)}` : null}
+                  pulse={bp?.pulse}
                   unit="mmHg"
                 />
                 <VitalUploadCard
@@ -1470,12 +1510,27 @@ const styles = StyleSheet.create({
     color: TEXT_DARK,
     fontVariant: ['tabular-nums'],
   },
+  vitalSlash: {
+    fontSize: scaleFont(22),
+    fontWeight: '700',
+    color: '#64748b',
+    marginHorizontal: 2,
+  },
   vitalCardSecondary: {
     fontSize: scaleFont(12),
     color: TEXT_MUTED,
     marginTop: scaleWidth(5),
     fontWeight: '700',
     textAlign: 'right',
+  },
+  vitalPulseRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    marginTop: scaleWidth(5),
+  },
+  vitalPulseText: {
+    marginTop: 0,
   },
   vitalCardUnit: {
     fontSize: scaleFont(12),

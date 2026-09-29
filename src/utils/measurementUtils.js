@@ -101,6 +101,174 @@ export const normalizeWeightToLbs = (value, unit = 'lb') => {
   return num;
 };
 
+const pickFirstNumber = (...values) => {
+  for (const value of values) {
+    if (value === null || value === undefined || value === '' || value === 'N/A') continue;
+    const parsed = Number(value);
+    if (!Number.isNaN(parsed)) return parsed;
+  }
+  return null;
+};
+
+export const getCombinedBpAlertLevel = (bpStatus) => {
+  if (!bpStatus?.isOutOfRange) return 'normal';
+  if (bpStatus.sysStatus === 'high' || bpStatus.diaStatus === 'high') return 'high';
+  return 'low';
+};
+
+export const checkBPValues = (bpData, target) => {
+  if (!bpData || !target) {
+    return { sysStatus: 'normal', diaStatus: 'normal', isOutOfRange: false };
+  }
+
+  const sys = bpData.systolic_pressure ?? bpData.systolic ?? bpData.last_systolic ?? bpData.sys;
+  const dia = bpData.diastolic_pressure ?? bpData.diastolic ?? bpData.last_diastolic ?? bpData.dia;
+  const sysMin = pickFirstNumber(
+    target.systolicMin,
+    target.sysMin,
+    target.systolic_min,
+    target.systolic_pressure_min,
+    target.target_sys_min,
+    target.sys_min,
+  );
+  const sysMax = pickFirstNumber(
+    target.systolicMax,
+    target.sysMax,
+    target.systolic_max,
+    target.systolic_pressure_max,
+    target.target_sys_max,
+    target.sys_max,
+  );
+  const diaMin = pickFirstNumber(
+    target.diastolicMin,
+    target.diaMin,
+    target.diastolic_min,
+    target.diastolic_pressure_min,
+    target.target_dia_min,
+    target.dia_min,
+  );
+  const diaMax = pickFirstNumber(
+    target.diastolicMax,
+    target.diaMax,
+    target.diastolic_max,
+    target.diastolic_pressure_max,
+    target.target_dia_max,
+    target.dia_max,
+  );
+
+  const sysStatus = (sys != null && sys !== 'N/A' && Number(sys) > 0)
+    ? getMeasurementAlertStatus(sys, sysMin, sysMax)
+    : 'normal';
+  const diaStatus = (dia != null && dia !== 'N/A' && Number(dia) > 0)
+    ? getMeasurementAlertStatus(dia, diaMin, diaMax)
+    : 'normal';
+
+  return {
+    sysStatus,
+    diaStatus,
+    isOutOfRange: sysStatus !== 'normal' || diaStatus !== 'normal',
+  };
+};
+
+export const checkBGValue = (bgValue, target) => {
+  let val = bgValue;
+  if (bgValue && typeof bgValue === 'object') {
+    val = bgValue.blood_glucose_value_1
+      ?? bgValue.blood_glucose_value
+      ?? bgValue.glucose
+      ?? bgValue.last_glucose;
+  }
+  const numeric = Number(val);
+  if (
+    val === null
+    || val === undefined
+    || val === ''
+    || val === 'N/A'
+    || Number.isNaN(numeric)
+    || numeric <= 0
+    || !target
+  ) {
+    return 'normal';
+  }
+
+  const min = pickFirstNumber(
+    target.minimum,
+    target.min,
+    target.bgMin,
+    target.target_bg_min,
+    target.bg_min,
+  );
+  const max = pickFirstNumber(
+    target.maximum,
+    target.max,
+    target.bgMax,
+    target.target_bg_max,
+    target.bg_max,
+  );
+  if (min == null || max == null) return 'normal';
+
+  return getMeasurementAlertStatus(numeric, min, max);
+};
+
+export const checkPulseValue = (pulseValue, target) => {
+  if (pulseValue === null || pulseValue === undefined || pulseValue === '' || pulseValue === 'N/A') {
+    return null;
+  }
+  const numeric = Number(pulseValue);
+  if (Number.isNaN(numeric) || numeric <= 0) return null;
+
+  const min = pickFirstNumber(
+    target?.pulseMin,
+    target?.pulse_min,
+    target?.target_pulse_min,
+    target?.minPulse,
+    target?.min,
+  ) ?? DEFAULT_VITAL_TARGETS.pulseMin;
+  const max = pickFirstNumber(
+    target?.pulseMax,
+    target?.pulse_max,
+    target?.target_pulse_max,
+    target?.maxPulse,
+    target?.max,
+  ) ?? DEFAULT_VITAL_TARGETS.pulseMax;
+
+  return getMeasurementAlertStatus(numeric, min, max);
+};
+
+export const checkWeightValue = (weightKgOrLbs, target) => {
+  let weightInLb = null;
+
+  if (weightKgOrLbs && typeof weightKgOrLbs === 'object') {
+    const raw = weightKgOrLbs.weight_lbs ?? weightKgOrLbs.weight ?? weightKgOrLbs.last_weight;
+    const num = Number(raw);
+    if (!Number.isNaN(num) && num > 0) weightInLb = num;
+  } else {
+    const numeric = Number(weightKgOrLbs);
+    if (!Number.isNaN(numeric) && numeric > 0) weightInLb = numeric;
+  }
+
+  if (weightInLb == null || !target) return 'normal';
+
+  const min = pickFirstNumber(
+    target.weightMin,
+    target.weight_min,
+    target.target_weight_min,
+    target.minLbs,
+    target.min,
+    target.minimum,
+  ) ?? DEFAULT_VITAL_TARGETS.weightMin;
+  const max = pickFirstNumber(
+    target.weightMax,
+    target.weight_max,
+    target.target_weight_max,
+    target.maxLbs,
+    target.max,
+    target.maximum,
+  ) ?? DEFAULT_VITAL_TARGETS.weightMax;
+
+  return getMeasurementAlertStatus(weightInLb, min, max);
+};
+
 export const getReadingStatusMeta = (row, type, targets = DEFAULT_VITAL_TARGETS) => {
   if (type === 'bloodPressure') {
     const sysStatus = getMeasurementAlertStatus(row.systolic, targets.systolicMin, targets.systolicMax);

@@ -22,12 +22,9 @@ import { lockToLandscape, lockToPortrait } from '../../utils/orientationHelper';
 import FullTrendChartModal from '../../components/common/FullTrendChartModal';
 import DatePickerModal from '../../components/common/DatePickerModal';
 import { getDashboardTheme } from '../../constants/dashboardThemes';
-import {
-  DEFAULT_VITAL_TARGETS,
-  getVitalColor,
-  MEASUREMENT_COLORS,
-  normalizeWeightToLbs,
-} from '../../utils/measurementUtils';
+import PulseIcon from '../../components/common/PulseIcon';
+import { getDataListRowColors } from '../../utils/patientVitalTargets';
+import { resolveEffectiveScheduleTargets } from '../../utils/scheduleTargetUtils';
 
 const { width, height } = Dimensions.get('window');
 const guidelineBaseWidth = 375;
@@ -261,6 +258,7 @@ const DataList = ({ navigation, route }) => {
   const [rawMeasurements, setRawMeasurements] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [scheduleTargets, setScheduleTargets] = useState(null);
 
   // Changes Added 
   // Calendar states
@@ -515,6 +513,23 @@ const DataList = ({ navigation, route }) => {
     return [];
   };
 
+  const loadScheduleTargets = useCallback(async (practiceId, patientId) => {
+    try {
+      const [practiceRes, patientRes] = await Promise.all([
+        apiService.getPracticeScheduleTargets(practiceId),
+        apiService.getPatientScheduleTargets(practiceId, patientId),
+      ]);
+      const effective = resolveEffectiveScheduleTargets(
+        patientRes?.data || {},
+        practiceRes?.data || {},
+      );
+      setScheduleTargets(effective);
+    } catch (targetErr) {
+      console.warn('Failed to load schedule targets for DataList:', targetErr?.message || targetErr);
+      setScheduleTargets(null);
+    }
+  }, []);
+
   const fetchPatientData = useCallback(async () => {
     try {
       setLoading(true);
@@ -525,6 +540,8 @@ const DataList = ({ navigation, route }) => {
       if (!practiceId || !patientId) {
         throw new Error('Practice ID or Patient ID missing');
       }
+
+      loadScheduleTargets(practiceId, patientId);
 
       const { start, end } = getDateRange();
 
@@ -568,6 +585,8 @@ const DataList = ({ navigation, route }) => {
             id: bp.id || bp.measure_new_date_time || Date.now(),
             timestamp: ts,
             date: dateLabel,
+            dateYmd: ymd,
+            rawDateTime: rawDateStr,
             time: timeLabel,
             timeHms: hms,
             period_name: bp.period_name || bp.period || bp.measure_note || bp.note || '',
@@ -599,6 +618,8 @@ const DataList = ({ navigation, route }) => {
             id: bg.id || bg.measure_new_date_time || Date.now(),
             timestamp: ts,
             date: dateLabel,
+            dateYmd: ymd,
+            rawDateTime: rawDateStr,
             time: timeLabel,
             timeHms: hms,
             period_name: bg.period_name || bg.period || bg.measure_note || bg.note || '',
@@ -635,6 +656,8 @@ const DataList = ({ navigation, route }) => {
             id: w.id || w.measure_new_date_time || Date.now(),
             timestamp: ts,
             date: dateLabel,
+            dateYmd: ymd,
+            rawDateTime: rawDateStr,
             time: timeLabel,
             timeHms: hms,
             period_name: w.period_name || w.period || w.measure_note || w.note || '',
@@ -652,7 +675,7 @@ const DataList = ({ navigation, route }) => {
     } finally {
       setLoading(false);
     }
-  }, [dataType, selectedPeriod, fromDate, toDate, dateRangeType, resolveMeasurementIds]);
+  }, [dataType, selectedPeriod, fromDate, toDate, dateRangeType, resolveMeasurementIds, loadScheduleTargets]);
 
   useEffect(() => {
     fetchPatientData();
@@ -1185,13 +1208,13 @@ const DataList = ({ navigation, route }) => {
                       const periodName = getPeriodNameForMeasurement(item, dataType);
                       const timeWindow = getPeriodTimeWindow(periodName, dataType);
 
-                      const t = DEFAULT_VITAL_TARGETS;
-                      const sysColor = getVitalColor(item.systolic, t.systolicMin, t.systolicMax);
-                      const diaColor = getVitalColor(item.diastolic, t.diastolicMin, t.diastolicMax);
-                      const pulseColor = item.pulse != null ? getVitalColor(item.pulse, t.pulseMin, t.pulseMax) : MEASUREMENT_COLORS.pulseMissing;
-                      const bgValColor = getVitalColor(item.glucose, t.glucoseMin, t.glucoseMax);
-                      const wtLbs = normalizeWeightToLbs(item.weight, item.unit);
-                      const wtValColor = getVitalColor(wtLbs, t.weightMin, t.weightMax);
+                      const rowColors = getDataListRowColors(item, dataType, scheduleTargets);
+                      const sysColor = rowColors.sysColor;
+                      const diaColor = rowColors.diaColor;
+                      const pulseColor = rowColors.pulseColor;
+                      const isPulseAbnormal = rowColors.isPulseAbnormal;
+                      const bgValColor = rowColors.glucoseColor;
+                      const wtValColor = rowColors.weightColor;
 
                       return (
                         <View key={item.id || index} style={[styles.vTableRow, isEven ? styles.vTableRowEven : styles.vTableRowOdd]}>
@@ -1219,7 +1242,12 @@ const DataList = ({ navigation, route }) => {
                                   <Text style={[styles.vValText, { color: diaColor }]}>{item.diastolic}</Text>
                                 </View>
                                 {item.pulse != null && item.pulse !== '' ? (
-                                  <Text style={[styles.vPulseText, { color: pulseColor }]}>P{item.pulse}</Text>
+                                  <View style={styles.vPulseWrap}>
+                                    <Text style={[styles.vPulseText, { color: pulseColor }]}>
+                                      {item.pulse}
+                                    </Text>
+                                    <PulseIcon isAbnormal={isPulseAbnormal} size={scaleFont(10)} />
+                                  </View>
                                 ) : null}
                               </View>
                             ) : dataType === 'bloodGlucose' ? (
@@ -1685,10 +1713,15 @@ const createStyles = (themePrimary, themeSoft) => StyleSheet.create({
     fontWeight: '700',
     color: '#64748b',
   },
+  vPulseWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 1,
+  },
   vPulseText: {
     fontSize: scaleFont(10),
     fontWeight: '700',
-    marginTop: 1,
   },
   vStatusPill: {
     paddingHorizontal: scaleWidth(8),

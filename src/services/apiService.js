@@ -1179,6 +1179,19 @@ const apiService = {
     return readApiResponse(response, 'Failed to get assigned practices');
   },
 
+  getPracticeScheduleTargets: async (practiceId) => {
+    const response = await apiRequest(`/practices/${practiceId}/schedule-targets`, { method: 'GET' });
+    return readApiResponse(response, 'Failed to get practice schedule targets');
+  },
+
+  getPatientScheduleTargets: async (practiceId, patientId) => {
+    const response = await apiRequest(
+      `/practices/${practiceId}/patients/${patientId}/schedule-targets`,
+      { method: 'GET' },
+    );
+    return readApiResponse(response, 'Failed to get patient schedule targets');
+  },
+
   getAssignedAbnormalReviews: async (practiceId = null) => {
     let endpoint = API_ENDPOINTS.GET_ASSIGNED_ABNORMAL_REVIEWS;
     if (practiceId && practiceId !== 'all') {
