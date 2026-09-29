@@ -38,6 +38,10 @@ import { io } from 'socket.io-client';
 import apiService from '../../services/apiService';
 import { SOCKET_BASE_URL } from '../../config/api';
 import PremiumBottomNav, { PREMIUM_BOTTOM_NAV_CLEARANCE } from '../../components/navigation/PremiumBottomNav';
+import { setActiveChatUserId } from '../../utils/activeChatState';
+import useVoiceMessageRecorder from '../../hooks/useVoiceMessageRecorder';
+import useVoiceMessagePlayer from '../../hooks/useVoiceMessagePlayer';
+import VoiceMessageBubble from '../../components/chat/VoiceMessageBubble';
 
 const { width, height } = Dimensions.get('window');
 const guidelineBaseWidth = 375;
@@ -267,9 +271,25 @@ const buildChatList = (conversations = [], currentUser = null) => {
   });
 };
 
+const isAudioMessage = (item) => (
+  item?.message_type === 'audio' || String(item?.file_type || '').startsWith('audio/')
+);
+
+const getMessagePreview = (msg) => {
+  if (isAudioMessage(msg)) return 'Voice message';
+  return msg?.message || '';
+};
+
+const formatRecordingDuration = (durationMs) => {
+  const totalSeconds = Math.max(0, Math.floor((Number(durationMs) || 0) / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${String(seconds).padStart(2, '0')}`;
+};
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
-const ChatScreen = ({ navigation }) => {
+const ChatScreen = ({ navigation, route }) => {
   const insets = useSafeAreaInsets();
   const [view, setView] = useState('list');
   const [currentUser, setCurrentUser] = useState(null);
@@ -283,7 +303,26 @@ const ChatScreen = ({ navigation }) => {
   const [loadingList, setLoadingList] = useState(true);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [sending, setSending] = useState(false);
+  const [uploadingVoice, setUploadingVoice] = useState(false);
+  const [loadingAudioMessageId, setLoadingAudioMessageId] = useState(null);
   const [usingFallback, setUsingFallback] = useState(false);
+
+  const {
+    isRecording,
+    durationMs: recordingDurationMs,
+    startRecording,
+    stopRecording,
+    cancelRecording,
+  } = useVoiceMessageRecorder();
+
+  const {
+    activeMessageId,
+    isPlaying,
+    currentMs,
+    durationMs: playbackDurationMs,
+    playMessage,
+    stopPlayback,
+  } = useVoiceMessagePlayer();
 
   // Unread badge
   const [unreadCount, setUnreadCount] = useState(0);
@@ -318,6 +357,11 @@ const ChatScreen = ({ navigation }) => {
 
   useEffect(() => { selectedContactRef.current = selectedContact; }, [selectedContact]);
   useEffect(() => { currentUserRef.current = currentUser; }, [currentUser]);
+
+  useEffect(() => () => {
+    stopPlayback();
+    cancelRecording();
+  }, [cancelRecording, stopPlayback]);
 
   const scrollToBottom = useCallback(() => {
     setTimeout(() => { messagesRef.current?.scrollToEnd({ animated: true }); }, 120);
@@ -385,7 +429,7 @@ const ChatScreen = ({ navigation }) => {
         apiService.markChatNotificationsRead(myId).catch(() => null);
       } else if (fromId !== myId) {
         const senderName = msg.sender_name || msg.from_user_name || 'New message';
-        showBanner({ name: senderName, preview: msg.message || '' });
+        showBanner({ name: senderName, preview: getMessagePreview(msg) });
         setUnreadCount((n) => n + 1);
       }
 
@@ -395,7 +439,7 @@ const ChatScreen = ({ navigation }) => {
           const updated = [...prev];
           updated[existingIndex] = {
             ...updated[existingIndex],
-            lastMessage: msg.message || '',
+            lastMessage: getMessagePreview(msg),
             lastMessageTime: msg.created_at || new Date().toISOString(),
           };
           return updated.sort((a, b) => new Date(b.lastMessageTime).getTime() - new Date(a.lastMessageTime).getTime());
@@ -552,6 +596,7 @@ const ChatScreen = ({ navigation }) => {
 
   useEffect(() => {
     return () => {
+      setActiveChatUserId(null);
       socketRef.current?.disconnect();
       if (typingTimeout.current) clearTimeout(typingTimeout.current);
       if (myTypingTimeout.current) clearTimeout(myTypingTimeout.current);
@@ -562,6 +607,7 @@ const ChatScreen = ({ navigation }) => {
   // ── Open / Close Conversation ────────────────────────────────────────────────
   const openChat = (contact) => {
     setSelectedContact(contact);
+    setActiveChatUserId(contact?.id);
     setView('chat');
     setEditingId(null);
     setEditText('');
@@ -569,6 +615,7 @@ const ChatScreen = ({ navigation }) => {
 
   const closeChat = () => {
     socketRef.current?.emit('stop_typing', { from_user_id: currentUser?.id, to_user_id: selectedContact?.id });
+    setActiveChatUserId(null);
     setView('list');
     setSelectedContact(null);
     setMessages([]);
@@ -578,6 +625,17 @@ const ChatScreen = ({ navigation }) => {
     setPeerIsTyping(false);
     loadChats();
   };
+
+  useEffect(() => {
+    const openUserId = route?.params?.openUserId;
+    if (!openUserId || !chatList.length) return;
+
+    const contact = chatList.find((chat) => String(chat.id) === String(openUserId));
+    if (contact) {
+      openChat(contact);
+      navigation.setParams({ openUserId: undefined });
+    }
+  }, [route?.params?.openUserId, chatList, navigation]);
 
   // ── New Chat Modal Trigger & Selection ───────────────────────────────────────
   const openNewChatModal = async () => {
@@ -623,6 +681,96 @@ const ChatScreen = ({ navigation }) => {
       lastMessageTime: null,
       unread: 0,
     });
+  };
+
+  const handleStartVoiceRecording = async () => {
+    try {
+      await startRecording();
+    } catch (error) {
+      Alert.alert('Microphone', error?.message || 'Unable to start recording.');
+    }
+  };
+
+  const handleCancelVoiceRecording = async () => {
+    try {
+      await cancelRecording();
+    } catch (error) {
+      console.warn('Cancel recording failed:', error);
+    }
+  };
+
+  const sendVoiceMessage = async () => {
+    if (!selectedContact || !currentUser || uploadingVoice || !isRecording) return;
+
+    setUploadingVoice(true);
+    try {
+      const recording = await stopRecording();
+      if (!recording?.uri) {
+        throw new Error('No recording found');
+      }
+
+      const pId = currentUser.practice_id || (await AsyncStorage.getItem('practiceId')) || null;
+      const optimistic = {
+        id: `temp-audio-${Date.now()}`,
+        from_user_id: currentUser.id,
+        to_user_id: selectedContact.id,
+        message: 'Voice message',
+        message_type: 'audio',
+        audio_duration: recording.durationSec,
+        created_at: new Date().toISOString(),
+        is_read: 0,
+        _pending: true,
+      };
+
+      setMessages((prev) => [...prev, optimistic]);
+      scrollToBottom();
+
+      const result = await apiService.uploadChatAudio({
+        uri: recording.uri,
+        from_user_id: currentUser.id,
+        to_user_id: selectedContact.id,
+        practice_id: pId,
+        audio_duration: recording.durationSec,
+      });
+
+      const saved = result?.data || optimistic;
+      setMessages((prev) => {
+        if (saved?.id != null && prev.some((m) => String(m.id) === String(saved.id))) {
+          return prev.filter((m) => m.id !== optimistic.id);
+        }
+        return prev.map((m) => (m.id === optimistic.id ? { ...saved, _pending: false } : m));
+      });
+
+      setChatList((prev) => prev.map((item) =>
+        String(item.id) === String(selectedContact.id)
+          ? { ...item, lastMessage: 'Voice message', lastMessageTime: new Date().toISOString() }
+          : item
+      ));
+    } catch (error) {
+      Alert.alert('Voice message', error?.message || 'Failed to send voice message.');
+      setMessages((prev) => prev.filter((m) => !String(m.id).startsWith('temp-audio-')));
+      await cancelRecording();
+    } finally {
+      setUploadingVoice(false);
+    }
+  };
+
+  const handlePlayAudioMessage = async (message) => {
+    if (!message?.id || !currentUser?.id || String(message.id).startsWith('temp-')) return;
+
+    try {
+      setLoadingAudioMessageId(message.id);
+      const result = await apiService.getChatAudioPlayUrl(message.id, currentUser.id);
+      const playUrl = result?.data?.playUrl;
+      if (!playUrl) {
+        throw new Error('Playback URL unavailable');
+      }
+      await playMessage(message.id, playUrl, message.audio_duration || 0);
+    } catch (error) {
+      Alert.alert('Playback', error?.message || 'Unable to play this voice message.');
+    } finally {
+      setLoadingAudioMessageId(null);
+    }
   };
 
   // ── Send Message ─────────────────────────────────────────────────────────────
@@ -876,6 +1024,35 @@ const ChatScreen = ({ navigation }) => {
                     </TouchableOpacity>
                   </View>
                 </View>
+              ) : isAudioMessage(item) ? (
+                <>
+                  <VoiceMessageBubble
+                    message={item}
+                    isMine={isMine}
+                    isActive={String(activeMessageId) === String(item.id)}
+                    isPlaying={isPlaying && String(activeMessageId) === String(item.id)}
+                    isLoading={String(loadingAudioMessageId) === String(item.id)}
+                    currentMs={String(activeMessageId) === String(item.id) ? currentMs : 0}
+                    durationMs={String(activeMessageId) === String(item.id) ? playbackDurationMs : (item.audio_duration || 0) * 1000}
+                    onPlayPress={() => handlePlayAudioMessage(item)}
+                    accentColor={ACCENT_COLOR}
+                    textDark={TEXT_DARK}
+                    textMuted={TEXT_MUTED}
+                  />
+                  <View style={styles.messageFooter}>
+                    <Text style={[styles.messageTime, isMine ? styles.messageTimeMine : styles.messageTimeOther]}>
+                      {formatMessageTime(item.created_at)}
+                    </Text>
+                    {isMine && (
+                      <MaterialIcons
+                        name={item._pending ? 'access-time' : item.is_read ? 'done-all' : 'done'}
+                        size={12}
+                        color={item.is_read ? '#4FC3F7' : '#90A4AE'}
+                        style={{ marginLeft: 3 }}
+                      />
+                    )}
+                  </View>
+                </>
               ) : (
                 <>
                   <Text style={[styles.messageText, isMine ? styles.messageTextMine : styles.messageTextOther]}>
@@ -1038,24 +1215,63 @@ const ChatScreen = ({ navigation }) => {
 
         {/* Composer */}
         <View style={[styles.composer, { paddingBottom: Math.max(scaleHeight(10), insets.bottom + scaleHeight(6)) }]}>
-          <TextInput
-            style={styles.composerInput}
-            placeholder="Type a message"
-            placeholderTextColor={TEXT_MUTED}
-            value={input}
-            onChangeText={handleInputChange}
-            multiline
-            maxLength={1000}
-            editable={!sending}
-          />
-          <TouchableOpacity
-            style={[styles.sendButton, { backgroundColor: ACCENT_COLOR }, (!input.trim() || sending) && styles.sendButtonDisabled]}
-            onPress={sendMessage}
-            disabled={!input.trim() || sending}>
-            {sending
-              ? <ActivityIndicator size="small" color="#fff" />
-              : <MaterialIcons name="send" size={20} color="#fff" />}
-          </TouchableOpacity>
+          {isRecording ? (
+            <View style={styles.recordingBar}>
+              <View style={styles.recordingIndicator}>
+                <View style={styles.recordingDot} />
+                <Text style={styles.recordingText}>
+                  Recording {formatRecordingDuration(recordingDurationMs)}
+                </Text>
+              </View>
+              <TouchableOpacity
+                style={styles.recordingActionButton}
+                onPress={handleCancelVoiceRecording}
+                disabled={uploadingVoice}
+              >
+                <Text style={styles.recordingCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.sendButton, { backgroundColor: ACCENT_COLOR }, uploadingVoice && styles.sendButtonDisabled]}
+                onPress={sendVoiceMessage}
+                disabled={uploadingVoice}
+              >
+                {uploadingVoice
+                  ? <ActivityIndicator size="small" color="#fff" />
+                  : <MaterialIcons name="stop" size={20} color="#fff" />}
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <>
+              <TextInput
+                style={styles.composerInput}
+                placeholder="Type a message"
+                placeholderTextColor={TEXT_MUTED}
+                value={input}
+                onChangeText={handleInputChange}
+                multiline
+                maxLength={1000}
+                editable={!sending && !uploadingVoice}
+              />
+              {input.trim() ? (
+                <TouchableOpacity
+                  style={[styles.sendButton, { backgroundColor: ACCENT_COLOR }, sending && styles.sendButtonDisabled]}
+                  onPress={sendMessage}
+                  disabled={sending}>
+                  {sending
+                    ? <ActivityIndicator size="small" color="#fff" />
+                    : <MaterialIcons name="send" size={20} color="#fff" />}
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity
+                  style={[styles.micButton, { borderColor: ACCENT_COLOR }]}
+                  onPress={handleStartVoiceRecording}
+                  disabled={sending || uploadingVoice}
+                >
+                  <MaterialIcons name="mic" size={22} color={ACCENT_COLOR} />
+                </TouchableOpacity>
+              )}
+            </>
+          )}
         </View>
       </KeyboardAvoidingView>
     </View>
@@ -1439,6 +1655,13 @@ const styles = StyleSheet.create({
   // Composer
   composer: { flexDirection: 'row', alignItems: 'flex-end', paddingHorizontal: scaleWidth(10), paddingVertical: scaleHeight(8), backgroundColor: '#f0f2f5', borderTopWidth: 1, borderTopColor: 'rgba(7,27,52,0.06)' },
   composerInput: { flex: 1, minHeight: scaleHeight(42), maxHeight: scaleHeight(110), borderRadius: scaleWidth(22), backgroundColor: '#fff', paddingHorizontal: scaleWidth(16), paddingVertical: scaleHeight(10), fontSize: scaleFont(15), color: TEXT_DARK, marginRight: scaleWidth(8) },
+  micButton: { width: scaleWidth(42), height: scaleWidth(42), borderRadius: scaleWidth(21), alignItems: 'center', justifyContent: 'center', backgroundColor: '#fff', borderWidth: 1 },
+  recordingBar: { flex: 1, flexDirection: 'row', alignItems: 'center' },
+  recordingIndicator: { flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderRadius: scaleWidth(22), paddingHorizontal: scaleWidth(14), paddingVertical: scaleHeight(12), marginRight: scaleWidth(8) },
+  recordingDot: { width: scaleWidth(10), height: scaleWidth(10), borderRadius: scaleWidth(5), backgroundColor: '#E53935', marginRight: scaleWidth(8) },
+  recordingText: { color: TEXT_DARK, fontSize: scaleFont(14), fontWeight: '700' },
+  recordingActionButton: { marginRight: scaleWidth(8), paddingHorizontal: scaleWidth(10), paddingVertical: scaleHeight(10) },
+  recordingCancelText: { color: TEXT_MUTED, fontSize: scaleFont(13), fontWeight: '700' },
   sendButton: { width: scaleWidth(44), height: scaleWidth(44), borderRadius: scaleWidth(22), alignItems: 'center', justifyContent: 'center' },
   sendButtonDisabled: { opacity: 0.45 },
 

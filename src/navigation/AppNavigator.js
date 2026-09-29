@@ -1,4 +1,5 @@
 import React from 'react';
+import { ActivityIndicator, View } from 'react-native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useAuth } from '../context/AuthContext';
 
@@ -127,6 +128,15 @@ function AppStack() {
  * No navigation.dispatch() or getParent() needed at all.
  */
 export default function AppNavigator() {
-  const { isLoggedIn } = useAuth();
+  const { isLoggedIn, isAuthReady } = useAuth();
+
+  if (!isAuthReady) {
+    return (
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#ffffff' }}>
+        <ActivityIndicator size="large" color="#0b1f3f" />
+      </View>
+    );
+  }
+
   return isLoggedIn ? <AppStack /> : <AuthStack />;
 }

@@ -269,7 +269,7 @@ const Login = ({ navigation }) => {
 
   const handleLogin = async () => {
     if (!username.trim()) {
-      showFeedback('Please enter your username.');
+      showFeedback('Please enter your email or username.');
       return;
     }
     if (!password.trim()) {
@@ -349,23 +349,22 @@ const Login = ({ navigation }) => {
     return (
       <>
         <View style={styles.field}>
-          <Text style={styles.label}>Email Address</Text>
+          <Text style={styles.label}>Email or username</Text>
           <View style={styles.inputIconWrap}>
-            <MaterialIcons name="mail-outline" size={20} color={COLORS.navy} style={styles.fieldIconLeft} />
+            <MaterialIcons name="person-outline" size={20} color={COLORS.navy} style={styles.fieldIconLeft} />
             <TextInput
               style={[
                 styles.input,
                 styles.inputWithLeftIcon,
                 isUsernameFocused && styles.inputFocused,
               ]}
-              placeholder="Enter your email"
+              placeholder="Enter your email or username"
               placeholderTextColor={COLORS.muted}
               value={username}
               onChangeText={setUsername}
               onFocus={() => setIsUsernameFocused(true)}
               onBlur={() => setIsUsernameFocused(false)}
               autoCapitalize="none"
-              keyboardType="email-address"
               autoCorrect={false}
               textContentType="username"
               autoComplete="username"

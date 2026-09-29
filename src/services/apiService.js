@@ -135,7 +135,7 @@ const apiService = {
     if (!response.ok) {
       // Use data message if available, otherwise use status-based message
       const errorMessage = data?.message ||
-        (response.status === 401 ? 'Invalid username or password' :
+        (response.status === 401 ? 'Invalid email/username or password' :
           response.status === 403 ? 'Access denied' :
             response.status === 500 ? 'Server error' :
               'Login failed');
@@ -971,6 +971,22 @@ const apiService = {
     return readApiResponse(response, 'Failed to mark notifications read', { requireSuccess: false });
   },
 
+  registerPushToken: async ({ fcm_token, platform, device_id }) => {
+    const response = await apiRequest(API_ENDPOINTS.PUSH_REGISTER, {
+      method: 'POST',
+      body: JSON.stringify({ fcm_token, platform, device_id }),
+    });
+    return readApiResponse(response, 'Failed to register push token', { requireSuccess: false });
+  },
+
+  unregisterPushToken: async ({ fcm_token }) => {
+    const response = await apiRequest(API_ENDPOINTS.PUSH_UNREGISTER, {
+      method: 'POST',
+      body: JSON.stringify({ fcm_token }),
+    });
+    return readApiResponse(response, 'Failed to unregister push token', { requireSuccess: false });
+  },
+
   editChatMessage: async (messageId, userId, newMessage) => {
     const response = await apiRequest(API_ENDPOINTS.CHAT_EDIT(messageId), {
       method: 'PUT',
@@ -998,10 +1014,54 @@ const apiService = {
   uploadChatFile: async (formData) => {
     const url = `${API_CONFIG.BASE_URL}${API_ENDPOINTS.CHAT_UPLOAD}`;
     const sessionCookie = await getSessionCookie();
-    const headers = { 'Accept': 'application/json' };
-    if (sessionCookie) headers['Cookie'] = sessionCookie;
+    const headers = { Accept: 'application/json', 'X-Mobile-Client': 'true' };
+    if (sessionCookie) headers['X-EVitals-Session-Id'] = sessionCookie;
     const response = await fetch(url, { method: 'POST', headers, body: formData });
     return readApiResponse(response, 'Failed to upload file');
+  },
+
+  uploadChatAudio: async ({
+    uri,
+    from_user_id,
+    to_user_id,
+    practice_id,
+    patient_id,
+    audio_duration,
+    mimeType = 'audio/mp4',
+  }) => {
+    const formData = new FormData();
+    formData.append('audio', {
+      uri,
+      type: mimeType,
+      name: `voice-${Date.now()}.m4a`,
+    });
+    formData.append('from_user_id', String(from_user_id));
+    formData.append('to_user_id', String(to_user_id));
+    formData.append('audio_duration', String(audio_duration));
+    if (practice_id != null) formData.append('practice_id', String(practice_id));
+    if (patient_id != null) formData.append('patient_id', String(patient_id));
+
+    const sessionCookie = await getSessionCookie();
+    const headers = {
+      Accept: 'application/json',
+      'X-Mobile-Client': 'true',
+    };
+    if (sessionCookie) headers['X-EVitals-Session-Id'] = sessionCookie;
+
+    const response = await fetch(`${API_CONFIG.BASE_URL}${API_ENDPOINTS.CHAT_AUDIO}`, {
+      method: 'POST',
+      headers,
+      body: formData,
+    });
+    return readApiResponse(response, 'Failed to upload voice message');
+  },
+
+  getChatAudioPlayUrl: async (messageId, userId) => {
+    const response = await apiRequest(
+      `${API_ENDPOINTS.CHAT_AUDIO_PLAY_URL(messageId)}?userId=${encodeURIComponent(userId)}`,
+      { method: 'GET' },
+    );
+    return readApiResponse(response, 'Failed to get audio playback URL');
   },
 
   /**

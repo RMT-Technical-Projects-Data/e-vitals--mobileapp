@@ -3,6 +3,7 @@ import { AppState } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import apiService from '../services/apiService';
 import { getSessionCookie, clearSessionCookie } from '../utils/cookieHelper';
+import { registerPushTokenWithBackend, unregisterPushTokenFromBackend } from '../services/pushNotificationService';
 
 const AuthContext = createContext(null);
 
@@ -21,6 +22,7 @@ const AUTH_KEYS = [
 
 export function AuthProvider({ children }) {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [isAuthReady, setIsAuthReady] = useState(false);
   const [user, setUser] = useState(null);
   // showSplash is true only on very first app launch.
   // After logout, this becomes false so AuthStack starts at Login directly.
@@ -38,11 +40,13 @@ export function AuthProvider({ children }) {
       console.warn('Error reading user on login:', e);
     }
     setIsLoggedIn(true);
+    registerPushTokenWithBackend().catch(() => {});
   }, []);
 
   const logout = useCallback(async () => {
     // Clear all stored session data
     try {
+      await unregisterPushTokenFromBackend().catch(() => {});
       await Promise.all([
         AsyncStorage.multiRemove(AUTH_KEYS),
         clearSessionCookie(),
@@ -75,6 +79,7 @@ export function AuthProvider({ children }) {
         await AsyncStorage.setItem('practiceId', String(result.user.practice_id));
       }
       setIsLoggedIn(true);
+      registerPushTokenWithBackend().catch(() => {});
       return true;
     } catch (error) {
       // A network failure must not destroy a potentially valid session. It can
@@ -95,7 +100,19 @@ export function AuthProvider({ children }) {
   }, [logout]);
 
   useEffect(() => {
-    restoreSession();
+    let mounted = true;
+
+    restoreSession()
+      .catch(() => {})
+      .finally(() => {
+        if (mounted) {
+          setIsAuthReady(true);
+        }
+      });
+
+    return () => {
+      mounted = false;
+    };
   }, [restoreSession]);
 
   useEffect(() => {
@@ -125,7 +142,7 @@ export function AuthProvider({ children }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ isLoggedIn, showSplash, user, login, logout, restoreSession, updateUser }}>
+    <AuthContext.Provider value={{ isLoggedIn, isAuthReady, showSplash, user, login, logout, restoreSession, updateUser }}>
       {children}
     </AuthContext.Provider>
   );

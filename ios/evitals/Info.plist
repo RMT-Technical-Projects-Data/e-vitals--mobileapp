@@ -40,6 +40,12 @@
 	</array>
 	<key>NSFaceIDUsageDescription</key>
 	<string>eVitals uses Face ID so you can sign in quickly and securely. After two failed Face ID attempts, you can sign in with your password.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>eVitals needs microphone access to record voice messages.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>remote-notification</string>
+	</array>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string></string>
 	<key>RCTNewArchEnabled</key>

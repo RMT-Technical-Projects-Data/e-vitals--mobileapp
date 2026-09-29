@@ -151,6 +151,13 @@ export const API_ENDPOINTS = {
   CHAT_DELETE: (messageId) => `/chat/delete/${messageId}`,
   CHAT_CONVERSATIONS_DELETE: '/chat/conversations/delete',
   CHAT_UPLOAD: '/chat/upload',
+  CHAT_AUDIO: '/chat/audio',
+  CHAT_AUDIO_PLAY_URL: (messageId) => `/chat/audio/${messageId}/play-url`,
+
+  // Push notifications
+  PUSH_REGISTER: '/push/register',
+  PUSH_UNREGISTER: '/push/unregister',
+  PUSH_STATUS: '/push/status',
 
   // ... Add other endpoints as needed
 };
