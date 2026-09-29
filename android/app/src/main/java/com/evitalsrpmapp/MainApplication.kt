@@ -1,4 +1,4 @@
-package com.evitals
+package com.evitalsrpmapp
 
 import android.app.Application
 import com.facebook.react.PackageList

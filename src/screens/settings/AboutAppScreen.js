@@ -9,6 +9,7 @@ import {
     StatusBar,
     ScrollView,
     SafeAreaView,
+    Image,
 } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 // --- Responsive Scaling Setup ---
@@ -46,7 +47,7 @@ const AboutAppScreen = ({ navigation }) => {
                     <View style={styles.card}>
                         <View style={styles.appInfoRow}>
                             <View style={styles.appIconContainer}>
-                                <Text style={styles.infoSymbol}>i</Text>
+                                <Image source={require('../../assets/images/app_logo.png')} style={styles.appLogoImage} resizeMode="contain" />
                             </View>
                             <View style={styles.appInfoTextContainer}>
                                 <Text style={styles.appTitle}>E-Vitals</Text>
@@ -157,10 +158,18 @@ const styles = StyleSheet.create({
     appIconContainer: {
         width: scaleWidth(50),
         height: scaleWidth(50),
-        borderRadius: scaleWidth(25),
-        backgroundColor: NAVY_BLUE,
+        borderRadius: scaleWidth(14),
+        backgroundColor: '#FFFFFF',
         justifyContent: 'center',
         alignItems: 'center',
+        overflow: 'hidden',
+        borderWidth: 1,
+        borderColor: '#E2E8F0',
+    },
+    appLogoImage: {
+        width: scaleWidth(44),
+        height: scaleWidth(44),
+        borderRadius: scaleWidth(10),
     },
     infoSymbol: {
         color: WHITE,

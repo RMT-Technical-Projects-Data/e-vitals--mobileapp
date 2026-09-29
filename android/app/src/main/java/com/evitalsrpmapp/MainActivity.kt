@@ -1,4 +1,4 @@
-package com.evitals
+package com.evitalsrpmapp
 
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate
