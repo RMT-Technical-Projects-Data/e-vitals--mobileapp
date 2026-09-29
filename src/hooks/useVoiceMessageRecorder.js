@@ -48,13 +48,11 @@ export default function useVoiceMessageRecorder() {
 
     await cleanupRecorder();
 
-    const fileName = `voice-${Date.now()}.m4a`;
-    const path = Platform.select({
-      ios: fileName,
-      android: `${fileName}`,
-    });
+    // Android: omit path so nitro-sound writes to app filesDir (writable).
+    // A bare filename like "voice-123.m4a" hits the read-only root filesystem.
+    const recordPath = Platform.OS === 'ios' ? `voice-${Date.now()}.m4a` : undefined;
 
-    const uri = await audioRecorderPlayer.startRecorder(path, {
+    const uri = await audioRecorderPlayer.startRecorder(recordPath, {
       AVFormatIDKeyIOS: 'aac',
       AVNumberOfChannelsKeyIOS: 1,
       AVSampleRateKeyIOS: 44100,

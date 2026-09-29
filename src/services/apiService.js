@@ -1027,13 +1027,22 @@ const apiService = {
     practice_id,
     patient_id,
     audio_duration,
-    mimeType = 'audio/mp4',
+    mimeType,
   }) => {
+    const normalizedUri = uri && !String(uri).startsWith('file://') && !String(uri).startsWith('content://')
+      ? `file://${uri}`
+      : uri;
+
+    const lowerUri = String(normalizedUri || '').toLowerCase();
+    const extension = lowerUri.includes('.mp4') ? 'mp4' : 'm4a';
+    const resolvedMimeType = mimeType
+      || (extension === 'mp4' ? 'audio/mp4' : 'audio/m4a');
+
     const formData = new FormData();
     formData.append('audio', {
-      uri,
-      type: mimeType,
-      name: `voice-${Date.now()}.m4a`,
+      uri: normalizedUri,
+      type: resolvedMimeType,
+      name: `voice-${Date.now()}.${extension}`,
     });
     formData.append('from_user_id', String(from_user_id));
     formData.append('to_user_id', String(to_user_id));

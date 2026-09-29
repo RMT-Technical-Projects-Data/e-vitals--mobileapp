@@ -1,6 +1,4 @@
-import AudioRecorderPlayer from 'react-native-audio-recorder-player';
+import Sound from 'react-native-nitro-sound';
 
-// Single shared instance — recorder and player must not use separate instances.
-const audioRecorderPlayer = new AudioRecorderPlayer();
-
-export default audioRecorderPlayer;
+// react-native-nitro-sound exports a singleton (not a class constructor).
+export default Sound;
