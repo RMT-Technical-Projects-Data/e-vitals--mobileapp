@@ -40,6 +40,11 @@ export const EV = {
   criticalStrong: '#C62828',
   criticalBg: '#FCEBEB',
   abnormal: '#C53030',
+
+  // Measurement vitals (match E-Vital-Frontend tokens.css)
+  measurementNormal: '#15803d',
+  measurementHigh: '#d32f2f',
+  measurementLow: '#f57c00',
 };
 
 export default EV;

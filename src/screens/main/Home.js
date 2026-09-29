@@ -24,6 +24,12 @@ import apiService from '../../services/apiService';
 import { useFocusEffect } from '@react-navigation/native';
 import PremiumBottomNav, { PREMIUM_BOTTOM_NAV_CLEARANCE } from '../../components/navigation/PremiumBottomNav';
 import { EV } from '../../config/colors';
+import {
+  DEFAULT_VITAL_TARGETS,
+  getBpVitalColor,
+  getVitalColor,
+  normalizeWeightToLbs,
+} from '../../utils/measurementUtils';
 
 const { width, height } = Dimensions.get('window');
 const guidelineBaseWidth = 375;
@@ -1157,9 +1163,13 @@ export default function Home({ navigation }) {
       ? String(Math.round(parseFloat(measurements.bloodGlucose.value)))
       : '--';
     const wtRaw = measurements.weight?.value;
-    const wtVal = wtRaw != null
-      ? parseFloat((parseFloat(wtRaw) * 2.20462).toFixed(1))
-      : '--';
+    const wtLbs = wtRaw != null ? normalizeWeightToLbs(wtRaw, measurements.weight?.unit || 'kg') : null;
+    const wtVal = wtLbs != null ? parseFloat(wtLbs.toFixed(1)) : '--';
+
+    const t = DEFAULT_VITAL_TARGETS;
+    const bpColor = getBpVitalColor(bpVal, t);
+    const bgColor = getVitalColor(bgVal, t.glucoseMin, t.glucoseMax);
+    const wtColor = getVitalColor(wtVal, t.weightMin, t.weightMax);
     const formatReadingTime = (dt) => {
       if (!dt) return 'NO READING YET';
       try {
@@ -1221,7 +1231,7 @@ export default function Home({ navigation }) {
                     <Text style={st.lrTime}>{bpTime}</Text>
                   </View>
                   <View style={st.lrValWrap}>
-                    <Text style={[st.lrValText, bpVal !== '--' && { color: EV.abnormal }]}>{bpVal}</Text>
+                    <Text style={[st.lrValText, bpVal !== '--' && { color: bpColor }]}>{bpVal}</Text>
                     <Text style={st.lrUnitText}>mmHg</Text>
                   </View>
                 </TouchableOpacity>
@@ -1234,7 +1244,7 @@ export default function Home({ navigation }) {
                     <Text style={st.lrTime}>{bgTime}</Text>
                   </View>
                   <View style={st.lrValWrap}>
-                    <Text style={st.lrValText}>{bgVal}</Text>
+                    <Text style={[st.lrValText, bgVal !== '--' && { color: bgColor }]}>{bgVal}</Text>
                     <Text style={st.lrUnitText}>mg/dL</Text>
                   </View>
                 </TouchableOpacity>
@@ -1247,7 +1257,7 @@ export default function Home({ navigation }) {
                     <Text style={st.lrTime}>{wtTime}</Text>
                   </View>
                   <View style={st.lrValWrap}>
-                    <Text style={st.lrValText}>{wtVal}</Text>
+                    <Text style={[st.lrValText, wtVal !== '--' && { color: wtColor }]}>{wtVal}</Text>
                     <Text style={st.lrUnitText}>lb</Text>
                   </View>
                 </TouchableOpacity>

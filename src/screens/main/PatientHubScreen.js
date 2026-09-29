@@ -24,6 +24,12 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import apiService from '../../services/apiService';
 import { usePatientSessionTimer } from '../../context/PatientSessionTimerContext';
 import { getDashboardTheme } from '../../constants/dashboardThemes';
+import {
+  DEFAULT_VITAL_TARGETS,
+  getVitalColor,
+  MEASUREMENT_COLORS,
+  normalizeWeightToLbs,
+} from '../../utils/measurementUtils';
 
 const { width, height: screenHeight } = Dimensions.get('window');
 const guidelineBaseWidth = 375;
@@ -218,32 +224,27 @@ const VitalUploadCard = ({
 }) => {
   const { date, time } = formatVitalDateParts(dateValue);
 
-  let valueColor = TEXT_DARK;
+  const t = DEFAULT_VITAL_TARGETS;
+  let valueColor = MEASUREMENT_COLORS.missing;
   if (primary && primary !== '-') {
     if (title === 'Blood Pressure') {
       const parts = String(primary).split('/');
       if (parts.length === 2) {
-        const sys = Number(parts[0].trim());
-        const dia = Number(parts[1].trim());
-        if (sys > 140 || dia > 90) valueColor = '#d32f2f'; // High
-        else if (sys < 100 || dia < 60) valueColor = '#C53030'; // Low
-        else valueColor = '#0b1f3f'; // Normal
+        const sysColor = getVitalColor(parts[0].trim(), t.systolicMin, t.systolicMax);
+        const diaColor = getVitalColor(parts[1].trim(), t.diastolicMin, t.diastolicMax);
+        if (sysColor === MEASUREMENT_COLORS.high || diaColor === MEASUREMENT_COLORS.high) {
+          valueColor = MEASUREMENT_COLORS.high;
+        } else if (sysColor === MEASUREMENT_COLORS.low || diaColor === MEASUREMENT_COLORS.low) {
+          valueColor = MEASUREMENT_COLORS.low;
+        } else {
+          valueColor = sysColor;
+        }
       }
     } else if (title === 'Blood Glucose') {
-      const bgNum = Number(String(primary).replace(/[^\d.-]/g, ''));
-      if (!Number.isNaN(bgNum) && bgNum > 0) {
-        if (bgNum > 110) valueColor = '#d32f2f';
-        else if (bgNum < 60) valueColor = '#C53030';
-        else valueColor = '#0b1f3f';
-      }
+      valueColor = getVitalColor(String(primary).replace(/[^\d.-]/g, ''), t.glucoseMin, t.glucoseMax);
     } else if (title === 'Weight') {
-      const wtNum = Number(String(primary).replace(/[^\d.-]/g, ''));
-      if (!Number.isNaN(wtNum) && wtNum > 0) {
-        const wtLbs = unit === 'kg' ? wtNum * 2.20462 : wtNum;
-        if (wtLbs > 220) valueColor = '#d32f2f';
-        else if (wtLbs < 66) valueColor = '#C53030';
-        else valueColor = '#0b1f3f';
-      }
+      const wtLbs = normalizeWeightToLbs(primary, unit);
+      valueColor = getVitalColor(wtLbs, t.weightMin, t.weightMax);
     }
   }
 
@@ -251,10 +252,7 @@ const VitalUploadCard = ({
   if (secondary) {
     const pulseMatch = String(secondary).match(/\d+/);
     if (pulseMatch) {
-      const pNum = Number(pulseMatch[0]);
-      if (pNum > 100) secondaryColor = '#d32f2f';
-      else if (pNum < 60) secondaryColor = '#C53030';
-      else secondaryColor = '#0b1f3f';
+      secondaryColor = getVitalColor(pulseMatch[0], t.pulseMin, t.pulseMax);
     }
   }
 

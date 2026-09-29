@@ -19,6 +19,13 @@ import { useFocusEffect } from '@react-navigation/native';
 import apiService from '../../services/apiService';
 import PremiumBottomNav, { PREMIUM_BOTTOM_NAV_CLEARANCE } from '../../components/navigation/PremiumBottomNav';
 import AddPatientModal from '../../components/modals/AddPatientModal';
+import {
+  DEFAULT_VITAL_TARGETS,
+  getBpVitalColor,
+  getVitalColor,
+  MEASUREMENT_COLORS,
+  normalizeWeightToLbs,
+} from '../../utils/measurementUtils';
 
 const { width } = Dimensions.get('window');
 const guidelineBaseWidth = 375;
@@ -93,40 +100,7 @@ const getPatientVitalsDisplay = (item) => {
   };
 };
 
-const VITAL_TARGETS = {
-  systolicMin: 100,
-  systolicMax: 140,
-  diastolicMin: 60,
-  diastolicMax: 90,
-  glucoseMin: 60,
-  glucoseMax: 110,
-  weightMin: 66,
-  weightMax: 220,
-  pulseMin: 60,
-  pulseMax: 100,
-};
-
-const getVitalColor = (value, min, max) => {
-  if (value == null || value === '' || value === '--' || value === 'N/A') return '#0b1f3f';
-  const num = Number(value);
-  if (Number.isNaN(num) || num <= 0) return '#0b1f3f';
-  if (num > max) return '#d32f2f'; // High / Abnormal
-  if (num < min) return '#C53030'; // Low / Abnormal
-  return '#0b1f3f'; // Normal (brand navy)
-};
-
-const getBpVitalColor = (bpString) => {
-  if (!bpString || bpString === '--' || bpString === 'N/A') return '#0b1f3f';
-  const parts = String(bpString).split('/');
-  if (parts.length !== 2) return '#0b1f3f';
-  const sys = Number(parts[0].trim());
-  const dia = Number(parts[1].trim());
-  const sysColor = getVitalColor(sys, VITAL_TARGETS.systolicMin, VITAL_TARGETS.systolicMax);
-  const diaColor = getVitalColor(dia, VITAL_TARGETS.diastolicMin, VITAL_TARGETS.diastolicMax);
-  if (sysColor === '#d32f2f' || diaColor === '#d32f2f') return '#d32f2f';
-  if (sysColor === '#C53030' || diaColor === '#C53030') return '#C53030';
-  return '#0b1f3f';
-};
+const VITAL_TARGETS = DEFAULT_VITAL_TARGETS;
 
 const getPatientStatusMeta = (status) => {
   const raw = String(status ?? '').trim();
@@ -454,14 +428,11 @@ export default function PatientsScreen({ route, navigation }) {
     const statusMeta = getPatientStatusMeta(item.status);
 
     const bpColor = getBpVitalColor(vitals.bp);
-    const pulseColor = vitals.pulse != null ? getVitalColor(vitals.pulse, VITAL_TARGETS.pulseMin, VITAL_TARGETS.pulseMax) : '#687382';
+    const pulseColor = vitals.pulse != null ? getVitalColor(vitals.pulse, VITAL_TARGETS.pulseMin, VITAL_TARGETS.pulseMax) : MEASUREMENT_COLORS.pulseMissing;
     const glucoseColor = getVitalColor(vitals.glucose, VITAL_TARGETS.glucoseMin, VITAL_TARGETS.glucoseMax);
 
-    let weightNum = vitals.weight && vitals.weight !== '--' ? Number(String(vitals.weight).replace(/[^\d.-]/g, '')) : null;
-    if (weightNum != null && !Number.isNaN(weightNum) && weightNum <= 110) {
-      weightNum = weightNum * 2.20462;
-    }
-    const weightColor = weightNum != null ? getVitalColor(weightNum, VITAL_TARGETS.weightMin, VITAL_TARGETS.weightMax) : '#0b1f3f';
+    const weightNum = normalizeWeightToLbs(vitals.weight);
+    const weightColor = weightNum != null ? getVitalColor(weightNum, VITAL_TARGETS.weightMin, VITAL_TARGETS.weightMax) : MEASUREMENT_COLORS.missing;
 
     return (
       <TouchableOpacity

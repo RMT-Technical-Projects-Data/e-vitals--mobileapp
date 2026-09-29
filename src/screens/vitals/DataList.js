@@ -22,6 +22,12 @@ import { lockToLandscape, lockToPortrait } from '../../utils/orientationHelper';
 import FullTrendChartModal from '../../components/common/FullTrendChartModal';
 import DatePickerModal from '../../components/common/DatePickerModal';
 import { getDashboardTheme } from '../../constants/dashboardThemes';
+import {
+  DEFAULT_VITAL_TARGETS,
+  getVitalColor,
+  MEASUREMENT_COLORS,
+  normalizeWeightToLbs,
+} from '../../utils/measurementUtils';
 
 const { width, height } = Dimensions.get('window');
 const guidelineBaseWidth = 375;
@@ -166,15 +172,6 @@ const formatMeasurementTableTime = (timeString) => {
   const period = h >= 12 ? 'PM' : 'AM';
   const displayHours = h % 12 || 12;
   return `${displayHours}:${mStr} ${period}`;
-};
-
-const getVitalColor = (val, min, max) => {
-  if (val == null || val === '' || val === '--' || val === 'N/A') return '#0b1f3f';
-  const num = Number(val);
-  if (Number.isNaN(num) || num <= 0) return '#0b1f3f';
-  if (num > max) return '#d32f2f'; // High / Red
-  if (num < min) return '#C53030'; // Low / Orange
-  return '#0b1f3f'; // Normal / Green
 };
 
 const PERIOD_TIME_WINDOWS = {
@@ -848,42 +845,6 @@ const DataList = ({ navigation, route }) => {
     return list;
   }, [rawMeasurements, sortBy, selectedSlotFilter, dataType]);
 
-  const getReadingStatusMeta = (row, type) => {
-    if (type === 'bloodPressure') {
-      const sys = Number(row.systolic);
-      const dia = Number(row.diastolic);
-      if ((!Number.isNaN(sys) && sys > 140) || (!Number.isNaN(dia) && dia > 90)) {
-        return { label: 'High', bg: '#FDE8E8', color: '#d32f2f' };
-      }
-      if ((!Number.isNaN(sys) && sys < 100) || (!Number.isNaN(dia) && dia < 60)) {
-        return { label: 'Low', bg: '#caf0f8', color: '#1177c6' };
-      }
-      return { label: 'Normal', bg: '#DDF8DD', color: '#0b1f3f' };
-    }
-    if (type === 'bloodGlucose') {
-      const bgNum = Number(row.glucose);
-      if (!Number.isNaN(bgNum) && bgNum > 110) {
-        return { label: 'High', bg: '#FDE8E8', color: '#d32f2f' };
-      }
-      if (!Number.isNaN(bgNum) && bgNum < 60) {
-        return { label: 'Low', bg: '#caf0f8', color: '#1177c6' };
-      }
-      return { label: 'Normal', bg: '#DDF8DD', color: '#0b1f3f' };
-    }
-    if (type === 'weight') {
-      const wtNum = Number(row.weight);
-      const wtLbs = row.unit === 'kg' && !Number.isNaN(wtNum) ? wtNum * 2.20462 : wtNum;
-      if (!Number.isNaN(wtLbs) && wtLbs > 220) {
-        return { label: 'High', bg: '#FDE8E8', color: '#d32f2f' };
-      }
-      if (!Number.isNaN(wtLbs) && wtLbs < 66) {
-        return { label: 'Low', bg: '#caf0f8', color: '#1177c6' };
-      }
-      return { label: 'Normal', bg: '#DDF8DD', color: '#0b1f3f' };
-    }
-    return { label: 'Normal', bg: '#DDF8DD', color: '#0b1f3f' };
-  };
-
   const matrixData = useMemo(() => {
     const periodList = getPeriodListForType(dataType);
     const dateMap = {};
@@ -1224,12 +1185,13 @@ const DataList = ({ navigation, route }) => {
                       const periodName = getPeriodNameForMeasurement(item, dataType);
                       const timeWindow = getPeriodTimeWindow(periodName, dataType);
 
-                      const sysColor = getVitalColor(item.systolic, 100, 140);
-                      const diaColor = getVitalColor(item.diastolic, 60, 90);
-                      const pulseColor = item.pulse != null ? getVitalColor(item.pulse, 60, 100) : '#687382';
-                      const bgValColor = getVitalColor(item.glucose, 60, 110);
-                      const wtLbs = item.unit === 'kg' && item.weight ? Number(item.weight) * 2.20462 : item.weight;
-                      const wtValColor = getVitalColor(wtLbs, 66, 220);
+                      const t = DEFAULT_VITAL_TARGETS;
+                      const sysColor = getVitalColor(item.systolic, t.systolicMin, t.systolicMax);
+                      const diaColor = getVitalColor(item.diastolic, t.diastolicMin, t.diastolicMax);
+                      const pulseColor = item.pulse != null ? getVitalColor(item.pulse, t.pulseMin, t.pulseMax) : MEASUREMENT_COLORS.pulseMissing;
+                      const bgValColor = getVitalColor(item.glucose, t.glucoseMin, t.glucoseMax);
+                      const wtLbs = normalizeWeightToLbs(item.weight, item.unit);
+                      const wtValColor = getVitalColor(wtLbs, t.weightMin, t.weightMax);
 
                       return (
                         <View key={item.id || index} style={[styles.vTableRow, isEven ? styles.vTableRowEven : styles.vTableRowOdd]}>
