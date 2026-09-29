@@ -1,108 +1,159 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { View, Modal, Text, TouchableOpacity, StyleSheet } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '../../context/AuthContext';
 import apiService from '../../services/apiService';
 import { scale } from '../../config/theme';
+
+const normalizeSessionMinutes = (rawValue, fallback = 30) => {
+  const clamp = (minutes) => Math.min(Math.max(minutes, 1), 1440);
+  if (rawValue == null) return clamp(fallback);
+
+  if (typeof rawValue === 'number' && Number.isFinite(rawValue)) {
+    return clamp(Math.floor(rawValue));
+  }
+
+  const text = String(rawValue).trim();
+  if (!text) return clamp(fallback);
+
+  if (text.includes(':')) {
+    const parts = text.split(':').map((part) => Number.parseInt(part, 10));
+    if (parts.every((part) => Number.isFinite(part) && part >= 0)) {
+      const [hours = 0, minutes = 0, seconds = 0] = parts;
+      const totalMinutes = Math.floor((hours * 3600 + minutes * 60 + seconds) / 60);
+      return clamp(totalMinutes || fallback);
+    }
+  }
+
+  const parsed = Number.parseInt(text, 10);
+  return Number.isFinite(parsed) ? clamp(parsed) : clamp(fallback);
+};
 
 export default function SessionTimeoutWrapper({ children }) {
   const { isLoggedIn, logout, user } = useAuth();
   const [showWarning, setShowWarningState] = useState(false);
   const [secondsRemaining, setSecondsRemainingState] = useState(0);
-  const [userSettingMinutes, setUserSettingMinutes] = useState(30);
 
   const showWarningRef = useRef(false);
   const secondsRemainingRef = useRef(0);
   const lastActivityRef = useRef(Date.now());
+  const userSettingMinutesRef = useRef(30);
   const timerRef = useRef(null);
+  const suppressAutoLogoutRef = useRef(false);
+  const stayLoggedInInProgressRef = useRef(false);
 
-  const setShowWarning = (val) => {
+  const setShowWarning = useCallback((val) => {
     showWarningRef.current = val;
     setShowWarningState(val);
-  };
+  }, []);
 
-  const setSecondsRemaining = (val) => {
+  const setSecondsRemaining = useCallback((val) => {
     secondsRemainingRef.current = val;
     setSecondsRemainingState(val);
-  };
+  }, []);
 
-  // Load user session time from AsyncStorage / context
-  useEffect(() => {
-    if (!isLoggedIn) {
-      setShowWarning(false);
-      if (timerRef.current) clearInterval(timerRef.current);
+  const clearInactivityTimer = useCallback(() => {
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+  }, []);
+
+  const resetInactivityTimer = useCallback(() => {
+    lastActivityRef.current = Date.now();
+  }, []);
+
+  const handleAutoLogout = useCallback(async () => {
+    if (suppressAutoLogoutRef.current || stayLoggedInInProgressRef.current) {
       return;
     }
 
-    const loadSessionTime = () => {
-      let sessionMinutes = 30;
-      if (user?.session_time) {
-        const parsed = parseInt(user.session_time, 10);
-        if (!isNaN(parsed) && parsed >= 1 && parsed <= 1440) {
-          sessionMinutes = parsed;
-        }
-      }
-      setUserSettingMinutes(sessionMinutes);
-    };
+    suppressAutoLogoutRef.current = true;
+    setShowWarning(false);
+    clearInactivityTimer();
+    await logout();
+    suppressAutoLogoutRef.current = false;
+  }, [clearInactivityTimer, logout, setShowWarning]);
 
-    loadSessionTime();
-    lastActivityRef.current = Date.now();
+  const checkInactivity = useCallback(() => {
+    if (!isLoggedIn || suppressAutoLogoutRef.current || stayLoggedInInProgressRef.current) {
+      return;
+    }
 
-    // Check inactivity every second
-    if (timerRef.current) clearInterval(timerRef.current);
-    timerRef.current = setInterval(checkInactivity, 1000);
-
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
-    };
-  }, [isLoggedIn, user]);
-
-  const resetInactivityTimer = () => {
-    lastActivityRef.current = Date.now();
-  };
-
-  const handleTouch = () => {
-    resetInactivityTimer();
-    return false; // Do not capture the touch, let child components receive it
-  };
-
-  const checkInactivity = () => {
     if (showWarningRef.current) {
-      // Countdown mode: decrement seconds remaining
-      if (secondsRemainingRef.current <= 1) {
+      if (secondsRemainingRef.current <= 0) {
         handleAutoLogout();
-      } else {
-        setSecondsRemaining(secondsRemainingRef.current - 1);
+        return;
       }
+      setSecondsRemaining(secondsRemainingRef.current - 1);
       return;
     }
 
-    const timeoutMs = userSettingMinutes * 60 * 1000;
+    const timeoutMs = userSettingMinutesRef.current * 60 * 1000;
     const warningMs = Math.floor(timeoutMs / 2);
     const elapsed = Date.now() - lastActivityRef.current;
 
     if (elapsed >= timeoutMs - warningMs) {
-      // User has been inactive for (timeoutMs - warningMs). Start countdown warning.
       setSecondsRemaining(Math.ceil(warningMs / 1000));
       setShowWarning(true);
     }
-  };
+  }, [handleAutoLogout, isLoggedIn, setSecondsRemaining, setShowWarning]);
 
-  const handleAutoLogout = async () => {
-    setShowWarning(false);
-    await logout();
-  };
+  const handleStayLoggedIn = useCallback(async () => {
+    stayLoggedInInProgressRef.current = true;
+    suppressAutoLogoutRef.current = true;
 
-  const handleStayLoggedIn = () => {
     setShowWarning(false);
+    setSecondsRemaining(0);
     resetInactivityTimer();
-    // Heartbeat call to keep session alive on server
-    apiService.checkSession().catch((err) => console.log('Session keep-alive failed:', err));
-  };
 
-  const handleLogoutNow = async () => {
+    try {
+      await apiService.checkSession();
+    } catch (err) {
+      console.log('Session keep-alive failed:', err);
+    } finally {
+      stayLoggedInInProgressRef.current = false;
+      suppressAutoLogoutRef.current = false;
+    }
+  }, [resetInactivityTimer, setSecondsRemaining, setShowWarning]);
+
+  const handleLogoutNow = useCallback(async () => {
+    suppressAutoLogoutRef.current = true;
     setShowWarning(false);
+    clearInactivityTimer();
     await logout();
+    suppressAutoLogoutRef.current = false;
+  }, [clearInactivityTimer, logout, setShowWarning]);
+
+  useEffect(() => {
+    if (!isLoggedIn) {
+      setShowWarning(false);
+      setSecondsRemaining(0);
+      clearInactivityTimer();
+      return undefined;
+    }
+
+    userSettingMinutesRef.current = normalizeSessionMinutes(user?.session_time, 30);
+    resetInactivityTimer();
+    clearInactivityTimer();
+    timerRef.current = setInterval(checkInactivity, 1000);
+
+    const heartbeatInterval = setInterval(() => {
+      if (!showWarningRef.current && !stayLoggedInInProgressRef.current) {
+        apiService.checkSession().catch((err) => console.log('Session heartbeat failed:', err));
+      }
+    }, 5 * 60 * 1000);
+
+    return () => {
+      clearInactivityTimer();
+      clearInterval(heartbeatInterval);
+    };
+  }, [checkInactivity, clearInactivityTimer, isLoggedIn, resetInactivityTimer, setSecondsRemaining, setShowWarning, user?.session_time]);
+
+  const handleTouch = () => {
+    if (!showWarningRef.current) {
+      resetInactivityTimer();
+    }
+    return false;
   };
 
   const formatTime = (seconds) => {
@@ -121,7 +172,7 @@ export default function SessionTimeoutWrapper({ children }) {
 
       <Modal
         visible={showWarning}
-        transparent={true}
+        transparent
         animationType="fade"
         onRequestClose={handleStayLoggedIn}
       >
