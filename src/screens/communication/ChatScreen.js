@@ -37,6 +37,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { io } from 'socket.io-client';
 import apiService from '../../services/apiService';
 import { SOCKET_BASE_URL } from '../../config/api';
+import { setActiveChatPeer, setChatScreenFocused } from '../../services/chatPresence';
 import PremiumBottomNav, { PREMIUM_BOTTOM_NAV_CLEARANCE } from '../../components/navigation/PremiumBottomNav';
 import { setActiveChatUserId } from '../../utils/activeChatState';
 import useVoiceMessageRecorder from '../../hooks/useVoiceMessageRecorder';
@@ -354,6 +355,7 @@ const ChatScreen = ({ navigation, route }) => {
   const messagesRef = useRef(null);
   const selectedContactRef = useRef(null);
   const currentUserRef = useRef(null);
+  const handledPushNonceRef = useRef(null);
 
   useEffect(() => { selectedContactRef.current = selectedContact; }, [selectedContact]);
   useEffect(() => { currentUserRef.current = currentUser; }, [currentUser]);
@@ -569,6 +571,7 @@ const ChatScreen = ({ navigation, route }) => {
 
   useFocusEffect(
     useCallback(() => {
+      setChatScreenFocused(true);
       setLoadingList(true);
       loadChats();
       const interval = setInterval(() => {
@@ -586,7 +589,11 @@ const ChatScreen = ({ navigation, route }) => {
         }
       }, 3500);
 
-      return () => clearInterval(interval);
+      return () => {
+        clearInterval(interval);
+        setChatScreenFocused(false);
+        setActiveChatPeer(null);
+      };
     }, [loadChats])
   );
 
@@ -608,10 +615,34 @@ const ChatScreen = ({ navigation, route }) => {
   const openChat = (contact) => {
     setSelectedContact(contact);
     setActiveChatUserId(contact?.id);
+    setActiveChatPeer(contact?.id);
     setView('chat');
     setEditingId(null);
     setEditText('');
   };
+
+  useEffect(() => {
+    setActiveChatPeer(view === 'chat' ? selectedContact?.id : null);
+  }, [view, selectedContact]);
+
+  useEffect(() => {
+    const peerUserId = route.params?.peerUserId;
+    const nonce = route.params?.pushNonce;
+    if (!peerUserId || nonce == null) return;
+    if (handledPushNonceRef.current === nonce) return;
+    if (loadingList && chatList.length === 0) return;
+
+    const existing = chatList.find((item) => String(item.id) === String(peerUserId));
+    handledPushNonceRef.current = nonce;
+    openChat(existing || {
+      id: peerUserId,
+      name: route.params?.peerName || 'New message',
+      role_name: '',
+      lastMessage: '',
+      lastMessageTime: null,
+      unread: 0,
+    });
+  }, [route.params?.peerUserId, route.params?.peerName, route.params?.pushNonce, chatList, loadingList]);
 
   const closeChat = () => {
     socketRef.current?.emit('stop_typing', { from_user_id: currentUser?.id, to_user_id: selectedContact?.id });

@@ -20,6 +20,7 @@
 		13B07FB61A68108700A75B9A /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = evitals/Info.plist; sourceTree = "<group>"; };
 		13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = PrivacyInfo.xcprivacy; path = evitals/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		2FD557FB8667C6377091DA09 /* Pods-evitals.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-evitals.release.xcconfig"; path = "Target Support Files/Pods-evitals/Pods-evitals.release.xcconfig"; sourceTree = "<group>"; };
+		5F60F9B6306D18630010A02E /* evitals.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; name = evitals.entitlements; path = evitals/evitals.entitlements; sourceTree = "<group>"; };
 		761780EC2CA45674006654EE /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = evitals/AppDelegate.swift; sourceTree = "<group>"; };
 		79C7E5B2633B1B9F618118F9 /* Pods-evitals.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-evitals.debug.xcconfig"; path = "Target Support Files/Pods-evitals/Pods-evitals.debug.xcconfig"; sourceTree = "<group>"; };
 		81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = LaunchScreen.storyboard; path = evitals/LaunchScreen.storyboard; sourceTree = "<group>"; };
@@ -42,6 +43,7 @@
 		13B07FAE1A68108700A75B9A /* evitals */ = {
 			isa = PBXGroup;
 			children = (
+				5F60F9B6306D18630010A02E /* evitals.entitlements */,
 				13B07FB51A68108700A75B9A /* Images.xcassets */,
 				761780EC2CA45674006654EE /* AppDelegate.swift */,
 				13B07FB61A68108700A75B9A /* Info.plist */,
@@ -259,6 +261,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_ENTITLEMENTS = evitals/evitals.entitlements;
 				CURRENT_PROJECT_VERSION = 15;
 				DEVELOPMENT_TEAM = NF7997X226;
 				ENABLE_BITCODE = NO;
@@ -293,6 +296,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_ENTITLEMENTS = evitals/evitals.release.entitlements;
 				CURRENT_PROJECT_VERSION = 15;
 				DEVELOPMENT_TEAM = NF7997X226;
 				INFOPLIST_FILE = evitals/Info.plist;
