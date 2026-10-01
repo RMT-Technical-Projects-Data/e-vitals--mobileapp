@@ -17,6 +17,7 @@ import LinearGradient from 'react-native-linear-gradient';
 import { colors, fonts } from '../../config/globall';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import apiService from '../../services/apiService';
+import PatientAvatar from '../../components/common/PatientAvatar';
 
 // Get screen width and height
 const { width, height } = Dimensions.get('window');
@@ -39,10 +40,13 @@ const SCREEN_BG_COLORS = ['#ffffff', '#ffffff', '#ffffff'];
 const PatientProfileScreen = ({ navigation }) => {
   const [userData, setUserData] = useState({
     name: "Loading...",
+    firstName: "",
+    lastName: "",
     email: "Loading...",
     phone: "Loading...",
     dob: "Loading...",
     address: "Loading...",
+    profilePic: null,
   });
 
   const [medicalTeam, setMedicalTeam] = useState({
@@ -253,10 +257,13 @@ const PatientProfileScreen = ({ navigation }) => {
 
         setUserData({
           name: safeString(fullName, 'Not provided'),
+          firstName,
+          lastName,
           email: safeString(patientEmail, 'Not provided'),
           phone: safeString(patientPhone, 'Not provided'),
           dob: safeString(dobFormatted, 'Not provided'),
           address: safeString(addressFormatted, 'Not provided'),
+          profilePic: patient.profile_pic || patient.profilePic || data.profile_pic || data.profilePic || null,
         });
 
         // Extract medical team information from new API response
@@ -439,10 +446,13 @@ const PatientProfileScreen = ({ navigation }) => {
 
         setUserData({
           name: safeString(fullName, 'Not provided'),
+          firstName: parsed.first_name || profile.first_name || '',
+          lastName: parsed.last_name || profile.last_name || '',
           email: safeString(parsed.email, 'Not provided'),
           phone: safeString(phoneValue, 'Not provided'),
           dob: safeString(dobFormatted, 'Not provided'),
           address: safeString(addressValue, 'Not provided'),
+          profilePic: profile.profile_pic || parsed.profile_pic || parsed.profilePic || null,
         });
 
         // Handle Medical Team from user data
@@ -578,6 +588,18 @@ const PatientProfileScreen = ({ navigation }) => {
           >
               {/* Patient Details Section - Now in a box */}
               <View style={styles.sectionContainer}>
+                <View style={styles.profilePhotoRow}>
+                  <PatientAvatar
+                    profilePic={userData.profilePic}
+                    firstName={userData.firstName}
+                    lastName={userData.lastName}
+                    size={scaleWidth(84)}
+                    borderRadius={scaleWidth(42)}
+                    backgroundColor={NAVY_BLUE}
+                    textStyle={styles.profileInitials}
+                  />
+                  <Text style={styles.profileName} numberOfLines={2}>{userData.name}</Text>
+                </View>
                 <View style={styles.sectionHeader}>
                   <Text style={styles.sectionTitle}>Patient Details</Text>
                 </View>
@@ -702,6 +724,22 @@ const styles = StyleSheet.create({
   },
 
   // Section Container (for both Patient Details and Medical Team)
+  profilePhotoRow: {
+    alignItems: 'center',
+    marginBottom: scaleHeight(16),
+    gap: scaleHeight(10),
+  },
+  profileName: {
+    fontSize: scaleFont(18),
+    fontWeight: '800',
+    color: '#0b1f3f',
+    textAlign: 'center',
+  },
+  profileInitials: {
+    fontSize: scaleFont(26),
+    fontWeight: '800',
+    color: '#ffffff',
+  },
   sectionContainer: {
     width: '100%',
     marginBottom: scaleHeight(25),

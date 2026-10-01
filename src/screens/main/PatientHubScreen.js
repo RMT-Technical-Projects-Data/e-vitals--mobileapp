@@ -28,11 +28,14 @@ import {
   DEFAULT_VITAL_TARGETS,
   checkBPValues,
   checkPulseValue,
+  checkWeightValue,
   getVitalColor,
+  getVitalStatusColor,
   MEASUREMENT_COLORS,
-  normalizeWeightToLbs,
 } from '../../utils/measurementUtils';
+import { resolveEffectiveScheduleTargets } from '../../utils/scheduleTargetUtils';
 import PulseIcon from '../../components/common/PulseIcon';
+import PatientAvatar from '../../components/common/PatientAvatar';
 
 const { width, height: screenHeight } = Dimensions.get('window');
 const guidelineBaseWidth = 375;
@@ -225,6 +228,7 @@ const VitalUploadCard = ({
   unit,
   onPress,
   accentColor,
+  weightTarget,
 }) => {
   const { date, time } = formatVitalDateParts(dateValue);
 
@@ -258,8 +262,7 @@ const VitalUploadCard = ({
     } else if (title === 'Blood Glucose') {
       valueColor = getVitalColor(String(primary).replace(/[^\d.-]/g, ''), t.glucoseMin, t.glucoseMax);
     } else if (title === 'Weight') {
-      const wtLbs = normalizeWeightToLbs(primary, unit);
-      valueColor = getVitalColor(wtLbs, t.weightMin, t.weightMax);
+      valueColor = getVitalStatusColor(checkWeightValue(primary, weightTarget || t));
     }
   }
 
@@ -404,6 +407,7 @@ export default function PatientHubScreen({ navigation, route }) {
   const [practiceId, setPracticeId] = useState(routePracticeId || null);
   const [patientData, setPatientData] = useState(null);
   const [notes, setNotes] = useState([]);
+  const [weightTarget, setWeightTarget] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showFollowUpModal, setShowFollowUpModal] = useState(false);
   const [submittingFollowUp, setSubmittingFollowUp] = useState(false);
@@ -529,10 +533,22 @@ export default function PatientHubScreen({ navigation, route }) {
         return;
       }
 
-      const [detailsResult, metersResult] = await Promise.all([
+      const [detailsResult, metersResult, practiceTargets, patientTargets] = await Promise.all([
         apiService.getPatientDetailsFast(pId, patientId).catch(() => null),
         apiService.getPatientMeters(pId, patientId).catch(() => null),
+        apiService.getPracticeScheduleTargets(pId).catch(() => null),
+        apiService.getPatientScheduleTargets(pId, patientId).catch(() => null),
       ]);
+
+      const effectiveTargets = resolveEffectiveScheduleTargets(
+        patientTargets?.data || {},
+        practiceTargets?.data || {},
+      );
+      setWeightTarget(
+        effectiveTargets?.weightTargetRange && typeof effectiveTargets.weightTargetRange === 'object'
+          ? effectiveTargets.weightTargetRange
+          : null
+      );
 
       if (detailsResult?.success && detailsResult.data) {
         const meters = metersResult?.data || [];
@@ -736,8 +752,23 @@ export default function PatientHubScreen({ navigation, route }) {
             showsVerticalScrollIndicator={false}
           >
             <View style={styles.card}>
+              <View style={styles.profileHeader}>
+                <PatientAvatar
+                  profilePic={patient.profile_pic || patient.profilePic || patient.profile_image}
+                  firstName={patient.first_name || displayName.split(' ')[0]}
+                  lastName={patient.last_name || displayName.split(' ').slice(1).join(' ')}
+                  size={scaleWidth(72)}
+                  borderRadius={scaleWidth(36)}
+                  backgroundColor={accentColor}
+                  textStyle={styles.profileInitials}
+                />
+                <View style={styles.profileHeaderText}>
+                  <Text style={styles.profileName} numberOfLines={2}>{displayName}</Text>
+                  <Text style={styles.cardTitle}>Patient Details</Text>
+                </View>
+              </View>
               <View style={styles.cardTitleRow}>
-                <Text style={styles.cardTitle}>Patient Details</Text>
+                <Text style={styles.cardTitle}>Status</Text>
                 {(() => {
                   const raw = String(patient.status ?? '').trim().toLowerCase();
                   const numeric = /^\d+$/.test(raw) ? parseInt(raw, 10) : null;
@@ -821,8 +852,9 @@ export default function PatientHubScreen({ navigation, route }) {
                   accentColor={accentColor}
                   onPress={() => openVitalList('weight')}
                   dateValue={wt?.measure_new_date_time || wt?.measure_date_time || wt?.created_at}
-                  primary={wt?.weight != null ? parseFloat(wt.weight * 2.20462).toFixed(1) : '-'}
+                  primary={wt?.weight != null ? parseFloat(wt.weight).toFixed(1) : '-'}
                   unit="lb"
+                  weightTarget={weightTarget}
                 />
               </View>
             </View>
@@ -1308,6 +1340,25 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.12,
     shadowRadius: 16,
     elevation: 4,
+  },
+  profileHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scaleWidth(14),
+    marginBottom: scaleWidth(14),
+  },
+  profileHeaderText: {
+    flex: 1,
+  },
+  profileName: {
+    fontSize: scaleFont(18),
+    fontWeight: '800',
+    color: TEXT_DARK,
+  },
+  profileInitials: {
+    fontSize: scaleFont(22),
+    fontWeight: '800',
+    color: '#ffffff',
   },
   cardTitleRow: {
     flexDirection: 'row',

@@ -149,6 +149,7 @@ export const API_ENDPOINTS = {
   CHAT_NOTIFICATIONS_READ_ALL: '/chat/notifications/read-all',
   CHAT_EDIT: (messageId) => `/chat/edit/${messageId}`,
   CHAT_DELETE: (messageId) => `/chat/delete/${messageId}`,
+  CHAT_DELETE_MANY: '/chat/delete-many',
   CHAT_CONVERSATIONS_DELETE: '/chat/conversations/delete',
   CHAT_UPLOAD: '/chat/upload',
   CHAT_AUDIO: '/chat/audio',

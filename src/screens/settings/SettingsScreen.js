@@ -55,6 +55,9 @@ const SettingsScreen = ({ navigation }) => {
   const [biometricLabel, setBiometricLabel] = useState(Platform.OS === 'ios' ? 'Face ID' : 'Biometric login');
   const [isSupportModalVisible, setIsSupportModalVisible] = useState(false);
   const [isSessionModalVisible, setIsSessionModalVisible] = useState(false);
+  const [sessionNotice, setSessionNotice] = useState(null);
+  const [isLogoutVisible, setIsLogoutVisible] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [sessionTimeInput, setSessionTimeInput] = useState('30');
   const [sessionTime, setSessionTime] = useState(30);
 
@@ -108,24 +111,19 @@ const SettingsScreen = ({ navigation }) => {
   };
 
   const handleLogout = () => {
-    Alert.alert(
-      'Logout',
-      'Are you sure you want to logout?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Logout',
-          style: 'destructive',
-          onPress: async () => {
-            // Call API logout (ignore errors — always proceed)
-            try { await apiService.logout(); } catch (_) {}
-            // logout() clears AsyncStorage + sets isLoggedIn=false
-            // App.js re-renders automatically and shows Login screen
-            await logout();
-          },
-        },
-      ]
-    );
+    setIsLogoutVisible(true);
+  };
+
+  const confirmLogout = async () => {
+    if (isLoggingOut) return;
+    setIsLoggingOut(true);
+    try {
+      try { await apiService.logout(); } catch (_) {}
+      await logout();
+    } finally {
+      setIsLoggingOut(false);
+      setIsLogoutVisible(false);
+    }
   };
 
   const toggleSwitch = () => setIsNotificationsEnabled(previousState => !previousState);
@@ -178,7 +176,10 @@ const SettingsScreen = ({ navigation }) => {
   const handleSaveSessionTime = async () => {
     const parsed = parseInt(sessionTimeInput, 10);
     if (isNaN(parsed) || parsed < 1) {
-      Alert.alert('Error', 'Please enter a valid session time of at least 1 minute.');
+      setSessionNotice({
+        title: 'Session timeout',
+        message: 'Please enter a valid session time of at least 1 minute.',
+      });
       return;
     }
 
@@ -187,14 +188,23 @@ const SettingsScreen = ({ navigation }) => {
       if (result && result.success) {
         setSessionTime(parsed);
         await updateUser({ session_time: parsed });
-        Alert.alert('Success', 'Session timeout updated successfully.');
         setIsSessionModalVisible(false);
+        setSessionNotice({
+          title: 'Session timeout',
+          message: 'Session timeout updated successfully.',
+        });
       } else {
-        Alert.alert('Error', result?.message || 'Failed to update session settings.');
+        setSessionNotice({
+          title: 'Session timeout',
+          message: result?.message || 'Failed to update session settings.',
+        });
       }
     } catch (error) {
       console.log('Error saving session time:', error);
-      Alert.alert('Error', error.message || 'Failed to update session settings.');
+      setSessionNotice({
+        title: 'Session timeout',
+        message: error.message || 'Failed to update session settings.',
+      });
     }
   };
 
@@ -472,6 +482,60 @@ const SettingsScreen = ({ navigation }) => {
         </View>
       </Modal>
 
+      <Modal
+        visible={!!sessionNotice}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSessionNotice(null)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>{sessionNotice?.title}</Text>
+            <Text style={styles.noticeBody}>{sessionNotice?.message}</Text>
+            <View style={styles.noticeActions}>
+              <TouchableOpacity
+                style={styles.sendBtn}
+                onPress={() => setSessionNotice(null)}
+              >
+                <Text style={styles.sendBtnText}>OK</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={isLogoutVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          if (!isLoggingOut) setIsLogoutVisible(false);
+        }}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Logout</Text>
+            <Text style={styles.noticeBody}>Are you sure you want to logout?</Text>
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={styles.cancelBtn}
+                onPress={() => setIsLogoutVisible(false)}
+                disabled={isLoggingOut}
+              >
+                <Text style={styles.cancelBtnText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.logoutBtn}
+                onPress={confirmLogout}
+                disabled={isLoggingOut}
+              >
+                <Text style={styles.sendBtnText}>{isLoggingOut ? 'Logging out…' : 'Logout'}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
     </SafeAreaProvider >
   );
 };
@@ -730,10 +794,29 @@ const styles = StyleSheet.create({
     backgroundColor: NAVY_BLUE,
     borderRadius: scaleWidth(8),
   },
+  logoutBtn: {
+    paddingVertical: scaleHeight(10),
+    paddingHorizontal: scaleWidth(20),
+    backgroundColor: '#D32F2F',
+    borderRadius: scaleWidth(8),
+  },
   sendBtnText: {
     color: WHITE,
     fontWeight: '600',
     fontSize: scaleFont(14),
+  },
+  noticeBody: {
+    fontSize: scaleFont(14),
+    lineHeight: scaleFont(20),
+    color: TEXT_DARK,
+    textAlign: 'center',
+    marginTop: scaleHeight(-8),
+    marginBottom: scaleHeight(8),
+  },
+  noticeActions: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    marginTop: scaleHeight(8),
   },
 });
 

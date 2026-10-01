@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -6,16 +6,16 @@ import {
   TouchableOpacity,
   FlatList,
   Dimensions,
-  Modal,
   StatusBar,
 } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
 import { colors, fonts } from '../../config/globall';
-import { API_CONFIG } from '../../config/api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
+import apiService from '../../services/apiService';
+import { dismissAbnormalNotification, dismissChatNotifications } from '../../utils/notificationInbox';
 
 const { width, height } = Dimensions.get('window');
 const guidelineBaseWidth = 375;
@@ -206,7 +206,7 @@ const NotificationItem = React.memo(({ item, onPress, onMarkAsRead }) => (
   >
     <View style={styles.notificationTextContent}>
       <Text style={styles.notificationTitle} numberOfLines={1}>
-        {item.title} - <Text style={styles.notificationType}>[{item.type}]</Text>
+        {item.title}
       </Text>
       <Text style={styles.notificationMessage} numberOfLines={2}>
         {item.message}
@@ -219,233 +219,102 @@ const NotificationItem = React.memo(({ item, onPress, onMarkAsRead }) => (
 
 // Main Notifications Component
 export default function Notifications({ navigation }) {
-  const [activeFilter, setActiveFilter] = useState('All');
-  const [showDateFilter, setShowDateFilter] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // Save notifications to AsyncStorage
-  const saveNotificationsState = async (notificationsList) => {
-    try {
-      await AsyncStorage.setItem('notificationsState', JSON.stringify(notificationsList));
-      console.log('✅ Saved notifications state:', notificationsList.length);
-    } catch (error) {
-      console.error("Error saving notifications state:", error);
-    }
-  };
-
-  // Load saved notifications
-  const loadSavedNotifications = async () => {
-    try {
-      const savedData = await AsyncStorage.getItem('notificationsState');
-      if (savedData) {
-        const parsed = JSON.parse(savedData);
-        console.log('📖 Loaded saved notifications:', parsed.length);
-        return parsed;
-      }
-    } catch (error) {
-      console.error("Error loading saved notifications:", error);
-    }
-    return null;
-  };
-
-  // Update badge count
-  const updateBadgeCount = async (notificationsList) => {
-    const unreadCount = notificationsList.filter(n => !n.read).length;
-    await AsyncStorage.setItem('unreadBadgeCount', unreadCount.toString());
-    console.log('🔔 Updated badge count:', unreadCount);
-  };
-
-  // Load notifications with proper merging logic (FIXED - No Duplicates)
   const loadRealNotifications = async () => {
     try {
       setLoading(true);
+      const userStr = await AsyncStorage.getItem('user');
+      const user = userStr ? JSON.parse(userStr) : null;
+      const items = [];
 
-      // Fetch fresh data
-      const patientData = await fetchPatientDataForAlerts();
-      const storedAssessments = await loadStoredAssessments();
-      const systemNotifications = await loadSystemNotifications();
-
-      // Generate new alerts from API
-      const newAlerts = patientData ? generateMedicalAlerts(patientData) : [];
-
-      // Load saved notifications
-      const savedNotifications = await loadSavedNotifications();
-
-      // Use a Map to ensure unique notifications by ID
-      const notificationMap = new Map();
-
-      // STEP 1: Add all saved notifications first (preserve their read status)
-      if (savedNotifications && savedNotifications.length > 0) {
-        console.log('📖 Found saved notifications:', savedNotifications.length);
-        savedNotifications.forEach(notif => {
-          notificationMap.set(notif.id, notif);
+      if (user?.id) {
+        const chatResult = await apiService.getChatNotifications(user.id).catch(() => null);
+        const messages = Array.isArray(chatResult?.data) ? chatResult.data : [];
+        messages.forEach((message) => {
+          if (Number(message.is_read) === 1) return;
+          const sender = String(message.from_user_name || '').trim() || 'New message';
+          items.push({
+            id: `chat-${message.id}`,
+            kind: 'message',
+            title: sender,
+            message: message.message || 'Sent you a message',
+            date: message.created_at,
+            read: false,
+            fromUserId: message.from_user_id,
+          });
         });
       }
 
-      // STEP 2: Process new alerts - only add if not already in map
-      console.log('🔍 Processing new alerts:', newAlerts.length);
-      newAlerts.forEach(newAlert => {
-        if (notificationMap.has(newAlert.id)) {
-          const existing = notificationMap.get(newAlert.id);
-          notificationMap.set(newAlert.id, {
-            ...newAlert,
-            read: existing.read
-          });
-          console.log('♻️ Updated existing alert:', newAlert.id);
-        } else {
-          notificationMap.set(newAlert.id, newAlert);
-          console.log('✨ Added new alert:', newAlert.id);
-        }
+      const appResult = await apiService.getInAppNotifications().catch(() => null);
+      const appRows = Array.isArray(appResult?.data) ? appResult.data : [];
+      appRows.forEach((row) => {
+        if (Number(row.is_read) === 1) return;
+        const isReview = row.kind === 'assigned_review';
+        items.push({
+          id: `${row.kind || 'notice'}-${row.id}`,
+          sourceId: row.id,
+          kind: isReview ? 'review' : 'notice',
+          title: row.ticket_title || (isReview ? 'Abnormal Reading Assigned' : 'Notification'),
+          message: row.message || row.patient_name || '',
+          date: row.created_at,
+          read: false,
+          practiceId: row.practice_id,
+          patientId: row.patient_id,
+        });
       });
 
-      // STEP 3: Process stored assessments - only add if not already in map
-      console.log('🔍 Processing assessments:', storedAssessments.length);
-      storedAssessments.forEach(assessment => {
-        if (notificationMap.has(assessment.id)) {
-          const existing = notificationMap.get(assessment.id);
-          notificationMap.set(assessment.id, {
-            ...assessment,
-            read: existing.read
-          });
-          console.log('♻️ Updated existing assessment:', assessment.id);
-        } else {
-          notificationMap.set(assessment.id, assessment);
-          console.log('✨ Added new assessment:', assessment.id);
-        }
-      });
-
-      // STEP 4: Process system notifications - only add if not already in map
-      console.log('🔍 Processing system notifications:', systemNotifications.length);
-      systemNotifications.forEach(sysNotif => {
-        if (notificationMap.has(sysNotif.id)) {
-          const existing = notificationMap.get(sysNotif.id);
-          notificationMap.set(sysNotif.id, {
-            ...sysNotif,
-            read: existing.read
-          });
-          console.log('♻️ Updated existing system notification:', sysNotif.id);
-        } else {
-          notificationMap.set(sysNotif.id, sysNotif);
-          console.log('✨ Added new system notification:', sysNotif.id);
-        }
-      });
-
-      // STEP 5: Clean up old notifications (older than 30 days)
-      const now = new Date();
-      const idsToRemove = [];
-      notificationMap.forEach((notif, id) => {
-        const notifDate = new Date(notif.date);
-        const daysDiff = (now - notifDate) / (1000 * 60 * 60 * 24);
-        if (daysDiff > 30) {
-          idsToRemove.push(id);
-        }
-      });
-      idsToRemove.forEach(id => notificationMap.delete(id));
-      if (idsToRemove.length > 0) {
-        console.log('🗑️ Removed old notifications:', idsToRemove.length);
-      }
-
-      // STEP 6: Convert Map to array (Map ensures uniqueness)
-      const finalNotifications = Array.from(notificationMap.values());
-
-      // STEP 7: Sort by date (newest first)
-      finalNotifications.sort((a, b) => new Date(b.date) - new Date(a.date));
-
-      console.log('✅ Final unique notifications:', finalNotifications.length);
-      console.log('📋 Notification IDs:', finalNotifications.map(n => n.id));
-
-      // Save state
-      await saveNotificationsState(finalNotifications);
-      await updateBadgeCount(finalNotifications);
-
-      setNotifications(finalNotifications);
-
+      items.sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
+      setNotifications(items);
+      await AsyncStorage.setItem('unreadBadgeCount', String(items.length));
     } catch (error) {
-      console.error('❌ Error loading notifications:', error);
+      console.warn('Error loading notifications:', error?.message || error);
+      setNotifications([]);
     } finally {
       setLoading(false);
     }
   };
 
-  // Load on mount and when screen focuses
   useFocusEffect(
     useCallback(() => {
       loadRealNotifications();
     }, [])
   );
 
-  // Mark single notification as read
-  const handleMarkAsRead = async (notificationId) => {
-    console.log('📖 Marking as read:', notificationId);
+  const handleNotificationPress = async (notification) => {
+    setNotifications((prev) => prev.filter((item) => item.id !== notification.id));
 
-    const updatedNotifications = notifications.map(notification =>
-      notification.id === notificationId
-        ? { ...notification, read: true }
-        : notification
-    );
-
-    setNotifications(updatedNotifications);
-    await saveNotificationsState(updatedNotifications);
-    await updateBadgeCount(updatedNotifications);
-  };
-
-  // Mark all as read
-  const handleMarkAllAsRead = async () => {
-    const updatedNotifications = notifications.map(notification => ({
-      ...notification,
-      read: true
-    }));
-
-    setNotifications(updatedNotifications);
-    await saveNotificationsState(updatedNotifications);
-    await updateBadgeCount(updatedNotifications);
-
-    console.log('✅ All notifications marked as read');
-  };
-
-  // Handle notification press
-  const handleNotificationPress = (notification) => {
-    if (notification.type === 'Store') {
-      navigation.navigate('StoreSummary', { assessmentData: notification });
+    if (notification.kind === 'message' && notification.fromUserId) {
+      dismissChatNotifications(notification.fromUserId);
+      navigation.navigate('Chat', { openUserId: notification.fromUserId });
       return;
     }
 
-    if (notification.type === 'Alert' && notification.alertType) {
-      navigation.navigate('MCQ_Agent', {
-        alertType: notification.alertType,
-        notificationData: notification
+    if (notification.kind === 'review') {
+      if (notification.sourceId) {
+        apiService.markInAppNotificationRead(notification.sourceId).catch(() => null);
+      }
+      dismissAbnormalNotification({
+        practiceId: notification.practiceId,
+        patientId: notification.patientId,
       });
+      navigation.navigate('AssignedAbnormalReviews');
       return;
     }
 
-    // Handle System type notifications
-    if (notification.type === 'System') {
-      console.log('System notification clicked:', notification.id);
-      return;
+    if (notification.sourceId) {
+      apiService.markInAppNotificationRead(notification.sourceId).catch(() => null);
     }
   };
-
-  // Filter notifications
-  const filteredNotifications = notifications.filter(notif => {
-    if (activeFilter === 'All') return true;
-    if (activeFilter === 'Unread') return !notif.read;
-    return notif.type === activeFilter;
-  });
-
-  // Generate notification types with System and Alert always included (no Store)
-  const uniqueTypes = [...new Set(notifications.map(n => n.type))];
-  const baseTypes = ['Alert', 'System'];
-  const allTypes = [...new Set([...baseTypes, ...uniqueTypes])].filter(type => type !== 'Store');
-  const notificationTypes = ['All', 'Unread', ...allTypes];
 
   const renderItem = useCallback(({ item }) => (
     <NotificationItem
       item={item}
       onPress={handleNotificationPress}
-      onMarkAsRead={handleMarkAsRead}
+      onMarkAsRead={() => {}}
     />
-  ), [notifications]);
+  ), []);
 
   return (
     <SafeAreaProvider>
@@ -461,94 +330,41 @@ export default function Notifications({ navigation }) {
               >
                 <MaterialIcons name="arrow-back" size={21} color="#0b1f3f" />
               </TouchableOpacity>
-              <Text style={styles.topbarTitle}>Medical Alerts</Text>
-              <TouchableOpacity
-                style={styles.filterIconButton}
-                onPress={() => setShowDateFilter(!showDateFilter)}
-              >
-                <MaterialIcons name="expand-more" size={22} color="#0b1f3f" />
-              </TouchableOpacity>
+              <Text style={styles.topbarTitle}>Notifications</Text>
+              <View style={styles.filterIconButton} />
             </View>
 
             <View style={styles.contentSection}>
-              <View style={styles.filterRow}>
-                {notificationTypes.map(type => (
-                  <TouchableOpacity
-                    key={type}
-                    style={[
-                      styles.filterButton,
-                      activeFilter === type && styles.activeFilterButton,
-                    ]}
-                    onPress={() => setActiveFilter(type)}>
-                    <Text
-                      style={[
-                        styles.filterText,
-                        activeFilter === type && styles.activeFilterText,
-                      ]}>
-                      {type}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-
               <Text style={styles.sectionTitle}>
-                {activeFilter} Notifications ({filteredNotifications.length})
+                Notifications ({notifications.length})
               </Text>
 
               {loading ? (
                 <View style={styles.loadingContainer}>
-                  <Text style={styles.loadingText}>Loading medical alerts...</Text>
+                  <Text style={styles.loadingText}>Loading notifications...</Text>
                 </View>
               ) : (
                 <FlatList
-                  data={filteredNotifications}
+                  data={notifications}
                   renderItem={renderItem}
-                  keyExtractor={item => item.id}
+                  keyExtractor={(item) => String(item.id)}
                   extraData={notifications.length}
                   contentContainerStyle={styles.listContentContainer}
                   ListEmptyComponent={() => (
                     <View style={styles.emptyContainer}>
-                      <Text style={styles.emptyText}>No {activeFilter.toLowerCase()} alerts.</Text>
+                      <Text style={styles.emptyText}>No notifications.</Text>
                     </View>
                   )}
                   showsVerticalScrollIndicator={false}
-                  removeClippedSubviews={true}
                 />
               )}
             </View>
           </SafeAreaView>
         </LinearGradient>
-
-        {/* ── FILTER DROPDOWN MODAL — closes on outside tap ── */}
-        <Modal
-          transparent={true}
-          visible={showDateFilter}
-          animationType="fade"
-          onRequestClose={() => setShowDateFilter(false)}
-        >
-          <TouchableOpacity
-            style={styles.modalOverlay}
-            activeOpacity={1}
-            onPress={() => setShowDateFilter(false)}
-          >
-            <View style={styles.filterDropdown}>
-              {['Today', 'Last 7 days', 'Last 30 days', 'All time'].map((option) => (
-                <TouchableOpacity
-                  key={option}
-                  style={styles.filterDropdownItem}
-                  onPress={() => setShowDateFilter(false)}
-                >
-                  <Text style={styles.filterDropdownText}>{option}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </TouchableOpacity>
-        </Modal>
       </View>
     </SafeAreaProvider>
   );
 }
-
 const styles = StyleSheet.create({
   screenRoot: {
     flex: 1,

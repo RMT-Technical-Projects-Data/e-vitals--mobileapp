@@ -31,6 +31,12 @@ import {
   normalizeWeightToLbs,
 } from '../../utils/measurementUtils';
 import { subscribeAbnormalAssignmentReceived } from '../../utils/abnormalAssignmentEvents';
+import {
+  getUnreadNotificationCount,
+  refreshNotificationInbox,
+  subscribeNotificationInbox,
+} from '../../utils/notificationInbox';
+import PatientAvatar from '../../components/common/PatientAvatar';
 
 const { width, height } = Dimensions.get('window');
 const guidelineBaseWidth = 375;
@@ -91,7 +97,7 @@ const Sparkline = ({ points, color }) => {
   );
 };
 
-const AppHeader = ({ color, onNotifications, onMenuPress }) => (
+const AppHeader = ({ color, onNotifications, onMenuPress, showBadge = false }) => (
   <View style={st.evTopbar} pointerEvents="box-none">
     <Image source={eVitalsLogo} style={st.evLogo} resizeMode="contain" pointerEvents="none" />
     <View style={st.topbarActions} pointerEvents="box-none">
@@ -104,7 +110,7 @@ const AppHeader = ({ color, onNotifications, onMenuPress }) => (
         accessibilityLabel="Notifications"
       >
         <MaterialIcons name="notifications-none" size={21} color={color} />
-        <View style={st.notifBadge} pointerEvents="none" />
+        {showBadge ? <View style={st.notifBadge} pointerEvents="none" /> : null}
       </TouchableOpacity>
       {Boolean(onMenuPress) && (
         <TouchableOpacity
@@ -172,9 +178,13 @@ const SectionTitle = ({ title, subtitle, actionLabel, actionColor, onPress, subt
       )}
     </View>
     {!!actionLabel && (
-      <TouchableOpacity onPress={onPress} accessibilityRole="button">
+      onPress ? (
+        <TouchableOpacity onPress={onPress} accessibilityRole="button">
+          <Text style={[st.evSectionAction, { color: actionColor || EV.navyMid }]}>{actionLabel}</Text>
+        </TouchableOpacity>
+      ) : (
         <Text style={[st.evSectionAction, { color: actionColor || EV.navyMid }]}>{actionLabel}</Text>
-      </TouchableOpacity>
+      )
     )}
   </View>
 );
@@ -217,9 +227,14 @@ const CapsulePanelSummary = ({ total = 0, active = 0, pending = 0, locked = 0, n
   // Animated translateX (not ScrollView.scrollTo) — continuous scrollTo was stealing
   // touches from Dashboard Counts and other rows below this section.
   const translateX = React.useRef(new Animated.Value(0)).current;
-  const [loopWidth, setLoopWidth] = React.useState(0);
-  const animRef = React.useRef(null);
+  const loopWidthRef = React.useRef(0);
+  const positionRef = React.useRef(0);
   const pausedRef = React.useRef(false);
+  const layoutTimerRef = React.useRef(null);
+  const runFromRef = React.useRef(() => {});
+  const generationRef = React.useRef(0);
+
+  const MARQUEE_PX_PER_SECOND = 32;
 
   const baseItems = [
     {
@@ -280,39 +295,81 @@ const CapsulePanelSummary = ({ total = 0, active = 0, pending = 0, locked = 0, n
     },
   ];
 
-  const carouselItems = [...baseItems, ...baseItems];
-
-  const startLoop = React.useCallback(() => {
-    if (pausedRef.current || loopWidth <= 0) return;
-    translateX.setValue(0);
-    animRef.current = Animated.timing(translateX, {
-      toValue: -loopWidth,
-      duration: Math.max(8000, (loopWidth / 35) * 1000),
+  const beginTimingRef = React.useRef(() => {});
+  beginTimingRef.current = (start) => {
+    const width = loopWidthRef.current;
+    if (pausedRef.current || width <= 0) return;
+    const generation = ++generationRef.current;
+    translateX.setValue(start);
+    positionRef.current = start;
+    const distance = Math.max(width + start, 1);
+    Animated.timing(translateX, {
+      toValue: -width,
+      duration: (distance / MARQUEE_PX_PER_SECOND) * 1000,
       easing: Easing.linear,
       useNativeDriver: true,
+    }).start(({ finished }) => {
+      if (!finished || pausedRef.current || generation !== generationRef.current) return;
+      // Second copy is now exactly where the first copy started, so All re-enters from the right.
+      beginTimingRef.current(0);
     });
-    animRef.current.start(({ finished }) => {
-      if (finished && !pausedRef.current) startLoop();
-    });
-  }, [loopWidth, translateX]);
+  };
 
-  React.useEffect(() => {
-    pausedRef.current = false;
-    startLoop();
-    return () => {
-      pausedRef.current = true;
-      animRef.current?.stop?.();
-    };
-  }, [startLoop]);
+  runFromRef.current = (fromValue) => {
+    const width = loopWidthRef.current;
+    if (pausedRef.current || width <= 0) return;
+
+    let start = Number(fromValue) || 0;
+    if (start > 0) start = 0;
+    while (start <= -width) start += width;
+
+    generationRef.current += 1;
+    translateX.stopAnimation(() => {
+      if (pausedRef.current || loopWidthRef.current <= 0) return;
+      beginTimingRef.current(start);
+    });
+  };
+
+  const applySegmentWidth = (nextWidth) => {
+    if (nextWidth <= 0) return;
+    const previousWidth = loopWidthRef.current;
+    if (previousWidth > 0 && Math.abs(nextWidth - previousWidth) < 1) return;
+
+    if (previousWidth <= 0) {
+      loopWidthRef.current = nextWidth;
+      beginTimingRef.current(0);
+      return;
+    }
+
+    const generation = ++generationRef.current;
+    translateX.stopAnimation((value) => {
+      if (generation !== generationRef.current) return;
+      const current = Number.isFinite(value) ? value : positionRef.current;
+      const ratio = (Math.abs(current) % previousWidth) / previousWidth;
+      loopWidthRef.current = nextWidth;
+      const nextPosition = -ratio * nextWidth;
+      positionRef.current = nextPosition;
+      if (!pausedRef.current) beginTimingRef.current(nextPosition);
+    });
+  };
+
+  React.useEffect(() => () => {
+    pausedRef.current = true;
+    if (layoutTimerRef.current) clearTimeout(layoutTimerRef.current);
+    translateX.stopAnimation();
+  }, [translateX]);
 
   const pauseMarquee = () => {
     pausedRef.current = true;
-    animRef.current?.stop?.();
+    generationRef.current += 1;
+    translateX.stopAnimation((value) => {
+      if (Number.isFinite(value)) positionRef.current = value;
+    });
   };
 
   const resumeMarquee = () => {
     pausedRef.current = false;
-    startLoop();
+    runFromRef.current(positionRef.current);
   };
 
   return (
@@ -320,17 +377,21 @@ const CapsulePanelSummary = ({ total = 0, active = 0, pending = 0, locked = 0, n
       <View style={st.capsuleCarouselClip}>
         <Animated.View
           style={[st.capsuleCarouselTrack, { transform: [{ translateX }] }]}
-          onLayout={(e) => {
-            const full = e.nativeEvent.layout.width;
-            if (full > 0) {
-              const next = full / 2;
-              if (Math.abs(next - loopWidth) > 1) setLoopWidth(next);
-            }
-          }}
         >
-          {carouselItems.map((item, index) => (
+          {[0, 1].map((copy) => (
+            <View
+              key={`capsule-set-${copy}`}
+              style={st.capsuleCarouselSet}
+              onLayout={copy === 0 ? (e) => {
+                const next = e.nativeEvent.layout.width;
+                if (next <= 0) return;
+                if (layoutTimerRef.current) clearTimeout(layoutTimerRef.current);
+                layoutTimerRef.current = setTimeout(() => applySegmentWidth(next), 180);
+              } : undefined}
+            >
+              {baseItems.map((item) => (
             <TouchableOpacity
-              key={`${item.key}-${index}`}
+              key={`${item.key}-${copy}`}
               style={[
                 st.capsulePill,
                 {
@@ -360,6 +421,8 @@ const CapsulePanelSummary = ({ total = 0, active = 0, pending = 0, locked = 0, n
                 </Text>
               </View>
             </TouchableOpacity>
+              ))}
+            </View>
           ))}
         </Animated.View>
       </View>
@@ -437,7 +500,6 @@ const DashboardCountsSection = ({
               onPress={item.onPress}
               hitSlop={8}
             >
-              <Text style={st.dbCountsIndex}>{item.id}</Text>
               <Text style={st.dbCountsRowTitle}>{item.title}</Text>
               <View style={st.dbCountsRightWrap} pointerEvents="none">
                 <Text style={[st.dbCountsValue, { color: item.valueColor }]}>{item.value}</Text>
@@ -806,6 +868,80 @@ const fallbackCaregiverPatients = [
   },
 ];
 
+const RECENT_UPLOAD_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+const parseUploadMs = (value) => {
+  if (!value) return null;
+  const ms = new Date(value).getTime();
+  return Number.isFinite(ms) ? ms : null;
+};
+
+const collectPatientReadings = (patient) => {
+  const readings = [];
+  const systolic = patient?.last_systolic ?? patient?.systolic;
+  const diastolic = patient?.last_diastolic ?? patient?.diastolic;
+  const bpAt = parseUploadMs(patient?.last_bp_at || patient?.last_bp_date);
+  if (bpAt && systolic != null && diastolic != null && systolic !== '' && diastolic !== '') {
+    readings.push({
+      type: 'BP',
+      label: 'Blood pressure',
+      value: `${systolic}/${diastolic}`,
+      at: bpAt,
+    });
+  }
+
+  const glucose = patient?.last_glucose ?? patient?.glucose;
+  const bgAt = parseUploadMs(patient?.last_bg_at || patient?.last_bg_date);
+  if (bgAt && glucose != null && glucose !== '') {
+    readings.push({
+      type: 'BG',
+      label: 'Blood glucose',
+      value: `${glucose} mg/dL`,
+      at: bgAt,
+    });
+  }
+
+  const weight = patient?.last_weight ?? patient?.weight;
+  const wtAt = parseUploadMs(patient?.last_wt_at || patient?.last_wt_date);
+  const weightNum = Number(weight);
+  if (wtAt && weight != null && weight !== '' && Number.isFinite(weightNum)) {
+    readings.push({
+      type: 'WT',
+      label: 'Weight',
+      value: `${weightNum.toFixed(1)} lb`,
+      at: wtAt,
+    });
+  }
+
+  return readings.sort((a, b) => b.at - a.at);
+};
+
+const buildRecentUploadCards = (patients) => {
+  const now = Date.now();
+  return (patients || [])
+    .map((patient) => {
+      const readings = collectPatientReadings(patient);
+      if (!readings.length) return null;
+      const recent = readings.filter((reading) => now - reading.at <= RECENT_UPLOAD_WINDOW_MS);
+      const shown = recent.length ? recent : [readings[0]];
+      return { patient, readings: shown, uploadedAt: shown[0].at };
+    })
+    .filter(Boolean)
+    .sort((a, b) => b.uploadedAt - a.uploadedAt)
+    .slice(0, 3);
+};
+
+const formatUploadAge = (ms) => {
+  const diff = Date.now() - ms;
+  if (!Number.isFinite(diff) || diff < 0) return '';
+  if (diff < 60 * 1000) return 'Just now';
+  const minutes = Math.floor(diff / 60000);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+};
+
 const fallbackProviderPatients = [
   {
     id: 'mock-1',
@@ -846,6 +982,7 @@ export default function Home({ navigation }) {
 
   // --- Caregiver Dashboard State ---
   const [caregiverPatients, setCaregiverPatients] = useState([]);
+  const [recentUploadPatients, setRecentUploadPatients] = useState([]);
   const [isCaregiverLoading, setIsCaregiverLoading] = useState(true);
   const [caregiverFollowUps, setCaregiverFollowUps] = useState([]);
   const [totalPatientCount, setTotalPatientCount] = useState(null);
@@ -859,6 +996,7 @@ export default function Home({ navigation }) {
   const [practiceId, setPracticeId] = useState(null);
   const [patientTableId, setPatientTableId] = useState(null);
   const [assignedReviewsCount, setAssignedReviewsCount] = useState(0);
+  const [hasUnreadNotifications, setHasUnreadNotifications] = useState(false);
 
   // --- Fetch Handlers ---
   const fetchPatientVitals = useCallback(async () => {
@@ -922,7 +1060,7 @@ export default function Home({ navigation }) {
         // Use the same program-analytics API the web frontend uses. It returns
         // summary.{ total, active, pending, locked, recent, missed, abnormal }
         // which are the correct counts for the panel hero card.
-        const [listResult, analyticsResult] = await Promise.all([
+        const [listResult, analyticsResult, recentResult] = await Promise.all([
           apiService.getPatients(pId, {
             limit: 1000,
             page: 1,
@@ -930,6 +1068,12 @@ export default function Home({ navigation }) {
             caregiverId: userObj.id,
           }).catch(() => null),
           apiService.getProgramAnalytics(pId, 'rpm').catch(() => null),
+          apiService.getPatients(pId, {
+            limit: 100,
+            page: 1,
+            program: 'rpm',
+            dashboardFilter: 'recentUploads',
+          }).catch(() => null),
         ]);
 
         // analytics.summary is { total, active, pending, locked, recent, missed, abnormal }
@@ -962,6 +1106,7 @@ export default function Home({ navigation }) {
         if (analyticsTotal != null) {
           setTotalPatientCount(analyticsTotal);
         }
+        setRecentUploadPatients(recentResult?.data?.patients || []);
         const patientList = listResult?.data?.patients || [];
         if (patientList.length > 0) {
           setCaregiverPatients(patientList);
@@ -993,6 +1138,7 @@ export default function Home({ navigation }) {
           setCaregiverFollowUps([]);
         }
       } else {
+        setRecentUploadPatients([]);
         setCaregiverPatients(fallbackCaregiverPatients);
         setTotalPatientCount(fallbackCaregiverPatients.length);
         setCaregiverFollowUps([]);
@@ -1000,6 +1146,7 @@ export default function Home({ navigation }) {
       }
     } catch (error) {
       console.warn('Error fetching caregiver patients:', error);
+      setRecentUploadPatients([]);
       setCaregiverPatients(fallbackCaregiverPatients);
       setTotalPatientCount(fallbackCaregiverPatients.length);
       setCaregiverFollowUps([]);
@@ -1135,8 +1282,35 @@ export default function Home({ navigation }) {
   useFocusEffect(
     useCallback(() => {
       loadUserData();
+      const syncNotificationBadge = async () => {
+        await refreshNotificationInbox();
+        let apiCount = 0;
+        try {
+          const userStr = await AsyncStorage.getItem('user');
+          const user = userStr ? JSON.parse(userStr) : null;
+          if (user?.id) {
+            const [chatResult, reviewResult] = await Promise.all([
+              apiService.getChatUnreadCount(user.id).catch(() => null),
+              apiService.getInAppNotificationCount().catch(() => null),
+            ]);
+            apiCount = Number(chatResult?.data?.count || 0) + Number(reviewResult?.data?.count || 0);
+          }
+        } catch {
+          apiCount = 0;
+        }
+        setHasUnreadNotifications(getUnreadNotificationCount() > 0 || apiCount > 0);
+      };
+      syncNotificationBadge();
     }, [loadUserData])
   );
+
+  useEffect(() => {
+    const unsubscribe = subscribeNotificationInbox(() => {
+      setHasUnreadNotifications((current) => getUnreadNotificationCount() > 0 || current);
+    });
+    refreshNotificationInbox();
+    return unsubscribe;
+  }, []);
 
   useEffect(() => {
     const unsubscribePush = subscribeAbnormalAssignmentReceived(() => {
@@ -1268,6 +1442,7 @@ export default function Home({ navigation }) {
               <AppHeader
                 color={EV.navy}
                 onNotifications={openNotifications}
+                showBadge={hasUnreadNotifications}
               />
             </View>
             <ScrollView
@@ -1402,7 +1577,7 @@ export default function Home({ navigation }) {
     const criticalPatients = displayList.filter(
       (p) => getNormalizedStatus(p) === 4 || p.status === 'Critical' || p.has_abnormal_measurement
     );
-    const recentUploads = displayList.slice(0, 4);
+    const recentUploads = buildRecentUploadCards(recentUploadPatients);
     const missedUploadsCount = toSafeNumber(stats.missed_uploads, Math.max(0, totalPanel - activeCount));
     const abnormalCount = toSafeNumber(stats.abnormal_measurements, criticalPatients.length);
     const recentUploadsCount = toSafeNumber(stats.recent_uploads, recentUploads.length);
@@ -1439,6 +1614,7 @@ export default function Home({ navigation }) {
               <AppHeader
                 color={EV.navyMid}
                 onNotifications={openNotifications}
+                showBadge={hasUnreadNotifications}
                 onMenuPress={() => setShowMenu(true)}
               />
             </View>
@@ -1473,30 +1649,47 @@ export default function Home({ navigation }) {
                 navigation={navigation}
               />
 
-              <SectionTitle title="Recent Uploads" subtitle="Latest patient syncs" actionLabel="Patients" actionColor={EV.navyMid} onPress={() => navigation.navigate('Patients')} />
+              <SectionTitle title="Recent Uploads" subtitle="Latest patient syncs" actionLabel="Patients" actionColor={EV.navyMid} />
 
-              {isCaregiverLoading && caregiverPatients.length === 0 ? (
+              {isCaregiverLoading && recentUploadPatients.length === 0 ? (
                 <ActivityIndicator size="small" color={EV.navyMid} style={{ marginVertical: 20 }} />
+              ) : recentUploads.length === 0 ? (
+                <View style={st.emptyAlertCard}><Text style={st.emptyAlertText}>No recent uploads.</Text></View>
               ) : (
                 <View style={st.uploadList}>
-                  {recentUploads.map((p) => {
-                    const initials = `${p.first_name?.[0] || ''}${p.last_name?.[0] || ''}` || 'EV';
-                    const latestBp = p.data_summary || '--';
-                    const uploadLabel = p.glucose ? `Uploaded blood glucose: ${p.glucose}` : latestBp !== '--' ? `Uploaded blood pressure: ${latestBp}` : 'Uploaded latest vitals';
+                  {recentUploads.map(({ patient, readings, uploadedAt }) => {
+                    const uploadedAgo = formatUploadAge(uploadedAt);
                     return (
-                      <TouchableOpacity key={String(p.id)} style={st.uploadRow} onPress={() => openPatientHub(p, 'caregiver')}>
-                        <View style={st.uploadAvatar}><Text style={st.uploadAvatarText}>{initials}</Text></View>
+                      <TouchableOpacity key={String(patient.patient_table_id || patient.id)} style={st.uploadRow} onPress={() => openPatientHub(patient, 'caregiver')}>
+                        <PatientAvatar
+                          profilePic={patient.profile_pic || patient.profilePic || patient.profile_image}
+                          firstName={patient.first_name}
+                          lastName={patient.last_name}
+                          size={scaleWidth(42)}
+                          borderRadius={scaleWidth(15)}
+                          backgroundColor={EV.bluePale}
+                          textColor={EV.blueDeep}
+                          textStyle={st.uploadAvatarText}
+                        />
                         <View style={st.uploadText}>
-                          <Text style={st.uploadName}>{p.first_name} {p.last_name}</Text>
-                          <Text style={st.uploadDetail}>{uploadLabel}</Text>
+                          <Text style={st.uploadName}>{patient.first_name} {patient.last_name}</Text>
+                          {readings.map((reading) => (
+                            <Text key={reading.type} style={st.uploadDetail}>
+                              {reading.label}: {reading.value}
+                            </Text>
+                          ))}
+                          {!!uploadedAgo && <Text style={st.uploadDetail}>{uploadedAgo}</Text>}
                         </View>
-                        <View style={st.uploadPill}><Text style={st.uploadPillText}>Vitals</Text></View>
+                        <View style={st.uploadPill}>
+                          <Text style={st.uploadPillText}>{readings.map((reading) => reading.type).join(' · ')}</Text>
+                        </View>
                       </TouchableOpacity>
                     );
                   })}
                 </View>
               )}
 
+              {/*
               <SectionTitle title="Critical Alerts" actionLabel="See all" actionColor={EV.muted} onPress={() => navigation.navigate('Patients')} />
 
               {criticalPatients.length === 0 ? (
@@ -1519,6 +1712,7 @@ export default function Home({ navigation }) {
                   })}
                 </View>
               )}
+              */}
 
               <SectionTitle
                 title="CPT Eligibility"
@@ -1603,6 +1797,7 @@ export default function Home({ navigation }) {
               <AppHeader
                 color={EV.navy}
                 onNotifications={openNotifications}
+                showBadge={hasUnreadNotifications}
                 onMenuPress={() => setShowMenu(true)}
               />
             </View>
@@ -1881,7 +2076,12 @@ const st = StyleSheet.create({
   capsuleCarouselTrack: {
     flexDirection: 'row',
     alignItems: 'center',
+    alignSelf: 'flex-start',
     paddingVertical: scaleHeight(2),
+  },
+  capsuleCarouselSet: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   capsuleCarouselContent: {
     paddingHorizontal: Math.max(scaleWidth(16), 16),
@@ -2158,12 +2358,6 @@ const st = StyleSheet.create({
   dbCountsRowDivider: {
     borderBottomWidth: 1,
     borderBottomColor: EV.border,
-  },
-  dbCountsIndex: {
-    fontSize: scaleFont(13),
-    fontWeight: '700',
-    color: EV.mutedLight,
-    width: scaleWidth(28),
   },
   dbCountsRowTitle: {
     flex: 1,

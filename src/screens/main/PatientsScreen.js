@@ -22,6 +22,7 @@ import AddPatientModal from '../../components/modals/AddPatientModal';
 import { MEASUREMENT_COLORS } from '../../utils/measurementUtils';
 import { getPatientListVitalColors } from '../../utils/patientVitalTargets';
 import PulseIcon from '../../components/common/PulseIcon';
+import PatientAvatar from '../../components/common/PatientAvatar';
 
 const { width } = Dimensions.get('window');
 const guidelineBaseWidth = 375;
@@ -59,11 +60,6 @@ const getPatientVitalsDisplay = (item) => {
     ? (wtObj.weight || wtObj.weight_value || wtObj.value)
     : (item.last_weight ?? item.weight);
   let weightNum = toCleanNumber(rawWt);
-  if (weightNum != null && weightNum > 0) {
-    if (weightNum <= 110) {
-      weightNum = weightNum * 2.20462;
-    }
-  }
   let weight = weightNum != null && weightNum > 0 ? weightNum.toFixed(1) : '--';
 
   if (hasBp) {
@@ -134,6 +130,113 @@ const mapStatusToDbCode = (statusVal) => {
 };
 
 const STATUS_DASHBOARD_KEYS = new Set(['active', 'pending', 'locked', '2', '3', '4']);
+
+const isMissedUploadsFilter = (filter) => String(filter || '').trim().toLowerCase() === 'misseduploads';
+
+const DASHBOARD_FILTERS_WITHOUT_STATUS_PILLS = new Set([
+  'misseduploads',
+  'abnormalmeasurements',
+  'recentuploads',
+]);
+
+const hidesStatusPills = (filter) =>
+  DASHBOARD_FILTERS_WITHOUT_STATUS_PILLS.has(String(filter || '').trim().toLowerCase());
+
+const MISSED_UPLOAD_MS = 2 * 24 * 60 * 60 * 1000;
+const MISSED_SOURCE_PAGE_SIZE = 100;
+
+const aplStatusCode = (statusVal) => {
+  if (statusVal == null || statusVal === '') return '2';
+  const str = String(statusVal).trim().toLowerCase();
+  if (str === '2' || str === 'active' || str === 'stable' || str === 'a') return '2';
+  if (str === '3' || str === 'pending' || str === 'review' || str === 'p') return '3';
+  if (str === '4' || str === '1' || str === 'locked' || str === 'inactive' || str === 'l' || str === 'i') return '4';
+  const numeric = Number(str);
+  if (numeric === 1) return '4';
+  if (numeric === 2 || numeric === 3 || numeric === 4) return String(numeric);
+  return null;
+};
+
+const parseUploadTime = (value) => {
+  const raw = String(value ?? '').trim();
+  if (!raw || raw === 'N/A' || raw === '-') return NaN;
+
+  const usDate = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)?)?/i);
+  if (usDate) {
+    let hours = Number(usDate[4] || 0);
+    const minutes = Number(usDate[5] || 0);
+    const seconds = Number(usDate[6] || 0);
+    const ampm = String(usDate[7] || '').toUpperCase();
+    if (ampm === 'PM' && hours < 12) hours += 12;
+    if (ampm === 'AM' && hours === 12) hours = 0;
+    return new Date(Number(usDate[3]), Number(usDate[1]) - 1, Number(usDate[2]), hours, minutes, seconds).getTime();
+  }
+
+  const dateOnly = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (dateOnly) {
+    return new Date(Number(dateOnly[1]), Number(dateOnly[2]) - 1, Number(dateOnly[3]), 23, 59, 59).getTime();
+  }
+
+  const normalized = raw.includes(' ') && !raw.includes('T') ? raw.replace(' ', 'T') : raw;
+  return new Date(normalized).getTime();
+};
+
+const getLastUploadMs = (patient) => {
+  const stamps = [
+    patient?.last_bp_at,
+    patient?.last_bg_at,
+    patient?.last_wt_at,
+    patient?.last_vital_upload_at,
+    patient?.last_upload_at,
+    patient?.upload_date,
+    patient?.last_upload_date,
+  ].map(parseUploadTime).filter((time) => !Number.isNaN(time));
+  if (stamps.length === 0) return null;
+  return Math.max(...stamps);
+};
+
+const getLastUploadRaw = (patient) => {
+  const uploadMs = getLastUploadMs(patient);
+  if (uploadMs != null) return uploadMs;
+  return patient?.last_vital_upload_at
+    || patient?.last_upload_at
+    || patient?.upload_date
+    || patient?.last_upload_date
+    || null;
+};
+
+const isMissedUploadPatient = (patient) => {
+  const uploadMs = getLastUploadMs(patient);
+  if (uploadMs != null) return Date.now() - uploadMs >= MISSED_UPLOAD_MS;
+  if (patient?.has_missed_upload === true) return true;
+  if (patient?.has_missed_upload === false || patient?.has_recent_upload === true) return false;
+  return true;
+};
+
+const formatLastUploadDate = (value) => {
+  if (value == null || value === '') return 'Never';
+  if (typeof value === 'number') {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return 'Never';
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${month}/${day}/${date.getFullYear()}`;
+  }
+  const raw = String(value).trim();
+  if (!raw || raw === 'N/A' || raw === '-') return 'Never';
+
+  const usDate = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (usDate) {
+    return `${usDate[1].padStart(2, '0')}/${usDate[2].padStart(2, '0')}/${usDate[3]}`;
+  }
+
+  const normalized = raw.includes(' ') && !raw.includes('T') ? raw.replace(' ', 'T') : raw;
+  const date = new Date(normalized);
+  if (Number.isNaN(date.getTime())) return 'Never';
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${month}/${day}/${date.getFullYear()}`;
+};
 
 const resolveRouteFilterParams = (params = {}) => {
   const dashboardFilter = params.dashboardFilter || null;
@@ -212,6 +315,7 @@ export default function PatientsScreen({ route, navigation }) {
   const [showAddModal, setShowAddModal] = useState(false);
   const listRef = useRef(null);
   const fetchRequestIdRef = useRef(0);
+  const missedPoolRef = useRef({ key: '', patients: [] });
 
   useEffect(() => {
     if (
@@ -249,63 +353,105 @@ export default function PatientsScreen({ route, navigation }) {
         const pId = await AsyncStorage.getItem('practiceId') || user.practice_id;
         setPracticeId(pId);
         if (pId) {
-          const apiStatusParam = mapStatusToDbCode(statusFilter);
-          const result = await apiService.getPatients(pId, {
-            limit: PAGE_SIZE,
-            page: currentPage,
-            search: debouncedSearch || undefined,
-            status: !activeFilter ? apiStatusParam : undefined,
-            dashboardFilter: activeFilter || undefined,
-            program: 'rpm',
-            includeDashboardEnrichment: true,
-          });
+          const missedUploadsView = isMissedUploadsFilter(activeFilter);
+          let fetchedPatients = [];
+
+          if (missedUploadsView) {
+            const cacheKey = `${pId}|${debouncedSearch}`;
+            let missedPatients = missedPoolRef.current.key === cacheKey
+              ? missedPoolRef.current.patients
+              : null;
+
+            if (!missedPatients) {
+              missedPatients = [];
+              let sourcePage = 1;
+              let sourceTotalPages = 1;
+              do {
+                const sourceResult = await apiService.getPatients(pId, {
+                  limit: MISSED_SOURCE_PAGE_SIZE,
+                  page: sourcePage,
+                  search: debouncedSearch || undefined,
+                  program: 'rpm',
+                  includeDashboardEnrichment: true,
+                });
+                if (requestId !== fetchRequestIdRef.current) return;
+                const batch = sourceResult?.data?.patients || [];
+                missedPatients.push(...batch.filter((patient) => (
+                  isMissedUploadPatient(patient) && aplStatusCode(patient?.status) === '2'
+                )));
+                sourceTotalPages = Math.max(1, sourceResult?.data?.pagination?.total_pages || 1);
+                if (batch.length === 0) break;
+                sourcePage += 1;
+              } while (sourcePage <= sourceTotalPages && sourcePage <= 50);
+
+              missedPoolRef.current = { key: cacheKey, patients: missedPatients };
+            }
+
+            const start = (currentPage - 1) * PAGE_SIZE;
+            fetchedPatients = missedPatients.slice(start, start + PAGE_SIZE);
+            setTotalPages(Math.max(1, Math.ceil(missedPatients.length / PAGE_SIZE) || 1));
+            setTotalPatients(missedPatients.length);
+          } else {
+            const apiStatusParam = mapStatusToDbCode(statusFilter);
+            const result = await apiService.getPatients(pId, {
+              limit: PAGE_SIZE,
+              page: currentPage,
+              search: debouncedSearch || undefined,
+              status: !activeFilter ? apiStatusParam : undefined,
+              dashboardFilter: activeFilter || undefined,
+              program: 'rpm',
+              includeDashboardEnrichment: true,
+            });
+
+            if (requestId !== fetchRequestIdRef.current) {
+              return;
+            }
+
+            if (result?.success && result?.data?.patients) {
+              const pagination = result.data.pagination || {};
+              fetchedPatients = result.data.patients;
+              setTotalPages(Math.max(1, pagination.total_pages || 1));
+              setTotalPatients(pagination.total || fetchedPatients.length);
+            } else {
+              fetchedPatients = [];
+              setTotalPages(1);
+              setTotalPatients(0);
+            }
+          }
 
           if (requestId !== fetchRequestIdRef.current) {
             return;
           }
 
-          if (result?.success && result?.data?.patients) {
-            const pagination = result.data.pagination || {};
-            const fetchedPatients = result.data.patients;
-            setTotalPages(Math.max(1, pagination.total_pages || 1));
-            setTotalPatients(pagination.total || fetchedPatients.length);
+          setPatients(fetchedPatients);
 
-            // Render patients INSTANTLY (ultra-fast, zero blocking lag)
-            setPatients(fetchedPatients);
-
-            // Asynchronous background enrichment for missing measurements (non-blocking)
-            const missingEnrich = fetchedPatients.filter(p => !p.latest_measurements);
-            if (missingEnrich.length > 0) {
-              Promise.all(
-                missingEnrich.map(async (patient) => {
-                  const patientId = patient.patient_table_id || patient.id;
-                  if (!patientId) return null;
-                  try {
-                    const detail = await apiService.getPatientDetailsFast(pId, patientId);
-                    return { id: patient.id, latest: detail?.data?.latest_measurements };
-                  } catch {
-                    return null;
-                  }
-                })
-              ).then((updates) => {
-                if (requestId !== fetchRequestIdRef.current) {
-                  return;
+          const missingEnrich = fetchedPatients.filter((p) => !p.latest_measurements);
+          if (missingEnrich.length > 0) {
+            Promise.all(
+              missingEnrich.map(async (patient) => {
+                const patientId = patient.patient_table_id || patient.id;
+                if (!patientId) return null;
+                try {
+                  const detail = await apiService.getPatientDetailsFast(pId, patientId);
+                  return { id: patient.id, latest: detail?.data?.latest_measurements };
+                } catch {
+                  return null;
                 }
-                const validUpdates = updates.filter(u => u && u.latest);
-                if (validUpdates.length > 0) {
-                  setPatients((prev) =>
-                    prev.map((p) => {
-                      const match = validUpdates.find((u) => u.id === p.id);
-                      return match ? { ...p, latest_measurements: match.latest } : p;
-                    })
-                  );
-                }
-              });
-            }
-          } else {
-            setPatients([]);
-            setTotalPages(1);
-            setTotalPatients(0);
+              })
+            ).then((updates) => {
+              if (requestId !== fetchRequestIdRef.current) {
+                return;
+              }
+              const validUpdates = updates.filter((u) => u && u.latest);
+              if (validUpdates.length > 0) {
+                setPatients((prev) =>
+                  prev.map((p) => {
+                    const match = validUpdates.find((u) => u.id === p.id);
+                    return match ? { ...p, latest_measurements: match.latest } : p;
+                  })
+                );
+              }
+            });
           }
         } else {
           setPatients([]);
@@ -411,12 +557,15 @@ export default function PatientsScreen({ route, navigation }) {
         <View style={styles.pcTop}>
           {/* Avatar with status badge overlay */}
           <View style={styles.avatarWrap}>
-            <View style={[styles.pcAvatarSmall, { backgroundColor: themeColor }]}>
-              <Text style={styles.pcAvatarTextSmall}>
-                {item.first_name?.[0]}
-                {item.last_name?.[0]}
-              </Text>
-            </View>
+            <PatientAvatar
+              profilePic={item.profile_pic || item.profilePic || item.profile_image}
+              firstName={item.first_name}
+              lastName={item.last_name}
+              size={scaleWidth(38)}
+              borderRadius={scaleWidth(14)}
+              backgroundColor={themeColor}
+              textStyle={styles.pcAvatarTextSmall}
+            />
             <View style={[styles.statusBadgeCorner, { backgroundColor: statusMeta.bg, borderColor: '#ffffff' }]}>
               <Text style={[styles.statusBadgeTextCorner, { color: statusMeta.color }]}>
                 {statusMeta.letter}
@@ -493,6 +642,18 @@ export default function PatientsScreen({ route, navigation }) {
             <Text style={styles.pcExtraStatValue}>{vitals.serviceTime} min</Text>
           </View>
         </View>
+
+        {isMissedUploadsFilter(activeFilter) ? (
+          <View style={styles.pcExtraStatsRow}>
+            <View style={styles.pcExtraStatItem}>
+              <MaterialIcons name="event" size={14} color="#687382" />
+              <Text style={styles.pcExtraStatLabel}>Last Upload Date:</Text>
+              <Text style={styles.pcExtraStatValue} numberOfLines={1}>
+                {formatLastUploadDate(getLastUploadRaw(item))}
+              </Text>
+            </View>
+          </View>
+        ) : null}
       </TouchableOpacity>
     );
   };
@@ -609,6 +770,7 @@ export default function PatientsScreen({ route, navigation }) {
             </View>
           ) : null}
 
+          {hidesStatusPills(activeFilter) ? null : (
           <View style={styles.statusFilterRow}>
               {STATUS_TABS.map((tab) => {
                 const currentCode = mapStatusToDbCode(statusFilter);
@@ -652,6 +814,7 @@ export default function PatientsScreen({ route, navigation }) {
                 );
               })}
           </View>
+          )}
 
           {isLoading ? (
             <View style={styles.loadingContainer}>

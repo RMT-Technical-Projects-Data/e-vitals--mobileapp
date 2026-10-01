@@ -657,7 +657,7 @@ const apiService = {
   },
 
   getPatients: async (practiceId, params = {}) => {
-    const isProgramFiltered = !!params.dashboardFilter || !!params.program;
+    const isProgramFiltered = !params.standardList && (!!params.dashboardFilter || !!params.program);
     let endpoint = isProgramFiltered
       ? `/practices/${practiceId}/patients/program-filtered`
       : `/practices/${practiceId}/patients`;
@@ -688,6 +688,9 @@ const apiService = {
     }
     if (params.includeDashboardEnrichment) {
       queryParams.push('includeDashboardEnrichment=true');
+    }
+    if (params.includeUploadFlags) {
+      queryParams.push('includeUploadFlags=true');
     }
     if (params.includeDashboardStats) {
       queryParams.push('includeDashboardStats=true');
@@ -963,6 +966,26 @@ const apiService = {
     return readApiResponse(response, 'Failed to load unread count', { requireSuccess: false });
   },
 
+  getChatNotifications: async (userId) => {
+    const response = await apiRequest(`${API_ENDPOINTS.CHAT_NOTIFICATIONS(userId)}?unread=1&limit=50`, { method: 'GET' });
+    return readApiResponse(response, 'Failed to load message notifications', { requireSuccess: false });
+  },
+
+  getInAppNotifications: async () => {
+    const response = await apiRequest('/tickets/notifications?unread=1', { method: 'GET' });
+    return readApiResponse(response, 'Failed to load notifications', { requireSuccess: false });
+  },
+
+  getInAppNotificationCount: async () => {
+    const response = await apiRequest('/tickets/notifications/count', { method: 'GET' });
+    return readApiResponse(response, 'Failed to load notification count', { requireSuccess: false });
+  },
+
+  markInAppNotificationRead: async (notificationId) => {
+    const response = await apiRequest(`/tickets/notifications/${notificationId}/read`, { method: 'PATCH' });
+    return readApiResponse(response, 'Failed to mark notification read', { requireSuccess: false });
+  },
+
   markChatNotificationsRead: async (userId) => {
     const response = await apiRequest(API_ENDPOINTS.CHAT_NOTIFICATIONS_READ_ALL, {
       method: 'PATCH',
@@ -1001,6 +1024,14 @@ const apiService = {
       body: JSON.stringify({ userId, mode }),
     });
     return readApiResponse(response, 'Failed to delete message');
+  },
+
+  deleteChatMessages: async ({ userId, mode = 'me', messageIds }) => {
+    const response = await apiRequest(API_ENDPOINTS.CHAT_DELETE_MANY, {
+      method: 'POST',
+      body: JSON.stringify({ userId, mode, messageIds }),
+    });
+    return readApiResponse(response, 'Failed to delete messages');
   },
 
   deleteChatConversations: async (userId, otherUserIds) => {

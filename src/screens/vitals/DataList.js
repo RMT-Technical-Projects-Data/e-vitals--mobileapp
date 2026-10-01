@@ -647,9 +647,7 @@ const DataList = ({ navigation, route }) => {
           let rawVal = parseFloat(w.weight || w.weight_value || w.value || 0);
           let weightInLbs = 0;
           if (rawVal > 0) {
-            // Web uses 2.2 multiplier for kg to lb
-            const isKg = (w.unit && String(w.unit).toLowerCase() === 'kg') || rawVal < 150;
-            weightInLbs = isKg ? parseFloat((rawVal * 2.2).toFixed(1)) : parseFloat(rawVal.toFixed(1));
+            weightInLbs = parseFloat(rawVal.toFixed(1));
           }
 
           rawList.push({

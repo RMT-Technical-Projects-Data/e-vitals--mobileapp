@@ -1,4 +1,4 @@
-import { NativeModules } from 'react-native';
+import { NativeModules, Platform } from 'react-native';
 
 let orientationModule;
 
@@ -14,14 +14,40 @@ const getOrientationModule = () => {
   return orientationModule;
 };
 
+// SENSOR / SENSOR_LANDSCAPE ignore the system Auto-rotate switch. Only request a
+// forced orientation when that switch is on; otherwise leave the user's lock alone.
+const runWhenAutoRotateAllows = (action) => {
+  const orientation = getOrientationModule();
+  if (!orientation) {
+    return;
+  }
+
+  if (Platform.OS !== 'android' || typeof orientation.getAutoRotateState !== 'function') {
+    action(orientation);
+    return;
+  }
+
+  orientation.getAutoRotateState(enabled => {
+    if (enabled) {
+      action(orientation);
+    }
+  });
+};
+
 export const lockToLandscape = () => {
-  getOrientationModule()?.lockToLandscape?.();
+  runWhenAutoRotateAllows(orientation => {
+    orientation.lockToLandscape?.();
+  });
 };
 
 export const lockToPortrait = () => {
-  getOrientationModule()?.lockToPortrait?.();
+  runWhenAutoRotateAllows(orientation => {
+    orientation.lockToPortrait?.();
+  });
 };
 
 export const unlockAllOrientations = () => {
-  getOrientationModule()?.unlockAllOrientations?.();
+  runWhenAutoRotateAllows(orientation => {
+    orientation.unlockAllOrientations?.();
+  });
 };

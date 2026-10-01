@@ -8,7 +8,6 @@ import {
   getCombinedBpAlertLevel,
   getMeasurementAlertStatus,
   getVitalStatusColor,
-  normalizeWeightToLbs,
 } from './measurementUtils';
 import {
   getBloodGlucoseTargetForMeasurement,
@@ -259,8 +258,7 @@ export const getDataListRowColors = (item, dataType, scheduleTargets = null) => 
       weightMin: DEFAULT_VITAL_TARGETS.weightMin,
       weightMax: DEFAULT_VITAL_TARGETS.weightMax,
     };
-  const wtLbs = normalizeWeightToLbs(item.weight, item.unit);
-  const weightStatus = checkWeightValue(wtLbs, weightTarget);
+  const weightStatus = checkWeightValue(item.weight, weightTarget);
   return {
     weightColor: getVitalStatusColor(weightStatus || 'normal'),
   };

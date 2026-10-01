@@ -425,9 +425,7 @@ export default function SummaryScreen({ navigation, route }) {
               }
             } else if (activeChart === 'weight') {
               let weight = parseFloat(measurement.weight || measurement.weight_value || measurement.value || 0);
-              // Convert kg to lbs for display (allow 0 values)
               if (!isNaN(weight)) {
-                weight = weight * 2.20462;
                 dailyData[dateKey].values.push(weight);
               }
             }

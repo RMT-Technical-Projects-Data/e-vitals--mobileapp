@@ -21,6 +21,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import apiService from '../../services/apiService';
 import { MEASUREMENT_COLORS } from '../../utils/measurementUtils';
 import { subscribeAbnormalAssignmentReceived } from '../../utils/abnormalAssignmentEvents';
+import { dismissAbnormalNotification } from '../../utils/notificationInbox';
 import { getAssignedReadingVitalColors } from '../../utils/patientVitalTargets';
 import PulseIcon from '../../components/common/PulseIcon';
 
@@ -280,6 +281,12 @@ const AssignedAbnormalReviewsScreen = ({ navigation }) => {
 
       const reviewedKey = readingItemKey(reading);
       setAssignedReadings((prev) => prev.filter((item) => readingItemKey(item) !== reviewedKey));
+      dismissAbnormalNotification({
+        practiceId: reading.practice_id,
+        patientId: reading.patient_id,
+        vitalType: reading.vital_type,
+        measurementId: reading.measurement_id,
+      });
 
       setActiveReadingByPatient((prev) => {
         const next = { ...prev };

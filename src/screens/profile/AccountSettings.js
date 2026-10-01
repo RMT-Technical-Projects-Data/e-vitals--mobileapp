@@ -12,7 +12,8 @@ import {
   KeyboardAvoidingView,
   Platform,
   StatusBar,
-  ActivityIndicator
+  ActivityIndicator,
+  Modal,
 } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { colors, fonts } from '../../config/globall';
@@ -40,6 +41,7 @@ const AccountSettings = ({ navigation }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [isTogglingAuth, setIsTogglingAuth] = useState(false);
   const [isUpdatingSession, setIsUpdatingSession] = useState(false);
+  const [sessionNotice, setSessionNotice] = useState(null);
   const [isClearingCache, setIsClearingCache] = useState(false);
 
   // Load current settings on mount
@@ -85,7 +87,10 @@ const AccountSettings = ({ navigation }) => {
     const timeoutValue = parseInt(sessionTimeout);
     
     if (!timeoutValue || timeoutValue < 1) {
-      Alert.alert('Error', 'Please enter a valid session timeout (minimum 1 minute)');
+      setSessionNotice({
+        title: 'Session timeout',
+        message: 'Please enter a valid session timeout (minimum 1 minute).',
+      });
       return;
     }
     
@@ -94,7 +99,10 @@ const AccountSettings = ({ navigation }) => {
       const result = await apiService.updateSessionSettings(timeoutValue);
       
       if (result && result.success) {
-        Alert.alert('Success', `Session timeout updated to ${timeoutValue} minutes`);
+        setSessionNotice({
+          title: 'Session timeout',
+          message: `Session timeout updated to ${timeoutValue} minutes.`,
+        });
         
         // Update user data in AsyncStorage if available
         const userData = await AsyncStorage.getItem('user');
@@ -104,11 +112,17 @@ const AccountSettings = ({ navigation }) => {
           await AsyncStorage.setItem('user', JSON.stringify(user));
         }
       } else {
-        Alert.alert('Error', result?.message || 'Failed to update session timeout');
+        setSessionNotice({
+          title: 'Session timeout',
+          message: result?.message || 'Failed to update session timeout.',
+        });
       }
     } catch (error) {
       console.error('❌ Error updating session timeout:', error);
-      Alert.alert('Error', error.message || 'Failed to update session timeout');
+      setSessionNotice({
+        title: 'Session timeout',
+        message: error.message || 'Failed to update session timeout.',
+      });
     } finally {
       setIsUpdatingSession(false);
     }
@@ -327,6 +341,22 @@ const AccountSettings = ({ navigation }) => {
           </View>
         </View>
       </SafeAreaView>
+      <Modal
+        visible={!!sessionNotice}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSessionNotice(null)}
+      >
+        <View style={styles.noticeOverlay}>
+          <View style={styles.noticeCard}>
+            <Text style={styles.noticeTitle}>{sessionNotice?.title}</Text>
+            <Text style={styles.noticeBody}>{sessionNotice?.message}</Text>
+            <TouchableOpacity style={styles.noticeButton} onPress={() => setSessionNotice(null)}>
+              <Text style={styles.noticeButtonText}>OK</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaProvider>
   );
 };
@@ -580,6 +610,46 @@ const styles = StyleSheet.create({
   },
   updateSessionButtonDisabled: {
     opacity: 0.6,
+  },
+  noticeOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: scaleWidth(24),
+  },
+  noticeCard: {
+    width: '100%',
+    maxWidth: scaleWidth(340),
+    backgroundColor: WHITE,
+    borderRadius: scaleWidth(12),
+    padding: scaleWidth(20),
+  },
+  noticeTitle: {
+    fontSize: scaleFont(18),
+    fontWeight: '700',
+    color: HEADER_COLOR,
+    textAlign: 'center',
+    marginBottom: verticalScale(8),
+  },
+  noticeBody: {
+    fontSize: scaleFont(14),
+    lineHeight: scaleFont(20),
+    color: colors.textPrimary,
+    textAlign: 'center',
+    marginBottom: verticalScale(16),
+  },
+  noticeButton: {
+    alignSelf: 'center',
+    backgroundColor: HEADER_COLOR,
+    borderRadius: scaleWidth(8),
+    paddingVertical: verticalScale(10),
+    paddingHorizontal: scaleWidth(28),
+  },
+  noticeButtonText: {
+    color: WHITE,
+    fontSize: scaleFont(14),
+    fontWeight: '600',
   },
   clearCacheButtonDisabled: {
     opacity: 0.6,

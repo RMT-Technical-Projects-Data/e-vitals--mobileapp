@@ -325,7 +325,6 @@ const getPatientVitalsDisplay = (item) => {
 
   let rawWt = wtObj ? (wtObj.weight || wtObj.weight_value || wtObj.value) : (item.last_weight ?? item.weight);
   let weightNum = toCleanNum(rawWt);
-  if (weightNum != null && weightNum > 0 && weightNum <= 110) weightNum = weightNum * 2.20462;
   let weight = weightNum != null && weightNum > 0 ? weightNum.toFixed(1) : '--';
 
   if (hasBp) {

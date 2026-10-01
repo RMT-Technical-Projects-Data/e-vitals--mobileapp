@@ -1,5 +1,5 @@
 /**
- * ChatScreen.js — Real-Time Chat System
+ * ChatScreen.js â€” Real-Time Chat System
  *
  * Requirements Met:
  *  1. Caregiver cannot chat with Caregiver (or System Caregiver).
@@ -28,6 +28,9 @@ import {
   ActivityIndicator,
   Animated,
   Alert,
+  Image,
+  Linking,
+  BackHandler,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
@@ -35,11 +38,13 @@ import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
 import { io } from 'socket.io-client';
+import { pick, types, errorCodes, isErrorWithCode } from '@react-native-documents/picker';
 import apiService from '../../services/apiService';
-import { SOCKET_BASE_URL } from '../../config/api';
+import { API_CONFIG, SOCKET_BASE_URL } from '../../config/api';
 import { setActiveChatPeer, setChatScreenFocused } from '../../services/chatPresence';
 import PremiumBottomNav, { PREMIUM_BOTTOM_NAV_CLEARANCE } from '../../components/navigation/PremiumBottomNav';
 import { setActiveChatUserId } from '../../utils/activeChatState';
+import { dismissChatNotifications } from '../../utils/notificationInbox';
 import useVoiceMessageRecorder from '../../hooks/useVoiceMessageRecorder';
 import useVoiceMessagePlayer from '../../hooks/useVoiceMessagePlayer';
 import VoiceMessageBubble from '../../components/chat/VoiceMessageBubble';
@@ -58,7 +63,7 @@ const TEXT_DARK = '#0b1f3f';
 const TEXT_MUTED = '#687382';
 const ACCENT_COLOR = '#0b1f3f';
 
-// ─── Role Definitions & Permissible Matrix ─────────────────────────────────────
+// â”€â”€â”€ Role Definitions & Permissible Matrix â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const ROLES = {
   SUPER_ADMIN: 1,
@@ -159,7 +164,7 @@ const isUserAllowedToChat = (senderUser, recipientUser) => {
   return allowedRecipientRoles.includes(recipientRole);
 };
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// â”€â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const getInitials = (name = '') => {
   const parts = String(name).trim().split(/\s+/).filter(Boolean);
@@ -205,7 +210,7 @@ const isSameDay = (isoA, isoB) => {
   return new Date(isoA).toDateString() === new Date(isoB).toDateString();
 };
 
-// ─── Fallbacks ────────────────────────────────────────────────────────────────
+// â”€â”€â”€ Fallbacks â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const getFallbackContacts = (userRoleId) => {
   if (userRoleId === ROLES.PATIENT) {
@@ -236,7 +241,7 @@ const getFallbackMessages = (contact, currentUser) => {
   ];
 };
 
-// ─── Chat List Builder (Active Conversations) ─────────────────────────────────
+// â”€â”€â”€ Chat List Builder (Active Conversations) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const buildChatList = (conversations = [], currentUser = null) => {
   const map = new Map();
@@ -259,8 +264,9 @@ const buildChatList = (conversations = [], currentUser = null) => {
       name: conv.other_user_name || 'Unknown User',
       role_id: roleId,
       role_name: roleName || resolveRoleLabel(roleId),
-      lastMessage: conv.message || '',
-      lastMessageTime: conv.created_at,
+      lastMessage: getMessagePreview(conv),
+      lastMessageDeleted: isDeletedForEveryone(conv),
+      lastMessageTime: isMessageRemoved(conv) ? null : conv.created_at,
       unread: Number(conv.unread_count || 0),
     });
   });
@@ -272,13 +278,122 @@ const buildChatList = (conversations = [], currentUser = null) => {
   });
 };
 
+const CHAT_FILE_EXTENSIONS = ['jpeg', 'jpg', 'png', 'gif', 'webp', 'pdf', 'doc', 'docx'];
+const CHAT_FILE_MIME_BY_EXTENSION = {
+  jpeg: 'image/jpeg',
+  jpg: 'image/jpeg',
+  png: 'image/png',
+  gif: 'image/gif',
+  webp: 'image/webp',
+  pdf: 'application/pdf',
+  doc: 'application/msword',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+};
+const MAX_CHAT_FILE_BYTES = 10 * 1024 * 1024;
+
 const isAudioMessage = (item) => (
   item?.message_type === 'audio' || String(item?.file_type || '').startsWith('audio/')
 );
 
+const fileExtension = (name) => {
+  const base = String(name || '').toLowerCase().split('?')[0];
+  const parts = base.split('.');
+  return parts.length > 1 ? parts.pop() : '';
+};
+
+const resolveChatFileMime = (file) => {
+  const fromExtension = CHAT_FILE_MIME_BY_EXTENSION[fileExtension(file?.name)];
+  const fromType = String(file?.type || '').toLowerCase();
+  if (fromType === 'image/jpg') return 'image/jpeg';
+  if (fromExtension && (!fromType || fromType === 'application/octet-stream')) return fromExtension;
+  return fromType || fromExtension || 'application/octet-stream';
+};
+
+const isAllowedChatFile = (file) => {
+  const ext = fileExtension(file?.name);
+  if (CHAT_FILE_EXTENSIONS.includes(ext)) return true;
+  const mime = String(file?.type || '').toLowerCase();
+  return (
+    mime === 'image/jpeg'
+    || mime === 'image/jpg'
+    || mime === 'image/png'
+    || mime === 'image/gif'
+    || mime === 'image/webp'
+    || mime === 'application/pdf'
+    || mime === 'application/msword'
+    || mime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+  );
+};
+
+const isImageAttachment = (item) => {
+  if (isAudioMessage(item)) return false;
+  const mime = String(item?.file_type || '').toLowerCase();
+  if (mime.startsWith('image/')) return true;
+  return ['jpeg', 'jpg', 'png', 'gif', 'webp'].includes(
+    fileExtension(item?.original_file_name || item?.file_path)
+  );
+};
+
+const resolveChatFileUrl = (filePath) => {
+  if (!filePath) return null;
+  const raw = String(filePath).trim();
+  if (/^(https?|file|content):/i.test(raw)) return raw;
+  const origin = String(API_CONFIG.BASE_URL || '').replace(/\/api\/?$/, '');
+  if (raw.startsWith('/uploads/')) return `${origin}/api${raw}`;
+  if (raw.startsWith('uploads/')) return `${origin}/api/${raw}`;
+  if (raw.startsWith('/')) return `${origin}${raw}`;
+  return `${origin}/api/uploads/chat/${raw}`;
+};
+
+const DELETE_FOR_EVERYONE_WINDOW_MS = 10 * 60 * 1000;
+const DELETED_MESSAGE_LABEL = 'This message was deleted';
+
+const isDeletedForEveryone = (item) => {
+  if (!item) return false;
+  if (item.deleted_for_everyone_at) return true;
+  if (item.deleted_for_everyone === true || item.deleted_for_everyone === 1 || item.deleted_for_everyone === '1') return true;
+  const text = String(item.message ?? '').trim().toLowerCase();
+  return text === 'this message was deleted' || text === 'message deleted';
+};
+
+const isWithinDeleteForEveryoneWindow = (createdAt) => {
+  if (!createdAt) return false;
+  const createdMs = new Date(createdAt).getTime();
+  if (!Number.isFinite(createdMs)) return false;
+  return Date.now() - createdMs <= DELETE_FOR_EVERYONE_WINDOW_MS;
+};
+
+const asDeletedForEveryone = (message) => ({
+  ...message,
+  message: null,
+  file_path: null,
+  file_type: null,
+  original_file_name: null,
+  message_type: null,
+  deleted_for_everyone_at: message?.deleted_for_everyone_at || new Date().toISOString(),
+});
+
 const getMessagePreview = (msg) => {
+  if (isDeletedForEveryone(msg)) return DELETED_MESSAGE_LABEL;
+  if (isMessageRemoved(msg)) return '';
   if (isAudioMessage(msg)) return 'Voice message';
-  return msg?.message || '';
+  const text = String(msg?.message || '').trim();
+  if (text) return text;
+  if (msg?.file_path || msg?.original_file_name) {
+    return msg.original_file_name || 'Attachment';
+  }
+  return '';
+};
+
+const isMessageRemoved = (item) => {
+  if (!item || item._pending || isDeletedForEveryone(item)) return false;
+  if (item.is_deleted === true || item.is_deleted === 1 || item.is_deleted === '1') return true;
+  if (item.deleted === true || item.deleted === 1 || item.deleted === '1') return true;
+  const text = String(item.message ?? '').trim();
+  if (text) return false;
+  if (item.file_path || item.original_file_name) return false;
+  if (isAudioMessage(item)) return false;
+  return true;
 };
 
 const formatRecordingDuration = (durationMs) => {
@@ -288,7 +403,7 @@ const formatRecordingDuration = (durationMs) => {
   return `${minutes}:${String(seconds).padStart(2, '0')}`;
 };
 
-// ─── Component ────────────────────────────────────────────────────────────────
+// â”€â”€â”€ Component â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const ChatScreen = ({ navigation, route }) => {
   const insets = useSafeAreaInsets();
@@ -305,6 +420,7 @@ const ChatScreen = ({ navigation, route }) => {
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [sending, setSending] = useState(false);
   const [uploadingVoice, setUploadingVoice] = useState(false);
+  const [uploadingFile, setUploadingFile] = useState(false);
   const [loadingAudioMessageId, setLoadingAudioMessageId] = useState(null);
   const [usingFallback, setUsingFallback] = useState(false);
 
@@ -338,6 +454,16 @@ const ChatScreen = ({ navigation, route }) => {
   const [actionMsg, setActionMsg] = useState(null);
   const [editingId, setEditingId] = useState(null);
   const [editText, setEditText] = useState('');
+  const [selectedMessageIds, setSelectedMessageIds] = useState([]);
+  const [pendingDeleteIds, setPendingDeleteIds] = useState(null);
+  const [deleteDialogError, setDeleteDialogError] = useState('');
+  const [deletingMessages, setDeletingMessages] = useState(false);
+  const [deleteWindowTick, setDeleteWindowTick] = useState(0);
+  const [selectedChatIds, setSelectedChatIds] = useState([]);
+  const [pendingDeleteChatIds, setPendingDeleteChatIds] = useState(null);
+  const [deletingChats, setDeletingChats] = useState(false);
+  const [deleteChatError, setDeleteChatError] = useState('');
+  const [deleteChatBody, setDeleteChatBody] = useState('');
 
   // New Chat Modal state
   const [isNewChatModalOpen, setIsNewChatModalOpen] = useState(false);
@@ -360,6 +486,15 @@ const ChatScreen = ({ navigation, route }) => {
   useEffect(() => { selectedContactRef.current = selectedContact; }, [selectedContact]);
   useEffect(() => { currentUserRef.current = currentUser; }, [currentUser]);
 
+  useEffect(() => {
+    if (!selectedChatIds.length || view !== 'list') return undefined;
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      setSelectedChatIds([]);
+      return true;
+    });
+    return () => subscription.remove();
+  }, [selectedChatIds.length, view]);
+
   useEffect(() => () => {
     stopPlayback();
     cancelRecording();
@@ -369,7 +504,7 @@ const ChatScreen = ({ navigation, route }) => {
     setTimeout(() => { messagesRef.current?.scrollToEnd({ animated: true }); }, 120);
   }, []);
 
-  // ── Socket.IO Setup ─────────────────────────────────────────────────────────
+  // â”€â”€ Socket.IO Setup â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const setupSocket = useCallback((userId) => {
     if (socketRef.current) {
       socketRef.current.disconnect();
@@ -401,7 +536,12 @@ const ChatScreen = ({ navigation, route }) => {
 
       if (contact && String(contact.id) === otherId) {
         setMessages((prev) => {
-          if (prev.some((m) => String(m.id) === String(msg.id))) return prev;
+          if (isMessageRemoved(msg)) {
+            return prev.filter((m) => String(m.id) !== String(msg.id));
+          }
+          if (prev.some((m) => String(m.id) === String(msg.id))) {
+            return prev.map((m) => (String(m.id) === String(msg.id) ? { ...m, ...msg, _pending: false } : m));
+          }
           const hasPendingMatching = prev.some(
             (m) =>
               m._pending &&
@@ -429,6 +569,7 @@ const ChatScreen = ({ navigation, route }) => {
         });
         scrollToBottom();
         apiService.markChatNotificationsRead(myId).catch(() => null);
+        dismissChatNotifications(otherId);
       } else if (fromId !== myId) {
         const senderName = msg.sender_name || msg.from_user_name || 'New message';
         showBanner({ name: senderName, preview: getMessagePreview(msg) });
@@ -436,12 +577,17 @@ const ChatScreen = ({ navigation, route }) => {
       }
 
       setChatList((prev) => {
+        if (isMessageRemoved(msg)) {
+          loadChats();
+          return prev;
+        }
         const existingIndex = prev.findIndex((item) => String(item.id) === otherId);
         if (existingIndex >= 0) {
           const updated = [...prev];
           updated[existingIndex] = {
             ...updated[existingIndex],
             lastMessage: getMessagePreview(msg),
+            lastMessageDeleted: isDeletedForEveryone(msg),
             lastMessageTime: msg.created_at || new Date().toISOString(),
           };
           return updated.sort((a, b) => new Date(b.lastMessageTime).getTime() - new Date(a.lastMessageTime).getTime());
@@ -453,6 +599,36 @@ const ChatScreen = ({ navigation, route }) => {
 
     socket.on('receive_message', handleIncomingMessage);
     socket.on('receive-message', handleIncomingMessage);
+
+    socket.on('message_deleted', (payload) => {
+      const updated = payload?.message;
+      const deletedForEveryone = payload?.mode === 'everyone' || isDeletedForEveryone(updated);
+      const ids = new Set(
+        [updated?.id, payload?.message_id, ...(payload?.message_ids || [])]
+          .filter((id) => id != null)
+          .map((id) => String(id))
+      );
+      if (!ids.size) return;
+
+      if (deletedForEveryone) {
+        setMessages((prev) => prev.map((message) => {
+          if (!ids.has(String(message.id))) return message;
+          if (updated && String(updated.id) === String(message.id)) {
+            return { ...message, ...updated, _pending: false };
+          }
+          return asDeletedForEveryone(message);
+        }));
+        setSelectedMessageIds((prev) => prev.filter((id) => !ids.has(id)));
+        loadChats();
+        return;
+      }
+
+      const me = currentUserRef.current;
+      if (!me || payload?.user_id == null || String(payload.user_id) !== String(me.id)) return;
+      setMessages((prev) => prev.filter((message) => !ids.has(String(message.id))));
+      setSelectedMessageIds((prev) => prev.filter((id) => !ids.has(id)));
+      loadChats();
+    });
 
     socket.on('typing', (data) => {
       const contact = selectedContactRef.current;
@@ -474,7 +650,7 @@ const ChatScreen = ({ navigation, route }) => {
     socket.on('connect_error', () => { });
   }, [scrollToBottom, loadChats]);
 
-  // ── Banner Notification ──────────────────────────────────────────────────────
+  // â”€â”€ Banner Notification â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const showBanner = (data) => {
     setNotifBanner(data);
     Animated.spring(bannerAnim, { toValue: 0, useNativeDriver: true }).start();
@@ -484,7 +660,7 @@ const ChatScreen = ({ navigation, route }) => {
     }, 3500);
   };
 
-  // ── Emit Typing Events ───────────────────────────────────────────────────────
+  // â”€â”€ Emit Typing Events â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const handleInputChange = (text) => {
     setInput(text);
     if (!socketRef.current || !currentUser || !selectedContact) return;
@@ -500,7 +676,7 @@ const ChatScreen = ({ navigation, route }) => {
     }, 2000);
   };
 
-  // ── Load Active Conversations ────────────────────────────────────────────────
+  // â”€â”€ Load Active Conversations â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const loadChats = useCallback(async () => {
     try {
       const userStr = await AsyncStorage.getItem('user');
@@ -544,7 +720,7 @@ const ChatScreen = ({ navigation, route }) => {
     }
   }, [setupSocket]);
 
-  // ── Load Messages ────────────────────────────────────────────────────────────
+  // â”€â”€ Load Messages â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const loadMessages = useCallback(async (contact) => {
     if (!contact || !currentUser) return;
     setPeerIsTyping(false);
@@ -611,7 +787,7 @@ const ChatScreen = ({ navigation, route }) => {
     };
   }, []);
 
-  // ── Open / Close Conversation ────────────────────────────────────────────────
+  // â”€â”€ Open / Close Conversation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const openChat = (contact) => {
     setSelectedContact(contact);
     setActiveChatUserId(contact?.id);
@@ -619,6 +795,9 @@ const ChatScreen = ({ navigation, route }) => {
     setView('chat');
     setEditingId(null);
     setEditText('');
+    setSelectedMessageIds([]);
+    setPendingDeleteIds(null);
+    dismissChatNotifications(contact?.id);
   };
 
   useEffect(() => {
@@ -653,6 +832,8 @@ const ChatScreen = ({ navigation, route }) => {
     setInput('');
     setEditingId(null);
     setEditText('');
+    setSelectedMessageIds([]);
+    setPendingDeleteIds(null);
     setPeerIsTyping(false);
     loadChats();
   };
@@ -668,7 +849,7 @@ const ChatScreen = ({ navigation, route }) => {
     }
   }, [route?.params?.openUserId, chatList, navigation]);
 
-  // ── New Chat Modal Trigger & Selection ───────────────────────────────────────
+  // â”€â”€ New Chat Modal Trigger & Selection â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const openNewChatModal = async () => {
     setIsNewChatModalOpen(true);
     setModalSearchQuery('');
@@ -712,6 +893,116 @@ const ChatScreen = ({ navigation, route }) => {
       lastMessageTime: null,
       unread: 0,
     });
+  };
+
+  const openAttachment = async (item) => {
+    const url = resolveChatFileUrl(item?.file_path);
+    if (!url || /^(file|content):/i.test(url)) return;
+    try {
+      await Linking.openURL(url);
+    } catch {
+      Alert.alert('Attachment', 'Unable to open this file.');
+    }
+  };
+
+  const handleAttachFile = async () => {
+    if (!selectedContact || !currentUser || uploadingFile || uploadingVoice || sending || isRecording) return;
+
+    let optimisticId = null;
+    try {
+      const [file] = await pick({
+        allowMultiSelection: false,
+        type: [types.images, types.pdf, types.doc, types.docx],
+      });
+      if (!file?.uri) return;
+      if (file.hasRequestedType === false || !isAllowedChatFile(file)) {
+        Alert.alert('Attachment', 'Choose an image, PDF, or Word document.');
+        return;
+      }
+      if (file.size != null && file.size > MAX_CHAT_FILE_BYTES) {
+        Alert.alert('Attachment', 'File must be 10 MB or smaller.');
+        return;
+      }
+
+      const fileName = file.name || `attachment-${Date.now()}`;
+      const mimeType = resolveChatFileMime(file);
+      if (!Object.values(CHAT_FILE_MIME_BY_EXTENSION).includes(mimeType)) {
+        Alert.alert('Attachment', 'Choose an image, PDF, or Word document.');
+        return;
+      }
+      optimisticId = `temp-file-${Date.now()}`;
+      const optimistic = {
+        id: optimisticId,
+        from_user_id: currentUser.id,
+        to_user_id: selectedContact.id,
+        message: '',
+        file_path: file.uri,
+        file_type: mimeType,
+        original_file_name: fileName,
+        created_at: new Date().toISOString(),
+        is_read: 0,
+        _pending: true,
+      };
+
+      setUploadingFile(true);
+      setMessages((prev) => [...prev, optimistic]);
+      scrollToBottom();
+
+      const formData = new FormData();
+      formData.append('file', {
+        uri: file.uri,
+        type: mimeType,
+        name: fileName,
+      });
+
+      const uploadRes = await apiService.uploadChatFile(formData);
+      const uploaded = uploadRes?.data;
+      if (!uploaded?.file_path) {
+        throw new Error('File upload failed');
+      }
+
+      const pId = currentUser.practice_id || (await AsyncStorage.getItem('practiceId')) || null;
+      const result = await apiService.sendChatMessage({
+        from_user_id: currentUser.id,
+        to_user_id: selectedContact.id,
+        message: '',
+        file_path: uploaded.file_path,
+        file_type: uploaded.file_type || mimeType,
+        original_file_name: uploaded.original_file_name || fileName,
+        practice_id: pId,
+      });
+
+      const saved = result?.data || {
+        ...optimistic,
+        file_path: uploaded.file_path,
+        file_type: uploaded.file_type || mimeType,
+        original_file_name: uploaded.original_file_name || fileName,
+        _pending: false,
+      };
+
+      setMessages((prev) => {
+        if (saved?.id != null && prev.some((m) => String(m.id) === String(saved.id) && m.id !== optimisticId)) {
+          return prev.filter((m) => m.id !== optimisticId);
+        }
+        return prev.map((m) => (m.id === optimisticId ? { ...saved, _pending: false } : m));
+      });
+
+      setChatList((prev) => prev.map((item) =>
+        String(item.id) === String(selectedContact.id)
+          ? { ...item, lastMessage: getMessagePreview(saved), lastMessageTime: new Date().toISOString() }
+          : item
+      ));
+    } catch (error) {
+      const canceled = isErrorWithCode(error) && error.code === errorCodes.OPERATION_CANCELED;
+      if (!canceled) {
+        Alert.alert('Attachment', error?.message || 'Failed to send the file.');
+        if (optimisticId) {
+          setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
+        }
+      }
+    } finally {
+      setUploadingFile(false);
+    }
   };
 
   const handleStartVoiceRecording = async () => {
@@ -804,7 +1095,7 @@ const ChatScreen = ({ navigation, route }) => {
     }
   };
 
-  // ── Send Message ─────────────────────────────────────────────────────────────
+  // â”€â”€ Send Message â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const sendMessage = async () => {
     const text = input.trim();
     if (!text || !selectedContact || !currentUser || sending) return;
@@ -870,11 +1161,13 @@ const ChatScreen = ({ navigation, route }) => {
     }
   };
 
-  // ── Edit Message ─────────────────────────────────────────────────────────────
+  // â”€â”€ Edit Message â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const startEdit = (msg) => {
     setActionMsg(null);
+    setSelectedMessageIds([]);
+    setPendingDeleteIds(null);
     setEditingId(msg.id);
-    setEditText(msg.message);
+    setEditText(msg.message || '');
   };
 
   const commitEdit = async () => {
@@ -889,64 +1182,156 @@ const ChatScreen = ({ navigation, route }) => {
     } catch { }
   };
 
-  // ── Delete Message (One by One) ──────────────────────────────────────────────
-  const confirmDelete = (msg) => {
+  const beginMessageSelection = (item) => {
+    if (!item || item._pending) return;
     setActionMsg(null);
-    const isMine = String(msg.from_user_id) === String(currentUser?.id);
-    const buttons = [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Delete for me', onPress: () => doDelete(msg, 'me') },
-    ];
-    if (isMine) {
-      buttons.push({
-        text: 'Delete for everyone',
-        style: 'destructive',
-        onPress: () => doDelete(msg, 'everyone'),
-      });
-    }
-    Alert.alert('Delete message', 'Choose how to delete this message.', buttons);
+    setEditingId(null);
+    setSelectedMessageIds((prev) => {
+      const id = String(item.id);
+      return prev.includes(id) ? prev : [...prev, id];
+    });
   };
 
-  const doDelete = async (msg, mode) => {
-    setMessages((prev) => prev.filter((m) => String(m.id) !== String(msg.id)));
+  const toggleMessageSelection = (item) => {
+    if (!item || item._pending) return;
+    setSelectedMessageIds((prev) => {
+      const id = String(item.id);
+      return prev.includes(id) ? prev.filter((existing) => existing !== id) : [...prev, id];
+    });
+  };
+
+  const canDeleteSelectedForEveryone = (ids) => {
+    const clean = [...new Set((ids || []).map((id) => String(id)).filter(Boolean))];
+    if (!clean.length || !currentUser) return false;
+    const selected = messages.filter((message) => clean.includes(String(message.id)));
+    return selected.length === clean.length && selected.every((message) => (
+      String(message.from_user_id) === String(currentUser.id)
+      && !isDeletedForEveryone(message)
+      && isWithinDeleteForEveryoneWindow(message.created_at)
+    ));
+  };
+
+  useEffect(() => {
+    if (!pendingDeleteIds?.length) return undefined;
+    const timer = setInterval(() => setDeleteWindowTick((tick) => tick + 1), 10000);
+    return () => clearInterval(timer);
+  }, [pendingDeleteIds]);
+
+  const openDeleteDialog = (ids) => {
+    const clean = [...new Set((ids || []).map((id) => String(id)).filter(Boolean))];
+    if (!clean.length) return;
+    setActionMsg(null);
+    setDeleteDialogError('');
+    setPendingDeleteIds(clean);
+  };
+
+  const performDelete = async (mode) => {
+    const ids = pendingDeleteIds || [];
+    if (!ids.length || !currentUser || deletingMessages) return;
+    if (mode === 'everyone' && !canDeleteSelectedForEveryone(ids)) return;
+
+    const snapshot = messages;
+    const idSet = new Set(ids);
+    const nextMessages = mode === 'everyone'
+      ? messages.map((message) => (idSet.has(String(message.id)) ? asDeletedForEveryone(message) : message))
+      : messages.filter((message) => !idSet.has(String(message.id)));
+    const visible = nextMessages.filter((message) => !isMessageRemoved(message));
+    const last = visible[visible.length - 1];
+
+    setDeletingMessages(true);
+    setDeleteDialogError('');
+    setMessages(nextMessages);
+    setSelectedMessageIds((prev) => prev.filter((id) => !idSet.has(id)));
+    if (selectedContact) {
+      setChatList((prev) => prev.map((item) => (
+        String(item.id) === String(selectedContact.id)
+          ? {
+            ...item,
+            lastMessage: last ? getMessagePreview(last) : '',
+            lastMessageDeleted: isDeletedForEveryone(last),
+            lastMessageTime: last?.created_at || item.lastMessageTime,
+          }
+          : item
+      )));
+    }
+
+    const serverIds = ids.filter((id) => !String(id).startsWith('temp'));
+    if (!serverIds.length) {
+      setPendingDeleteIds(null);
+      setDeletingMessages(false);
+      return;
+    }
+
     try {
-      if (currentUser?.id && msg.id && !String(msg.id).startsWith('temp-')) {
-        await apiService.deleteChatMessage(msg.id, currentUser.id, mode);
-      }
+      await apiService.deleteChatMessages({
+        userId: currentUser.id,
+        mode,
+        messageIds: serverIds,
+      });
+      setPendingDeleteIds(null);
     } catch (err) {
-      console.warn('Failed to delete message:', err);
+      console.warn('Failed to delete messages:', err);
+      setMessages(snapshot);
+      setSelectedMessageIds(ids);
+      setDeleteDialogError('Unable to delete the selected messages. Try again.');
+    } finally {
+      setDeletingMessages(false);
     }
   };
 
-  // ── Delete Conversation (Entire Chat) ────────────────────────────────────────
-  const confirmDeleteChat = (chat) => {
-    Alert.alert(
-      'Delete Conversation',
-      `Are you sure you want to delete the conversation with ${chat.name}?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            setChatList((prev) => prev.filter((c) => String(c.id) !== String(chat.id)));
-            if (selectedContact && String(selectedContact.id) === String(chat.id)) {
-              closeChat();
-            }
-            try {
-              if (currentUser?.id) {
-                await apiService.deleteChatConversations(currentUser.id, [chat.id]);
-              }
-            } catch (err) {
-              console.warn('Failed to delete conversation:', err);
-            }
-          },
-        },
-      ]
-    );
+  const beginChatSelection = (chat) => {
+    if (!chat?.id) return;
+    setSelectedChatIds((prev) => {
+      const id = String(chat.id);
+      return prev.includes(id) ? prev : [...prev, id];
+    });
   };
 
-  // ── Filter Active Chats (Search Query & All / Unread Filter) ──────────────────
+  const toggleChatSelection = (chat) => {
+    if (!chat?.id) return;
+    setSelectedChatIds((prev) => {
+      const id = String(chat.id);
+      return prev.includes(id) ? prev.filter((existing) => existing !== id) : [...prev, id];
+    });
+  };
+
+  const openDeleteChatDialog = (ids) => {
+    const clean = [...new Set((ids || []).map((id) => String(id)).filter(Boolean))];
+    if (!clean.length) return;
+    const selected = chatList.filter((chat) => clean.includes(String(chat.id)));
+    const body = clean.length === 1
+      ? `This removes the conversation with ${selected[0]?.name || 'this person'} from your messages.`
+      : 'This removes the selected conversations from your messages.';
+    setDeleteChatBody(body);
+    setDeleteChatError('');
+    setPendingDeleteChatIds(clean);
+  };
+
+  const performDeleteChats = async () => {
+    const ids = pendingDeleteChatIds || [];
+    if (!ids.length || !currentUser || deletingChats) return;
+
+    const snapshot = chatList;
+    const idSet = new Set(ids);
+    setDeletingChats(true);
+    setDeleteChatError('');
+    setChatList((prev) => prev.filter((chat) => !idSet.has(String(chat.id))));
+    setSelectedChatIds((prev) => prev.filter((id) => !idSet.has(id)));
+
+    try {
+      await apiService.deleteChatConversations(currentUser.id, ids);
+      setPendingDeleteChatIds(null);
+    } catch (err) {
+      console.warn('Failed to delete conversations:', err);
+      setChatList(snapshot);
+      setSelectedChatIds(ids);
+      setDeleteChatError('Unable to delete the selected chats. Try again.');
+    } finally {
+      setDeletingChats(false);
+    }
+  };
+
+  // â”€â”€ Filter Active Chats (Search Query & All / Unread Filter) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const filteredChats = chatList.filter((chat) => {
     if (conversationFilter === 'unread' && !(chat.unread > 0)) return false;
 
@@ -959,7 +1344,7 @@ const ChatScreen = ({ navigation, route }) => {
     );
   });
 
-  // ── Filter Available Users in Modal ──────────────────────────────────────────
+  // â”€â”€ Filter Available Users in Modal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const filteredModalUsers = availableUsers.filter((u) => {
     const q = modalSearchQuery.trim().toLowerCase();
     const roleNameStr = resolveRoleLabel(u.role_id || u.role_name);
@@ -974,17 +1359,28 @@ const ChatScreen = ({ navigation, route }) => {
     return matchesSearch && matchesTab;
   });
 
-  // ─────────────────────────────────────────────────────────────────────────────
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   // Render: Chat Row
-  // ─────────────────────────────────────────────────────────────────────────────
-  const renderChatRow = ({ item }) => (
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  const renderChatRow = ({ item }) => {
+    const isSelected = selectedChatIds.includes(String(item.id));
+    const selectionMode = selectedChatIds.length > 0;
+    return (
     <TouchableOpacity
-      style={styles.chatRow}
-      onPress={() => openChat(item)}
-      onLongPress={() => confirmDeleteChat(item)}
+      style={[styles.chatRow, isSelected && styles.chatRowSelected]}
+      onPress={() => (selectionMode ? toggleChatSelection(item) : openChat(item))}
+      onLongPress={() => beginChatSelection(item)}
       delayLongPress={400}
       activeOpacity={0.75}
     >
+      {selectionMode && (
+        <MaterialIcons
+          name={isSelected ? 'check-circle' : 'radio-button-unchecked'}
+          size={22}
+          color={isSelected ? ACCENT_COLOR : TEXT_MUTED}
+          style={styles.chatSelectionIcon}
+        />
+      )}
       <View style={[styles.avatar, { backgroundColor: `${ACCENT_COLOR}18` }]}>
         <Text style={[styles.avatarText, { color: ACCENT_COLOR }]}>{getInitials(item.name)}</Text>
       </View>
@@ -1001,20 +1397,31 @@ const ChatScreen = ({ navigation, route }) => {
             </View>
           )}
         </View>
-        <Text style={styles.chatRowPreview} numberOfLines={1}>{item.lastMessage}</Text>
+        <Text
+          style={[styles.chatRowPreview, item.lastMessageDeleted && styles.chatRowPreviewDeleted]}
+          numberOfLines={1}
+        >
+          {item.lastMessage}
+        </Text>
       </View>
     </TouchableOpacity>
-  );
+    );
+  };
 
-  // ─────────────────────────────────────────────────────────────────────────────
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   // Render: Message Bubble
-  // ─────────────────────────────────────────────────────────────────────────────
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  const visibleMessages = messages.filter((item) => !isMessageRemoved(item));
+
   const renderMessage = ({ item, index }) => {
     const isMine = String(item.from_user_id) === String(currentUser?.id);
-    const prevMsg = messages[index - 1];
+    const prevMsg = visibleMessages[index - 1];
     const showDate = !prevMsg || !isSameDay(prevMsg.created_at, item.created_at);
 
     const isBeingEdited = editingId === item.id;
+
+    const isSelected = selectedMessageIds.includes(String(item.id));
+    const selectionMode = selectedMessageIds.length > 0;
 
     return (
       <>
@@ -1026,9 +1433,22 @@ const ChatScreen = ({ navigation, route }) => {
           </View>
         )}
         <TouchableWithoutFeedback
-          onLongPress={() => !item._pending && setActionMsg(item)}
+          onPress={selectionMode ? () => toggleMessageSelection(item) : undefined}
+          onLongPress={() => beginMessageSelection(item)}
           delayLongPress={400}>
-          <View style={[styles.messageRow, isMine ? styles.messageRowMine : styles.messageRowOther]}>
+          <View style={[
+            styles.messageRow,
+            isMine ? styles.messageRowMine : styles.messageRowOther,
+            isSelected && styles.messageRowSelected,
+          ]}>
+            {selectionMode && (
+              <MaterialIcons
+                name={isSelected ? 'check-circle' : 'radio-button-unchecked'}
+                size={22}
+                color={isSelected ? ACCENT_COLOR : TEXT_MUTED}
+                style={styles.selectionIcon}
+              />
+            )}
             {!isMine && (
               <View style={[styles.peerAvatar, { backgroundColor: `${ACCENT_COLOR}20` }]}>
                 <Text style={[styles.peerAvatarText, { color: ACCENT_COLOR }]}>
@@ -1036,7 +1456,10 @@ const ChatScreen = ({ navigation, route }) => {
                 </Text>
               </View>
             )}
-            <View style={[styles.bubble, isMine ? styles.bubbleMine : styles.bubbleOther]}>
+            <View
+              pointerEvents={selectionMode ? 'none' : 'auto'}
+              style={[styles.bubble, isMine ? styles.bubbleMine : styles.bubbleOther]}
+            >
               {isBeingEdited ? (
                 <View>
                   <TextInput
@@ -1055,6 +1478,22 @@ const ChatScreen = ({ navigation, route }) => {
                     </TouchableOpacity>
                   </View>
                 </View>
+              ) : isDeletedForEveryone(item) ? (
+                <>
+                  <View style={styles.deletedMessageRow}>
+                    <MaterialIcons
+                      name="block"
+                      size={15}
+                      color={TEXT_MUTED}
+                    />
+                    <Text style={styles.deletedMessageText}>{DELETED_MESSAGE_LABEL}</Text>
+                  </View>
+                  <View style={styles.messageFooter}>
+                    <Text style={[styles.messageTime, isMine ? styles.messageTimeMine : styles.messageTimeOther]}>
+                      {formatMessageTime(item.created_at)}
+                    </Text>
+                  </View>
+                </>
               ) : isAudioMessage(item) ? (
                 <>
                   <VoiceMessageBubble
@@ -1086,10 +1525,38 @@ const ChatScreen = ({ navigation, route }) => {
                 </>
               ) : (
                 <>
-                  <Text style={[styles.messageText, isMine ? styles.messageTextMine : styles.messageTextOther]}>
-                    {item.message}
-                    {item.is_edited ? <Text style={styles.editedLabel}> (edited)</Text> : null}
-                  </Text>
+                  {item.file_path ? (
+                    isImageAttachment(item) ? (
+                      <TouchableOpacity
+                        activeOpacity={0.85}
+                        onPress={() => openAttachment(item)}
+                        disabled={item._pending || selectedMessageIds.length > 0}
+                      >
+                        <Image
+                          source={{ uri: resolveChatFileUrl(item.file_path) }}
+                          style={styles.attachmentImage}
+                          resizeMode="cover"
+                        />
+                      </TouchableOpacity>
+                    ) : (
+                      <TouchableOpacity
+                        style={styles.attachmentFile}
+                        onPress={() => openAttachment(item)}
+                        disabled={item._pending || selectedMessageIds.length > 0}
+                      >
+                        <MaterialIcons name="attach-file" size={18} color={TEXT_DARK} />
+                        <Text style={styles.attachmentFileName} numberOfLines={2}>
+                          {item.original_file_name || 'Attachment'}
+                        </Text>
+                      </TouchableOpacity>
+                    )
+                  ) : null}
+                  {item.message ? (
+                    <Text style={[styles.messageText, isMine ? styles.messageTextMine : styles.messageTextOther]}>
+                      {item.message}
+                      {item.is_edited ? <Text style={styles.editedLabel}> (edited)</Text> : null}
+                    </Text>
+                  ) : null}
                   <View style={styles.messageFooter}>
                     <Text style={[styles.messageTime, isMine ? styles.messageTimeMine : styles.messageTimeOther]}>
                       {formatMessageTime(item.created_at)}
@@ -1112,23 +1579,45 @@ const ChatScreen = ({ navigation, route }) => {
     );
   };
 
-  // ─────────────────────────────────────────────────────────────────────────────
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   // Render: List View (Centered Title, Filters & WhatsApp FAB)
-  // ─────────────────────────────────────────────────────────────────────────────
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const renderListView = () => (
     <View style={styles.listScreen}>
-      {/* Header — matches PatientsScreen topbar */}
+      {/* Header â€” matches PatientsScreen topbar */}
       <View style={styles.topbar}>
-        <TouchableOpacity
-          style={styles.topbarActionButton}
-          onPress={() => (navigation.canGoBack() ? navigation.goBack() : navigation.navigate('Home'))}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-          accessibilityLabel="Go back"
-        >
-          <MaterialIcons name="arrow-back" size={21} color={TEXT_DARK} />
-        </TouchableOpacity>
-        <Text style={styles.topbarTitle}>Messages</Text>
-        <View style={styles.topbarSpacer} />
+        {selectedChatIds.length > 0 ? (
+          <>
+            <TouchableOpacity
+              style={styles.topbarActionButton}
+              onPress={() => setSelectedChatIds([])}
+              accessibilityLabel="Cancel selection"
+            >
+              <MaterialIcons name="close" size={21} color={TEXT_DARK} />
+            </TouchableOpacity>
+            <Text style={styles.topbarTitle}>{selectedChatIds.length} selected</Text>
+            <TouchableOpacity
+              style={styles.topbarActionButton}
+              onPress={() => openDeleteChatDialog(selectedChatIds)}
+              accessibilityLabel="Delete selected chats"
+            >
+              <MaterialIcons name="delete-outline" size={22} color="#E53935" />
+            </TouchableOpacity>
+          </>
+        ) : (
+          <>
+            <TouchableOpacity
+              style={styles.topbarActionButton}
+              onPress={() => (navigation.canGoBack() ? navigation.goBack() : navigation.navigate('Home'))}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              accessibilityLabel="Go back"
+            >
+              <MaterialIcons name="arrow-back" size={21} color={TEXT_DARK} />
+            </TouchableOpacity>
+            <Text style={styles.topbarTitle}>Messages</Text>
+            <View style={styles.topbarSpacer} />
+          </>
+        )}
       </View>
 
       <View style={styles.searchWrap}>
@@ -1185,7 +1674,7 @@ const ChatScreen = ({ navigation, route }) => {
       )}
 
       {/* WhatsApp Style Floating Action Button (FAB) */}
-      {userRoleId !== ROLES.PATIENT && (
+      {userRoleId !== ROLES.PATIENT && selectedChatIds.length === 0 && (
         <TouchableOpacity
           style={styles.whatsappFab}
           onPress={openNewChatModal}
@@ -1197,29 +1686,71 @@ const ChatScreen = ({ navigation, route }) => {
     </View>
   );
 
-  // ─────────────────────────────────────────────────────────────────────────────
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   // Render: Conversation View
-  // ─────────────────────────────────────────────────────────────────────────────
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const renderConversationView = () => (
     <View style={styles.conversationRoot}>
-      {/* Header — matches PatientsScreen topbar */}
+      {/* Header â€” matches PatientsScreen topbar */}
       <View style={styles.conversationHeaderWrap}>
         <SafeAreaView edges={['top']} style={{ backgroundColor: '#ffffff' }}>
           <View style={styles.topbar}>
-            <TouchableOpacity style={styles.topbarActionButton} onPress={closeChat} accessibilityLabel="Back to chats">
-              <MaterialIcons name="arrow-back" size={21} color={TEXT_DARK} />
-            </TouchableOpacity>
-            {/* Centered name & role */}
-            <View style={{ flex: 1 }}>
-              <Text style={styles.topbarTitle} numberOfLines={1}>{selectedContact?.name}</Text>
-              {peerIsTyping
-                ? <Text style={styles.topbarSubtitle}>typing…</Text>
-                : <Text style={styles.topbarSubtitle}>
-                  {resolveRoleLabel(selectedContact?.role_id || selectedContact?.role_name)}
+            {selectedMessageIds.length > 0 ? (
+              <>
+                <TouchableOpacity
+                  style={styles.topbarActionButton}
+                  onPress={() => setSelectedMessageIds([])}
+                  accessibilityLabel="Cancel selection"
+                >
+                  <MaterialIcons name="close" size={21} color={TEXT_DARK} />
+                </TouchableOpacity>
+                <Text style={styles.topbarTitle}>
+                  {selectedMessageIds.length} selected
                 </Text>
-              }
-            </View>
-            <View style={styles.topbarSpacer} />
+                <View style={styles.selectionActions}>
+                  {selectedMessageIds.length === 1 && messages.some((message) => (
+                    String(message.id) === selectedMessageIds[0]
+                    && String(message.from_user_id) === String(currentUser?.id)
+                    && message.message
+                  )) && (
+                    <TouchableOpacity
+                      style={styles.topbarActionButton}
+                      onPress={() => {
+                        const message = messages.find((item) => String(item.id) === selectedMessageIds[0]);
+                        if (message) startEdit(message);
+                      }}
+                      accessibilityLabel="Edit message"
+                    >
+                      <MaterialIcons name="edit" size={20} color={TEXT_DARK} />
+                    </TouchableOpacity>
+                  )}
+                  <TouchableOpacity
+                    style={styles.topbarActionButton}
+                    onPress={() => openDeleteDialog(selectedMessageIds)}
+                    accessibilityLabel="Delete selected messages"
+                  >
+                    <MaterialIcons name="delete-outline" size={22} color="#E53935" />
+                  </TouchableOpacity>
+                </View>
+              </>
+            ) : (
+              <>
+                <TouchableOpacity style={styles.topbarActionButton} onPress={closeChat} accessibilityLabel="Back to chats">
+                  <MaterialIcons name="arrow-back" size={21} color={TEXT_DARK} />
+                </TouchableOpacity>
+                {/* Centered name & role */}
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.topbarTitle} numberOfLines={1}>{selectedContact?.name}</Text>
+                  {peerIsTyping
+                    ? <Text style={styles.topbarSubtitle}>typingâ€¦</Text>
+                    : <Text style={styles.topbarSubtitle}>
+                      {resolveRoleLabel(selectedContact?.role_id || selectedContact?.role_name)}
+                    </Text>
+                  }
+                </View>
+                <View style={styles.topbarSpacer} />
+              </>
+            )}
           </View>
         </SafeAreaView>
       </View>
@@ -1234,7 +1765,7 @@ const ChatScreen = ({ navigation, route }) => {
           ) : (
             <FlatList
               ref={messagesRef}
-              data={messages}
+              data={visibleMessages}
               keyExtractor={(item) => String(item.id)}
               renderItem={renderMessage}
               contentContainerStyle={styles.messagesContent}
@@ -1265,14 +1796,25 @@ const ChatScreen = ({ navigation, route }) => {
                 style={[styles.sendButton, { backgroundColor: ACCENT_COLOR }, uploadingVoice && styles.sendButtonDisabled]}
                 onPress={sendVoiceMessage}
                 disabled={uploadingVoice}
+                accessibilityLabel="Send message"
               >
                 {uploadingVoice
                   ? <ActivityIndicator size="small" color="#fff" />
-                  : <MaterialIcons name="stop" size={20} color="#fff" />}
+                  : <MaterialIcons name="send" size={20} color="#fff" />}
               </TouchableOpacity>
             </View>
           ) : (
             <>
+              <TouchableOpacity
+                style={styles.attachButton}
+                onPress={handleAttachFile}
+                disabled={sending || uploadingVoice || uploadingFile || isRecording}
+                accessibilityLabel="Attach file"
+              >
+                {uploadingFile
+                  ? <ActivityIndicator size="small" color={ACCENT_COLOR} />
+                  : <MaterialIcons name="attach-file" size={22} color={ACCENT_COLOR} />}
+              </TouchableOpacity>
               <TextInput
                 style={styles.composerInput}
                 placeholder="Type a message"
@@ -1281,7 +1823,7 @@ const ChatScreen = ({ navigation, route }) => {
                 onChangeText={handleInputChange}
                 multiline
                 maxLength={1000}
-                editable={!sending && !uploadingVoice}
+                editable={!sending && !uploadingVoice && !uploadingFile}
               />
               {input.trim() ? (
                 <TouchableOpacity
@@ -1296,7 +1838,7 @@ const ChatScreen = ({ navigation, route }) => {
                 <TouchableOpacity
                   style={[styles.micButton, { borderColor: ACCENT_COLOR }]}
                   onPress={handleStartVoiceRecording}
-                  disabled={sending || uploadingVoice}
+                  disabled={sending || uploadingVoice || uploadingFile}
                 >
                   <MaterialIcons name="mic" size={22} color={ACCENT_COLOR} />
                 </TouchableOpacity>
@@ -1308,9 +1850,9 @@ const ChatScreen = ({ navigation, route }) => {
     </View>
   );
 
-  // ─────────────────────────────────────────────────────────────────────────────
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   // Render: New Conversation Modal (CENTERED IN MIDDLE, NO AUTO-KEYBOARD)
-  // ─────────────────────────────────────────────────────────────────────────────
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const renderNewChatModal = () => (
     <Modal
       visible={isNewChatModalOpen}
@@ -1400,9 +1942,117 @@ const ChatScreen = ({ navigation, route }) => {
     </Modal>
   );
 
-  // ─────────────────────────────────────────────────────────────────────────────
+  const renderDeleteDialog = () => {
+    const count = pendingDeleteIds?.length || 0;
+    const allowDeleteForEveryone = deleteWindowTick >= 0 && canDeleteSelectedForEveryone(pendingDeleteIds);
+    return (
+      <Modal
+        visible={count > 0}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          if (!deletingMessages) setPendingDeleteIds(null);
+        }}
+      >
+        <TouchableWithoutFeedback onPress={() => { if (!deletingMessages) setPendingDeleteIds(null); }}>
+          <View style={styles.modalOverlay}>
+            <TouchableWithoutFeedback>
+              <View style={styles.deleteDialog}>
+                <Text style={styles.deleteDialogTitle}>
+                  {count === 1 ? 'Delete message' : `Delete ${count} messages`}
+                </Text>
+                <Text style={styles.deleteDialogBody}>
+                  {allowDeleteForEveryone
+                    ? `Choose how the selected ${count === 1 ? 'message' : 'messages'} should be removed.`
+                    : `This removes the selected ${count === 1 ? 'message' : 'messages'} from your chat.`}
+                </Text>
+                {!!deleteDialogError && (
+                  <Text style={styles.deleteDialogError}>{deleteDialogError}</Text>
+                )}
+                {deletingMessages && (
+                  <ActivityIndicator color={ACCENT_COLOR} style={styles.deleteDialogSpinner} />
+                )}
+                <TouchableOpacity
+                  style={[styles.deleteDialogButton, styles.deleteDialogPrimary]}
+                  onPress={() => performDelete('me')}
+                  disabled={deletingMessages}
+                >
+                  <Text style={styles.deleteDialogPrimaryText}>Delete for Me</Text>
+                </TouchableOpacity>
+                {allowDeleteForEveryone && (
+                  <TouchableOpacity
+                    style={[styles.deleteDialogButton, styles.deleteDialogDanger]}
+                    onPress={() => performDelete('everyone')}
+                    disabled={deletingMessages}
+                  >
+                    <Text style={styles.deleteDialogDangerText}>Delete for Everyone</Text>
+                  </TouchableOpacity>
+                )}
+                <TouchableOpacity
+                  style={styles.deleteDialogCancel}
+                  onPress={() => setPendingDeleteIds(null)}
+                  disabled={deletingMessages}
+                >
+                  <Text style={styles.deleteDialogCancelText}>Cancel</Text>
+                </TouchableOpacity>
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+    );
+  };
+
+  const renderDeleteChatDialog = () => {
+    const count = pendingDeleteChatIds?.length || 0;
+    return (
+      <Modal
+        visible={count > 0}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          if (!deletingChats) setPendingDeleteChatIds(null);
+        }}
+      >
+        <TouchableWithoutFeedback onPress={() => { if (!deletingChats) setPendingDeleteChatIds(null); }}>
+          <View style={styles.modalOverlay}>
+            <TouchableWithoutFeedback>
+              <View style={styles.deleteDialog}>
+                <Text style={styles.deleteDialogTitle}>
+                  {count === 1 ? 'Delete chat' : `Delete ${count} chats`}
+                </Text>
+                <Text style={styles.deleteDialogBody}>{deleteChatBody}</Text>
+                {!!deleteChatError && (
+                  <Text style={styles.deleteDialogError}>{deleteChatError}</Text>
+                )}
+                {deletingChats && (
+                  <ActivityIndicator color={ACCENT_COLOR} style={styles.deleteDialogSpinner} />
+                )}
+                <TouchableOpacity
+                  style={[styles.deleteDialogButton, styles.deleteDialogDanger, styles.deleteDialogDangerFill]}
+                  onPress={performDeleteChats}
+                  disabled={deletingChats}
+                >
+                  <Text style={styles.deleteDialogPrimaryText}>Delete</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.deleteDialogCancel}
+                  onPress={() => setPendingDeleteChatIds(null)}
+                  disabled={deletingChats}
+                >
+                  <Text style={styles.deleteDialogCancelText}>Cancel</Text>
+                </TouchableOpacity>
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+    );
+  };
+
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   // Render: Edit/Delete Action Sheet Modal
-  // ─────────────────────────────────────────────────────────────────────────────
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const renderActionSheet = () => (
     <Modal
       visible={!!actionMsg}
@@ -1413,14 +2063,20 @@ const ChatScreen = ({ navigation, route }) => {
         <View style={styles.actionSheetOverlay}>
           <TouchableWithoutFeedback>
             <View style={styles.actionSheet}>
-              <Text style={styles.actionSheetPreview} numberOfLines={2}>{actionMsg?.message}</Text>
-              {String(actionMsg?.from_user_id) === String(currentUser?.id) && (
+              <Text style={styles.actionSheetPreview} numberOfLines={2}>
+                {actionMsg?.original_file_name || actionMsg?.message || 'Message'}
+              </Text>
+              {String(actionMsg?.from_user_id) === String(currentUser?.id) && !!actionMsg?.message && (
                 <TouchableOpacity style={styles.actionSheetRow} onPress={() => startEdit(actionMsg)}>
                   <MaterialIcons name="edit" size={20} color={TEXT_DARK} />
                   <Text style={styles.actionSheetText}>Edit message</Text>
                 </TouchableOpacity>
               )}
-              <TouchableOpacity style={styles.actionSheetRow} onPress={() => confirmDelete(actionMsg)}>
+              <TouchableOpacity style={styles.actionSheetRow} onPress={() => beginMessageSelection(actionMsg)}>
+                <MaterialIcons name="check-circle-outline" size={20} color={TEXT_DARK} />
+                <Text style={styles.actionSheetText}>Select messages</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.actionSheetRow} onPress={() => openDeleteDialog([actionMsg?.id])}>
                 <MaterialIcons name="delete-outline" size={20} color="#E53935" />
                 <Text style={[styles.actionSheetText, { color: '#E53935' }]}>Delete message</Text>
               </TouchableOpacity>
@@ -1434,9 +2090,9 @@ const ChatScreen = ({ navigation, route }) => {
     </Modal>
   );
 
-  // ─────────────────────────────────────────────────────────────────────────────
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   // Render: In-App Notification Banner
-  // ─────────────────────────────────────────────────────────────────────────────
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const renderBanner = () => {
     if (!notifBanner) return null;
     return (
@@ -1457,7 +2113,7 @@ const ChatScreen = ({ navigation, route }) => {
     );
   };
 
-  // ─────────────────────────────────────────────────────────────────────────────
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   return (
     <View style={styles.screenRoot}>
       <StatusBar
@@ -1481,6 +2137,8 @@ const ChatScreen = ({ navigation, route }) => {
 
       {renderNewChatModal()}
       {renderActionSheet()}
+      {renderDeleteDialog()}
+      {renderDeleteChatDialog()}
       {renderBanner()}
     </View>
   );
@@ -1488,7 +2146,7 @@ const ChatScreen = ({ navigation, route }) => {
 
 export default ChatScreen;
 
-// ─── Styles ───────────────────────────────────────────────────────────────────
+// â”€â”€â”€ Styles â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const styles = StyleSheet.create({
   screenRoot: {
@@ -1627,6 +2285,8 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(7,27,52,0.06)',
   },
+  chatRowSelected: { backgroundColor: 'rgba(11,31,63,0.06)' },
+  chatSelectionIcon: { marginRight: scaleWidth(10) },
   avatar: { width: scaleWidth(52), height: scaleWidth(52), borderRadius: scaleWidth(26), alignItems: 'center', justifyContent: 'center', marginRight: scaleWidth(12) },
   avatarText: { fontSize: scaleFont(16), fontWeight: '800' },
   chatRowBody: { flex: 1, minWidth: 0 },
@@ -1636,6 +2296,7 @@ const styles = StyleSheet.create({
   chatRowBottom: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: scaleHeight(2) },
   chatRowRole: { color: TEXT_MUTED, fontSize: scaleFont(11), fontWeight: '700' },
   chatRowPreview: { marginTop: scaleHeight(4), color: TEXT_MUTED, fontSize: scaleFont(13), fontWeight: '600' },
+  chatRowPreviewDeleted: { fontStyle: 'italic', fontWeight: '500' },
   unreadBadge: { minWidth: scaleWidth(20), height: scaleWidth(20), borderRadius: scaleWidth(10), alignItems: 'center', justifyContent: 'center', paddingHorizontal: scaleWidth(6) },
   unreadText: { color: '#fff', fontSize: scaleFont(10), fontWeight: '800' },
   emptyState: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: scaleWidth(30), paddingTop: scaleHeight(40), paddingBottom: scaleHeight(40) },
@@ -1663,6 +2324,9 @@ const styles = StyleSheet.create({
   messageRow: { marginBottom: scaleHeight(8), flexDirection: 'row', alignItems: 'flex-end' },
   messageRowMine: { justifyContent: 'flex-end' },
   messageRowOther: { justifyContent: 'flex-start' },
+  messageRowSelected: { backgroundColor: 'rgba(11,31,63,0.06)', borderRadius: scaleWidth(12) },
+  selectionIcon: { marginRight: scaleWidth(8), marginBottom: scaleHeight(6) },
+  selectionActions: { flexDirection: 'row', alignItems: 'center', gap: scaleWidth(8) },
   peerAvatar: { width: scaleWidth(28), height: scaleWidth(28), borderRadius: scaleWidth(14), alignItems: 'center', justifyContent: 'center', marginRight: scaleWidth(6) },
   peerAvatarText: { fontSize: scaleFont(10), fontWeight: '800' },
   bubble: { maxWidth: '75%', borderRadius: scaleWidth(14), paddingHorizontal: scaleWidth(12), paddingVertical: scaleHeight(8) },
@@ -1675,6 +2339,8 @@ const styles = StyleSheet.create({
   messageTime: { fontSize: scaleFont(10), fontWeight: '600' },
   messageTimeMine: { color: '#667781' },
   messageTimeOther: { color: '#8696a0' },
+  deletedMessageRow: { flexDirection: 'row', alignItems: 'center', gap: scaleWidth(6) },
+  deletedMessageText: { color: TEXT_MUTED, fontSize: scaleFont(14), fontStyle: 'italic', fontWeight: '500' },
   editedLabel: { fontSize: scaleFont(10), color: '#8696a0', fontStyle: 'italic' },
 
   // Inline Edit
@@ -1685,6 +2351,10 @@ const styles = StyleSheet.create({
 
   // Composer
   composer: { flexDirection: 'row', alignItems: 'flex-end', paddingHorizontal: scaleWidth(10), paddingVertical: scaleHeight(8), backgroundColor: '#f0f2f5', borderTopWidth: 1, borderTopColor: 'rgba(7,27,52,0.06)' },
+  attachButton: { width: scaleWidth(36), height: scaleWidth(42), alignItems: 'center', justifyContent: 'center', marginRight: scaleWidth(2) },
+  attachmentImage: { width: scaleWidth(200), height: scaleWidth(150), borderRadius: scaleWidth(8), marginBottom: scaleHeight(4), backgroundColor: 'rgba(0,0,0,0.05)' },
+  attachmentFile: { flexDirection: 'row', alignItems: 'center', marginBottom: scaleHeight(4) },
+  attachmentFileName: { flexShrink: 1, marginLeft: scaleWidth(6), fontSize: scaleFont(14), fontWeight: '600', color: '#111b21', textDecorationLine: 'underline' },
   composerInput: { flex: 1, minHeight: scaleHeight(42), maxHeight: scaleHeight(110), borderRadius: scaleWidth(22), backgroundColor: '#fff', paddingHorizontal: scaleWidth(16), paddingVertical: scaleHeight(10), fontSize: scaleFont(15), color: TEXT_DARK, marginRight: scaleWidth(8) },
   micButton: { width: scaleWidth(42), height: scaleWidth(42), borderRadius: scaleWidth(21), alignItems: 'center', justifyContent: 'center', backgroundColor: '#fff', borderWidth: 1 },
   recordingBar: { flex: 1, flexDirection: 'row', alignItems: 'center' },
@@ -1720,6 +2390,31 @@ const styles = StyleSheet.create({
   actionSheetPreview: { fontSize: scaleFont(13), color: TEXT_MUTED, marginBottom: 12, fontStyle: 'italic', borderLeftWidth: 3, borderLeftColor: '#E2E8F0', paddingLeft: 10 },
   actionSheetRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 14 },
   actionSheetText: { fontSize: scaleFont(16), fontWeight: '600', color: TEXT_DARK },
+
+  deleteDialog: {
+    width: '100%',
+    maxWidth: scaleWidth(340),
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    paddingHorizontal: scaleWidth(18),
+    paddingTop: scaleHeight(18),
+    paddingBottom: scaleHeight(12),
+  },
+  deleteDialogTitle: { fontSize: scaleFont(18), fontWeight: '800', color: TEXT_DARK },
+  deleteDialogBody: { marginTop: scaleHeight(8), marginBottom: scaleHeight(16), fontSize: scaleFont(14), lineHeight: scaleFont(20), color: TEXT_MUTED, fontWeight: '600' },
+  deleteDialogError: { color: '#E53935', fontSize: scaleFont(13), fontWeight: '700', marginBottom: scaleHeight(10) },
+  deleteDialogSpinner: { marginBottom: scaleHeight(12) },
+  deleteDialogButton: { borderRadius: 12, paddingVertical: scaleHeight(12), alignItems: 'center', marginBottom: scaleHeight(8) },
+  deleteDialogPrimary: { backgroundColor: '#0b1f3f' },
+  deleteDialogPrimaryText: { color: '#fff', fontSize: scaleFont(15), fontWeight: '800' },
+  deleteDialogDanger: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#E53935' },
+  deleteDialogDangerFill: { backgroundColor: '#E53935', borderColor: '#E53935' },
+  deleteDialogDangerText: { color: '#E53935', fontSize: scaleFont(15), fontWeight: '800' },
+  deleteDialogButtonDisabled: { opacity: 0.4 },
+  deleteDialogDangerTextDisabled: { color: '#E53935' },
+  deleteDialogHint: { color: TEXT_MUTED, fontSize: scaleFont(12), fontWeight: '600', marginBottom: scaleHeight(4) },
+  deleteDialogCancel: { alignItems: 'center', paddingVertical: scaleHeight(12) },
+  deleteDialogCancelText: { color: TEXT_MUTED, fontSize: scaleFont(15), fontWeight: '700' },
 
   // In-App Notification Banner
   notifBanner: {
