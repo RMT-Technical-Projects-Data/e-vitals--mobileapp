@@ -9,6 +9,14 @@ export function setActiveChatPeer(peerId) {
   activePeerId = peerId == null || peerId === '' ? null : String(peerId);
 }
 
+export function isChatScreenFocused() {
+  return chatScreenFocused;
+}
+
+export function getActiveChatPeer() {
+  return activePeerId;
+}
+
 /**
  * The chat screen already shows an in-app banner while it is open.
  * A system alert is only needed when that screen is not in front.

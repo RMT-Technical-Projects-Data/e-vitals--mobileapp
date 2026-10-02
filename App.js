@@ -9,6 +9,7 @@ import {
   captureInitialNotificationIntent,
   initializePushNotifications,
 } from './src/services/pushNotificationService';
+import { startChatAlerts, stopChatAlerts } from './src/services/chatAlertService';
 import {
   consumePendingChatOpenUserId,
   setPendingChatOpenUserId,
@@ -23,7 +24,7 @@ function RootNavigator() {
 }
 
 function PushNotificationBootstrap() {
-  const { isLoggedIn, isAuthReady } = useAuth();
+  const { isLoggedIn, isAuthReady, user } = useAuth();
   const navigationRef = useRef(null);
 
   useEffect(() => {
@@ -65,6 +66,16 @@ function PushNotificationBootstrap() {
       cleanup();
     };
   }, [isLoggedIn]);
+
+  useEffect(() => {
+    if (!isLoggedIn || !user?.id) {
+      stopChatAlerts();
+      return undefined;
+    }
+
+    startChatAlerts(user.id);
+    return () => stopChatAlerts();
+  }, [isLoggedIn, user?.id]);
 
   useEffect(() => {
     if (!isAuthReady || !isLoggedIn) return undefined;

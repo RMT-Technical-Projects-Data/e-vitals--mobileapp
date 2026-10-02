@@ -1,9 +1,10 @@
-import { Platform, PermissionsAndroid } from 'react-native';
+import { AppState, Platform, PermissionsAndroid } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import messaging from '@react-native-firebase/messaging';
 import notifee, { AndroidImportance, EventType } from '@notifee/react-native';
 import apiService from './apiService';
 import { getActiveChatUserId } from '../utils/activeChatState';
+import { isChatScreenFocused } from './chatPresence';
 import { setPendingChatOpenUserId } from '../utils/pendingChatNavigation';
 import { setPendingAbnormalReviewsOpen } from '../utils/pendingAbnormalNavigation';
 import { emitAbnormalAssignmentReceived } from '../utils/abnormalAssignmentEvents';
@@ -111,11 +112,16 @@ const normalizePayload = (remoteMessage) => {
   };
 };
 
-const shouldSkipNotification = (data) => (
-  data.type === 'chat_message'
-  && data.from_user_id
-  && getActiveChatUserId() === String(data.from_user_id)
-);
+const shouldSkipNotification = (data) => {
+  if (data.type !== 'chat_message') return false;
+  // A closed or backgrounded app cannot show the in-chat banner.
+  if (AppState.currentState !== 'active') return false;
+  if (isChatScreenFocused()) return true;
+  return Boolean(
+    data.from_user_id
+    && getActiveChatUserId() === String(data.from_user_id)
+  );
+};
 
 const getNotificationMeta = (data) => {
   if (data.type === 'abnormal_assignment') {
@@ -149,7 +155,11 @@ const displayRemoteNotification = async (remoteMessage, { isForeground = false }
 
   const { title, body, data } = normalizePayload(remoteMessage);
 
-  if (data.type === 'chat_message' && !hasRealNotificationContent(remoteMessage, data)) {
+  if (
+    data.type === 'chat_message'
+    && !hasRealNotificationContent(remoteMessage, data)
+    && !data.from_user_id
+  ) {
     return;
   }
 
@@ -189,6 +199,19 @@ const displayRemoteNotification = async (remoteMessage, { isForeground = false }
     },
   });
   await refreshNotificationInbox();
+};
+
+export const showLocalChatNotification = async ({ fromUserId, title, body, messageId }) => {
+  await displayRemoteNotification({
+    data: {
+      type: 'chat_message',
+      from_user_id: fromUserId != null ? String(fromUserId) : '',
+      title: title || 'New message',
+      body: body || 'You have a new chat message',
+      message: body || '',
+      message_id: messageId != null ? String(messageId) : '',
+    },
+  }, { isForeground: true });
 };
 
 const handleNotificationDismissed = async (notification) => {

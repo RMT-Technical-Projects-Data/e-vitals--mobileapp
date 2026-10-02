@@ -8,14 +8,9 @@ require Pod::Executable.execute_command('node', ['-p',
 platform :ios, min_ios_version_supported
 prepare_react_native_project!
 
-# Required for @react-native-firebase with static iOS builds
+# Required so Swift can import FirebaseCore / FirebaseMessaging.
 $RNFirebaseAsStaticFramework = true
-
-linkage = ENV['USE_FRAMEWORKS']
-if linkage != nil
-  Pod::UI.puts "Configuring Pod with #{linkage}ally linked Frameworks".green
-  use_frameworks! :linkage => linkage.to_sym
-end
+use_frameworks! :linkage => :static
 
 target 'evitals' do
   config = use_native_modules!
@@ -34,5 +29,35 @@ target 'evitals' do
       :mac_catalyst_enabled => false,
       # :ccache_enabled => true
     )
+
+    # use_frameworks builds every pod as a Clang module. React Native Firebase
+    # includes React-Core headers, which are not modules, so one failed import
+    # turns into a long list of parse errors. Compile the RNFB pods as normal
+    # Objective-C instead. FirebaseCore itself stays a module for AppDelegate.
+    installer.pods_project.targets.each do |target|
+      target.build_configurations.each do |build_config|
+        build_config.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
+        if target.name.start_with?('RNFB')
+          build_config.build_settings['DEFINES_MODULE'] = 'NO'
+          build_config.build_settings['CLANG_ENABLE_MODULES'] = 'NO'
+        end
+      end
+    end
+
+    installer.aggregate_targets.each do |aggregate_target|
+      aggregate_target.user_project.native_targets.each do |target|
+        target.build_configurations.each do |build_config|
+          build_config.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
+          # RNFBUtilsModule uses PHAsset. With modules off, Photos is not auto-linked.
+          flags = build_config.build_settings['OTHER_LDFLAGS'] || ['$(inherited)']
+          flags = [flags] if flags.is_a?(String)
+          unless flags.include?('Photos')
+            flags += ['-framework', 'Photos']
+          end
+          build_config.build_settings['OTHER_LDFLAGS'] = flags
+        end
+      end
+      aggregate_target.user_project.save
+    end
   end
 end
