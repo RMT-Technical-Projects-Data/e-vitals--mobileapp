@@ -482,18 +482,21 @@ const ChatScreen = ({ navigation, route }) => {
   const selectedContactRef = useRef(null);
   const currentUserRef = useRef(null);
   const handledPushNonceRef = useRef(null);
+  const viewRef = useRef(view);
+  const selectedMessageIdsRef = useRef(selectedMessageIds);
+  const selectedChatIdsRef = useRef(selectedChatIds);
+  const routeRef = useRef(route);
+  const returnToMessageListRef = useRef(() => {});
+  const closeChatRef = useRef(() => {});
+  const handledMessagesRootRef = useRef(null);
+
+  viewRef.current = view;
+  selectedMessageIdsRef.current = selectedMessageIds;
+  selectedChatIdsRef.current = selectedChatIds;
+  routeRef.current = route;
 
   useEffect(() => { selectedContactRef.current = selectedContact; }, [selectedContact]);
   useEffect(() => { currentUserRef.current = currentUser; }, [currentUser]);
-
-  useEffect(() => {
-    if (!selectedChatIds.length || view !== 'list') return undefined;
-    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
-      setSelectedChatIds([]);
-      return true;
-    });
-    return () => subscription.remove();
-  }, [selectedChatIds.length, view]);
 
   useEffect(() => () => {
     stopPlayback();
@@ -747,6 +750,35 @@ const ChatScreen = ({ navigation, route }) => {
 
   useFocusEffect(
     useCallback(() => {
+      const params = routeRef.current?.params || {};
+      const openingSpecificChat = Boolean(params.openUserId)
+        || (params.peerUserId != null && params.pushNonce != null);
+      if (!openingSpecificChat) {
+        returnToMessageListRef.current();
+      }
+
+      const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+        if (viewRef.current === 'chat') {
+          if (selectedMessageIdsRef.current.length) {
+            setSelectedMessageIds([]);
+            return true;
+          }
+          closeChatRef.current();
+          return true;
+        }
+        if (selectedChatIdsRef.current.length) {
+          setSelectedChatIds([]);
+          return true;
+        }
+        return false;
+      });
+
+      return () => subscription.remove();
+    }, [])
+  );
+
+  useFocusEffect(
+    useCallback(() => {
       setChatScreenFocused(true);
       setLoadingList(true);
       loadChats();
@@ -823,7 +855,7 @@ const ChatScreen = ({ navigation, route }) => {
     });
   }, [route.params?.peerUserId, route.params?.peerName, route.params?.pushNonce, chatList, loadingList]);
 
-  const closeChat = () => {
+  const returnToMessageList = () => {
     socketRef.current?.emit('stop_typing', { from_user_id: currentUser?.id, to_user_id: selectedContact?.id });
     setActiveChatUserId(null);
     setView('list');
@@ -835,8 +867,15 @@ const ChatScreen = ({ navigation, route }) => {
     setSelectedMessageIds([]);
     setPendingDeleteIds(null);
     setPeerIsTyping(false);
+  };
+
+  const closeChat = () => {
+    returnToMessageList();
     loadChats();
   };
+
+  returnToMessageListRef.current = returnToMessageList;
+  closeChatRef.current = closeChat;
 
   useEffect(() => {
     const openUserId = route?.params?.openUserId;
@@ -848,6 +887,16 @@ const ChatScreen = ({ navigation, route }) => {
       navigation.setParams({ openUserId: undefined });
     }
   }, [route?.params?.openUserId, chatList, navigation]);
+
+  useEffect(() => {
+    const token = route.params?.messagesRoot;
+    if (token == null || handledMessagesRootRef.current === token) return;
+    handledMessagesRootRef.current = token;
+    if (route.params?.openUserId || (route.params?.peerUserId != null && route.params?.pushNonce != null)) {
+      return;
+    }
+    closeChatRef.current();
+  }, [route.params?.messagesRoot, route.params?.openUserId, route.params?.peerUserId, route.params?.pushNonce]);
 
   // â”€â”€ New Chat Modal Trigger & Selection â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const openNewChatModal = async () => {
@@ -1662,19 +1711,25 @@ const ChatScreen = ({ navigation, route }) => {
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
           ListEmptyComponent={
-            <View style={styles.emptyState}>
-              <MaterialIcons name="chat-bubble-outline" size={42} color={TEXT_MUTED} />
-              <Text style={styles.emptyTitle}>No conversations found</Text>
-              <Text style={styles.emptySubtitle}>
-                Tap the + button at the bottom right to start a message.
-              </Text>
-            </View>
+            conversationFilter === 'unread' ? (
+              <View style={styles.emptyState}>
+                <Text style={styles.emptyTitle}>No unread messages.</Text>
+              </View>
+            ) : (
+              <View style={styles.emptyState}>
+                <MaterialIcons name="chat-bubble-outline" size={42} color={TEXT_MUTED} />
+                <Text style={styles.emptyTitle}>No conversations found</Text>
+                <Text style={styles.emptySubtitle}>
+                  Tap the + button at the bottom right to start a message.
+                </Text>
+              </View>
+            )
           }
         />
       )}
 
       {/* WhatsApp Style Floating Action Button (FAB) */}
-      {userRoleId !== ROLES.PATIENT && selectedChatIds.length === 0 && (
+      {userRoleId !== ROLES.PATIENT && selectedChatIds.length === 0 && conversationFilter !== 'unread' && (
         <TouchableOpacity
           style={styles.whatsappFab}
           onPress={openNewChatModal}

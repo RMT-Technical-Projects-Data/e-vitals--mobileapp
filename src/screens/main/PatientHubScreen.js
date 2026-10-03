@@ -36,6 +36,7 @@ import {
 import { resolveEffectiveScheduleTargets } from '../../utils/scheduleTargetUtils';
 import PulseIcon from '../../components/common/PulseIcon';
 import PatientAvatar from '../../components/common/PatientAvatar';
+import SuccessDialog from '../../components/common/SuccessDialog';
 
 const { width, height: screenHeight } = Dimensions.get('window');
 const guidelineBaseWidth = 375;
@@ -410,6 +411,13 @@ export default function PatientHubScreen({ navigation, route }) {
   const [weightTarget, setWeightTarget] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showFollowUpModal, setShowFollowUpModal] = useState(false);
+  const [followUpSuccess, setFollowUpSuccess] = useState(null);
+  const [zeroMinutesNotice, setZeroMinutesNotice] = useState(false);
+  const followUpSuccessTimerRef = useRef(null);
+
+  useEffect(() => () => {
+    if (followUpSuccessTimerRef.current) clearTimeout(followUpSuccessTimerRef.current);
+  }, []);
   const [submittingFollowUp, setSubmittingFollowUp] = useState(false);
   const [followUpTemplates, setFollowUpTemplates] = useState(HUB_FALLBACK_TEMPLATES);
   const [loadingTemplates, setLoadingTemplates] = useState(false);
@@ -582,7 +590,18 @@ export default function PatientHubScreen({ navigation, route }) {
     setShowTemplatePicker(false);
     setShowFollowUpDatePicker(false);
     setShowFollowUpTimePicker(false);
+    setZeroMinutesNotice(false);
     setShowFollowUpModal(false);
+  };
+
+  const showFollowUpSuccess = (title, message) => {
+    closeFollowUpModal();
+    if (followUpSuccessTimerRef.current) clearTimeout(followUpSuccessTimerRef.current);
+    // Let the add-follow-up modal finish closing before presenting the next one.
+    // Android drops a second Modal opened in the same frame.
+    followUpSuccessTimerRef.current = setTimeout(() => {
+      setFollowUpSuccess({ title, message });
+    }, 280);
   };
 
   const openVitalList = (dataType) => {
@@ -676,6 +695,13 @@ export default function PatientHubScreen({ navigation, route }) {
       return;
     }
 
+    const manualMins = parseInt(followUpForm.manualMinutes || '0', 10) || 0;
+    const manualSecs = Math.min(59, parseInt(followUpForm.manualSeconds || '0', 10) || 0);
+    if (manualMins < 1) {
+      setZeroMinutesNotice(true);
+      return;
+    }
+
     if (!practiceId || String(patientId).startsWith('mock')) {
       setNotes((prev) => [
         {
@@ -687,15 +713,13 @@ export default function PatientHubScreen({ navigation, route }) {
         },
         ...prev,
       ]);
-      closeFollowUpModal();
-      Alert.alert('Saved', 'Follow-up recorded.');
+      showFollowUpSuccess('Saved', 'Follow-up recorded.');
       return;
     }
 
     setSubmittingFollowUp(true);
     try {
-      const totalSeconds = (parseInt(followUpForm.manualMinutes || '0', 10) || 0) * 60
-        + Math.min(59, parseInt(followUpForm.manualSeconds || '0', 10) || 0);
+      const totalSeconds = manualMins * 60 + manualSecs;
       await apiService.createFollowUp(practiceId, patientId, {
         content: followUpForm.content.trim(),
         service_type: followUpForm.serviceType,
@@ -709,9 +733,14 @@ export default function PatientHubScreen({ navigation, route }) {
       });
       closeFollowUpModal();
       await loadNotes(practiceId, patientId);
-      Alert.alert('Saved', 'Follow-up recorded successfully.');
+      showFollowUpSuccess('Saved', 'Follow-up recorded successfully.');
     } catch (error) {
-      Alert.alert('Error', error.message || 'Failed to save follow-up.');
+      const message = error?.message || 'Failed to save follow-up.';
+      if (/cannot be 0/i.test(message)) {
+        setZeroMinutesNotice(true);
+      } else {
+        Alert.alert('Error', message);
+      }
     } finally {
       setSubmittingFollowUp(false);
     }
@@ -810,16 +839,31 @@ export default function PatientHubScreen({ navigation, route }) {
                 </View>
                 <View style={styles.timerMainRow}>
                   <Text style={[styles.timerDisplay, { color: accentColor }]}>{formatTimer(timer)}</Text>
-                  <TouchableOpacity
-                    style={[styles.timerPlayBtn, { backgroundColor: accentColor }]}
-                    onPress={() => setIsRunning((prev) => !prev)}
-                  >
-                    <MaterialIcons
-                      name={isRunning ? 'pause' : 'play-arrow'}
-                      size={28}
-                      color="#fff"
-                    />
-                  </TouchableOpacity>
+                  <View style={styles.timerActions}>
+                    <TouchableOpacity
+                      style={[styles.timerPlayBtn, { backgroundColor: accentColor }]}
+                      onPress={() => setIsRunning((prev) => !prev)}
+                      accessibilityRole="button"
+                      accessibilityLabel={isRunning ? 'Pause timer' : 'Start timer'}
+                    >
+                      <MaterialIcons
+                        name={isRunning ? 'pause' : 'play-arrow'}
+                        size={28}
+                        color="#fff"
+                      />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.timerResetBtn}
+                      onPress={() => {
+                        setIsRunning(false);
+                        setTimer(0);
+                      }}
+                      accessibilityRole="button"
+                      accessibilityLabel="Reset timer"
+                    >
+                      <MaterialIcons name="close" size={22} color="#dc2626" />
+                    </TouchableOpacity>
+                  </View>
                 </View>
               </View>
             )}
@@ -1261,8 +1305,23 @@ export default function PatientHubScreen({ navigation, route }) {
               </View>
             </KeyboardAvoidingView>
           </View>
+          <SuccessDialog
+            embedded
+            variant="warning"
+            visible={zeroMinutesNotice}
+            title="Follow-up"
+            message="Follow-up minutes cannot be 0"
+            onClose={() => setZeroMinutesNotice(false)}
+          />
         </View>
       </Modal>
+
+      <SuccessDialog
+        visible={Boolean(followUpSuccess)}
+        title={followUpSuccess?.title}
+        message={followUpSuccess?.message}
+        onClose={() => setFollowUpSuccess(null)}
+      />
 
       {showFollowUpDatePicker && Platform.OS === 'android' ? (
           <DateTimePicker
@@ -1461,12 +1520,25 @@ const styles = StyleSheet.create({
     letterSpacing: 1.5,
     fontVariant: ['tabular-nums'],
   },
+  timerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scaleWidth(8),
+  },
   timerPlayBtn: {
     width: scaleWidth(56),
     height: scaleWidth(56),
     borderRadius: scaleWidth(18),
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  timerResetBtn: {
+    width: scaleWidth(56),
+    height: scaleWidth(56),
+    borderRadius: scaleWidth(18),
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#fee2e2',
   },
   vitalsGrid: { gap: scaleWidth(10) },
   vitalCard: {

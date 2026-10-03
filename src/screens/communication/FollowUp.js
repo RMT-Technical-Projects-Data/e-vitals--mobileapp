@@ -36,6 +36,7 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import apiService from '../../services/apiService';
 import DatePickerModal from '../../components/common/DatePickerModal';
+import SuccessDialog from '../../components/common/SuccessDialog';
 import {
   DEFAULT_VITAL_TARGETS,
   checkPulseValue,
@@ -105,10 +106,12 @@ const FALLBACK_TEMPLATES = [
   { id: 'fallback-5', name: 'Medication Adherence', template: 'Patient contacted regarding medication adherence. Barriers to medication use identified and addressed. Pharmacy coordination completed if needed. Patient verbalized understanding of medication importance. Follow up in 14 days.' },
 ];
 
-const getTodayYmd = () => {
-  const d = new Date();
+const toLocalYmd = (date) => {
+  const d = date instanceof Date ? date : new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
+
+const getTodayYmd = () => toLocalYmd(new Date());
 
 const getCurrentTimeHm = () => {
   const d = new Date();
@@ -354,13 +357,13 @@ const getPatientVitalPills = (item) => {
     const latest = item.latest_measurements || {};
     if (latest.blood_pressure || item.blood_pressure || (item.data_summary && String(item.data_summary).includes('/'))) list.push('BP');
     if (latest.blood_glucose || item.blood_glucose || item.glucose) list.push('BG');
-    if (latest.weight || item.weight_measurement || item.weight) list.push('Weight');
+    if (latest.weight || item.weight_measurement || item.weight) list.push('W');
   }
   const normalized = list.map((v) => {
     const lower = v.toLowerCase();
     if (lower.includes('pressure') || lower === 'bp') return 'BP';
     if (lower.includes('glucose') || lower === 'bg') return 'BG';
-    if (lower.includes('weight') || lower === 'wt') return 'Weight';
+    if (lower.includes('weight') || lower === 'wt' || lower === 'w') return 'W';
     if (lower.includes('pulse') || lower === 'hr') return 'Pulse';
     return v;
   });
@@ -501,6 +504,13 @@ export default function FollowUp({ navigation, route }) {
 
   // --- Add Follow Up Modal ---
   const [showFollowUpModal, setShowFollowUpModal] = useState(false);
+  const [followUpSuccess, setFollowUpSuccess] = useState(null);
+  const [zeroMinutesNotice, setZeroMinutesNotice] = useState(false);
+  const followUpSuccessTimerRef = useRef(null);
+
+  useEffect(() => () => {
+    if (followUpSuccessTimerRef.current) clearTimeout(followUpSuccessTimerRef.current);
+  }, []);
   const [selectedPatient, setSelectedPatient] = useState(null);
   const [followUpForm, setFollowUpForm] = useState({
     serviceType: 'General', followUpStatus: 'Continue follow up', assignTo: '',
@@ -830,7 +840,7 @@ export default function FollowUp({ navigation, route }) {
         }
       }
     } else if (formData.dobFrom || formData.dobTo) {
-      Alert.alert('Validation', 'Select a DOB operator');
+      Alert.alert('Validation', 'Select a DOB operator (On, On or before, On or after, or Between)');
       return;
     }
 
@@ -941,6 +951,17 @@ export default function FollowUp({ navigation, route }) {
     setShowTemplatePicker(false);
     setShowFollowUpDatePicker(false);
     setShowFollowUpTimePicker(false);
+    setZeroMinutesNotice(false);
+  };
+
+  const showFollowUpSuccess = (title, message) => {
+    closeFollowUpModal();
+    if (followUpSuccessTimerRef.current) clearTimeout(followUpSuccessTimerRef.current);
+    // Let the add-follow-up modal finish closing before presenting the next one.
+    // Android drops a second Modal opened in the same frame.
+    followUpSuccessTimerRef.current = setTimeout(() => {
+      setFollowUpSuccess({ title, message });
+    }, 280);
   };
 
   const handleManualTimeChange = (field, text) => {
@@ -993,24 +1014,31 @@ export default function FollowUp({ navigation, route }) {
       return;
     }
 
+    const manualMins = parseInt(followUpForm.manualMinutes || '0', 10) || 0;
+    const manualSecs = Math.min(59, parseInt(followUpForm.manualSeconds || '0', 10) || 0);
+    if (manualMins < 1) {
+      setZeroMinutesNotice(true);
+      return;
+    }
+
     setSubmittingFollowUp(true);
     try {
-      let manualMins = parseInt(followUpForm.manualMinutes || '0', 10);
-      let manualSecs = parseInt(followUpForm.manualSeconds || '0', 10);
-      let serviceMinutes = Math.max(1, Math.ceil(manualMins + manualSecs / 60));
-
+      const totalSeconds = manualMins * 60 + manualSecs;
       const payload = {
         service_type: followUpForm.serviceType,
         status: followUpForm.followUpStatus,
         fu_note_content: followUpForm.content.trim(),
-        service_time: serviceMinutes,
+        content: followUpForm.content.trim(),
+        service_time: manualMins,
+        service_time_seconds: totalSeconds,
         date_time: `${followUpForm.date}T${followUpForm.time}:00`,
+        date: followUpForm.date,
+        time: followUpForm.time,
         caregiver_id: followUpForm.assignTo || undefined,
       };
 
       await apiService.createFollowUp(submitPracticeId, patientId, payload);
-      Alert.alert('Success', 'Follow up saved successfully.');
-      closeFollowUpModal();
+      showFollowUpSuccess('Success', 'Follow up saved successfully.');
 
       // Refresh results
       if (hasQueried && activePracticeId) {
@@ -1019,7 +1047,12 @@ export default function FollowUp({ navigation, route }) {
       }
     } catch (e) {
       console.warn('Error saving follow up:', e);
-      Alert.alert('Error', 'Failed to save follow up note.');
+      const message = e?.message || 'Failed to save follow up note.';
+      if (/cannot be 0/i.test(message)) {
+        setZeroMinutesNotice(true);
+      } else {
+        Alert.alert('Error', message);
+      }
     } finally {
       setSubmittingFollowUp(false);
     }
@@ -1722,8 +1755,23 @@ export default function FollowUp({ navigation, route }) {
               </View>
             </KeyboardAvoidingView>
           </View>
+          <SuccessDialog
+            embedded
+            variant="warning"
+            visible={zeroMinutesNotice}
+            title="Follow-up"
+            message="Follow-up minutes cannot be 0"
+            onClose={() => setZeroMinutesNotice(false)}
+          />
         </View>
       </Modal>
+
+      <SuccessDialog
+        visible={Boolean(followUpSuccess)}
+        title={followUpSuccess?.title}
+        message={followUpSuccess?.message}
+        onClose={() => setFollowUpSuccess(null)}
+      />
 
       {showFollowUpDatePicker && Platform.OS === 'android' ? (
         <DateTimePicker value={parseYmdToDate(followUpForm.date)} mode="date" display="default" onChange={handleFollowUpDateChange} />
@@ -1820,15 +1868,31 @@ export default function FollowUp({ navigation, route }) {
       {/* DOB Pickers */}
       <DatePickerModal
         visible={showDobFromPicker}
-        date={parseYmdToDate(formData.dobFrom)}
-        onConfirm={(d) => { setFormData((p) => ({ ...p, dobFrom: d.toISOString().split('T')[0] })); setShowDobFromPicker(false); }}
-        onCancel={() => setShowDobFromPicker(false)}
+        title="Select DOB (from)"
+        value={parseYmdToDate(formData.dobFrom)}
+        maximumDate={new Date()}
+        onClose={() => setShowDobFromPicker(false)}
+        onConfirm={(d) => {
+          const next = toLocalYmd(d);
+          setFormData((p) => ({
+            ...p,
+            dobFrom: next,
+            dobTo: p.dobTo && p.dobTo < next ? '' : p.dobTo,
+          }));
+          setShowDobFromPicker(false);
+        }}
       />
       <DatePickerModal
         visible={showDobToPicker}
-        date={parseYmdToDate(formData.dobTo)}
-        onConfirm={(d) => { setFormData((p) => ({ ...p, dobTo: d.toISOString().split('T')[0] })); setShowDobToPicker(false); }}
-        onCancel={() => setShowDobToPicker(false)}
+        title="Select DOB (to)"
+        value={parseYmdToDate(formData.dobTo)}
+        minimumDate={formData.dobFrom ? parseYmdToDate(formData.dobFrom) : undefined}
+        maximumDate={new Date()}
+        onClose={() => setShowDobToPicker(false)}
+        onConfirm={(d) => {
+          setFormData((p) => ({ ...p, dobTo: toLocalYmd(d) }));
+          setShowDobToPicker(false);
+        }}
       />
     </SafeAreaView>
   );

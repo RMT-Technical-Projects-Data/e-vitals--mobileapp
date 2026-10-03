@@ -108,7 +108,7 @@ const vitalPillForReading = (reading) => {
   const type = classifyVitalType(reading?.vital_type);
   if (type === 'bp') return 'BP';
   if (type === 'bg') return 'BG';
-  if (type === 'weight') return 'Weight';
+  if (type === 'weight') return 'W';
   return null;
 };
 

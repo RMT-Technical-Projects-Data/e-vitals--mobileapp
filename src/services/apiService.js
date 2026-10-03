@@ -742,8 +742,10 @@ const apiService = {
     if (params.provider) queryParams.push(`provider=${params.provider}`);
     if (params.status) queryParams.push(`status=${params.status}`);
     if (params.dobOperator) queryParams.push(`dobOperator=${params.dobOperator}`);
-    if (params.dobFrom) queryParams.push(`dobFrom=${params.dobFrom}`);
-    if (params.dobTo) queryParams.push(`dobTo=${params.dobTo}`);
+    if (params.dobFrom) queryParams.push(`dobFrom=${encodeURIComponent(params.dobFrom)}`);
+    if (params.dobTo) queryParams.push(`dobTo=${encodeURIComponent(params.dobTo)}`);
+    if (params.rpmStartDate) queryParams.push(`billingStartRpm=${encodeURIComponent(params.rpmStartDate)}`);
+    if (params.rpmEndDate) queryParams.push(`billingEndRpm=${encodeURIComponent(params.rpmEndDate)}`);
     if (params.programEnrolled) queryParams.push(`programEnrolled=${params.programEnrolled}`);
     if (params.vitals) {
       const vVal = Array.isArray(params.vitals) ? params.vitals.join(',') : params.vitals;
@@ -769,8 +771,8 @@ const apiService = {
   lookupPatientRPM: async (practiceId, params = {}) => {
     let endpoint = `/practices/${practiceId}/lookup-rpm`;
     const queryParams = [];
-    if (params.startDate) queryParams.push(`startDate=${params.startDate}`);
-    if (params.endDate) queryParams.push(`endDate=${params.endDate}`);
+    if (params.startDate) queryParams.push(`billingStartRpm=${encodeURIComponent(params.startDate)}`);
+    if (params.endDate) queryParams.push(`billingEndRpm=${encodeURIComponent(params.endDate)}`);
     if (params.search) queryParams.push(`search=${encodeURIComponent(params.search)}`);
     if (params.limit) queryParams.push(`limit=${params.limit}`);
     if (params.page) queryParams.push(`page=${params.page}`);
@@ -1290,6 +1292,23 @@ const apiService = {
       },
     );
     return readApiResponse(response, 'Failed to assign provider');
+  },
+
+  sendCustomEmail: async (payload) => {
+    const response = await apiRequest('/email/custom', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+    return readApiResponse(response, 'Failed to send email');
+  },
+
+  createSupportTicket: async (formData) => {
+    const url = `${API_CONFIG.BASE_URL}/tickets/create`;
+    const sessionCookie = await getSessionCookie();
+    const headers = { Accept: 'application/json', 'X-Mobile-Client': 'true' };
+    if (sessionCookie) headers['X-EVitals-Session-Id'] = sessionCookie;
+    const response = await fetch(url, { method: 'POST', headers, body: formData });
+    return readApiResponse(response, 'Failed to submit ticket.');
   },
 };
 

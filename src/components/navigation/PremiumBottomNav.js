@@ -51,7 +51,10 @@ export default function PremiumBottomNav({ active, navigation, role, unreadMessa
     }
 
     const tabRoute = routeName;
-    const routeParams = { role: resolvedRole };
+    const routeParams = {
+      role: resolvedRole,
+      ...(tabRoute === 'Chat' ? { messagesRoot: Date.now(), openUserId: undefined } : {}),
+    };
     const routeNames = navigation.getState?.().routeNames || [];
     if (routeNames.includes('MainTabs')) {
       navigation.navigate('MainTabs', { screen: tabRoute, params: routeParams });

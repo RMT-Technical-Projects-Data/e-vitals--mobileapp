@@ -199,6 +199,12 @@ export default function SummaryScreen({ navigation, route }) {
     }
   };
 
+  const parseSummaryDate = (value) => {
+    const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (!match) return new Date();
+    return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  };
+
   const formatDateForAPI = (date) => {
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -1033,11 +1039,28 @@ export default function SummaryScreen({ navigation, route }) {
       const dateRangeValue = periodToApiValue[selectedPeriod];
       console.log("🚀 Querying with mode:", dateRangeType, "Quick select:", selectedPeriod);
 
-      if (dateRangeType === 'custom' && (!fromDate || !toDate)) {
-        console.log("❌ Missing dates for custom range");
-        Alert.alert('Error', 'Please select both start and end dates for custom range');
-        setIsLoading(false);
-        return;
+      if (dateRangeType === 'custom') {
+        if (!fromDate || !toDate) {
+          Alert.alert('Validation', 'Please select both start and end dates for custom range');
+          setIsLoading(false);
+          return;
+        }
+        const today = formatDateForAPI(new Date());
+        if (fromDate > today) {
+          Alert.alert('Validation', 'Start date cannot be in the future');
+          setIsLoading(false);
+          return;
+        }
+        if (toDate > today) {
+          Alert.alert('Validation', 'End date cannot be in the future');
+          setIsLoading(false);
+          return;
+        }
+        if (toDate < fromDate) {
+          Alert.alert('Validation', 'End date must be on or after the start date');
+          setIsLoading(false);
+          return;
+        }
       }
 
       fetchGraphData(patientId, dateRangeValue, dateRangeType, fromDate, toDate);
@@ -1137,21 +1160,21 @@ export default function SummaryScreen({ navigation, route }) {
 
               {showFromDatePicker && (
                 <DateTimePicker
-                  value={fromDate ? new Date(fromDate) : new Date()}
+                  value={parseSummaryDate(fromDate)}
                   mode="date"
                   display="default"
-                  maximumDate={toDate ? new Date(toDate) : new Date()}
+                  maximumDate={toDate ? parseSummaryDate(toDate) : new Date()}
                   onChange={handleFromDateChange}
                 />
               )}
 
               {showToDatePicker && (
                 <DateTimePicker
-                  value={toDate ? new Date(toDate) : new Date()}
+                  value={parseSummaryDate(toDate)}
                   mode="date"
                   display="default"
                   maximumDate={new Date()}
-                  minimumDate={fromDate ? new Date(fromDate) : undefined}
+                  minimumDate={fromDate ? parseSummaryDate(fromDate) : undefined}
                   onChange={handleToDateChange}
                 />
               )}

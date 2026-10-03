@@ -906,7 +906,7 @@ const collectPatientReadings = (patient) => {
   const weightNum = Number(weight);
   if (wtAt && weight != null && weight !== '' && Number.isFinite(weightNum)) {
     readings.push({
-      type: 'WT',
+      type: 'W',
       label: 'Weight',
       value: `${weightNum.toFixed(1)} lb`,
       at: wtAt,

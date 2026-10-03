@@ -272,14 +272,14 @@ const getPatientVitalPills = (item) => {
     const latest = item.latest_measurements || {};
     if (latest.blood_pressure || item.blood_pressure || (item.data_summary && String(item.data_summary).includes('/'))) list.push('BP');
     if (latest.blood_glucose || item.blood_glucose || item.glucose) list.push('BG');
-    if (latest.weight || item.weight_measurement || item.weight) list.push('Weight');
+    if (latest.weight || item.weight_measurement || item.weight) list.push('W');
   }
 
   const normalized = list.map((v) => {
     const lower = v.toLowerCase();
     if (lower.includes('pressure') || lower === 'bp') return 'BP';
     if (lower.includes('glucose') || lower === 'bg') return 'BG';
-    if (lower.includes('weight') || lower === 'wt') return 'Weight';
+    if (lower.includes('weight') || lower === 'wt' || lower === 'w') return 'W';
     if (lower.includes('pulse') || lower === 'hr') return 'Pulse';
     return v;
   });
@@ -289,10 +289,10 @@ const getPatientVitalPills = (item) => {
 };
 
 const STATUS_TABS = [
-  { key: null, label: 'All', activeBg: '#0b1f3f', inactiveBorder: '#E2E8F0', activeColor: '#FFFFFF', inactiveColor: '#64748B' },
-  { key: '2', label: 'Active', activeBg: '#0077b6', inactiveBorder: '#90e0ef', activeColor: '#FFFFFF', inactiveColor: '#0077b6', dot: '#00b4d8' },
-  { key: '3', label: 'Pending', activeBg: '#1177c6', inactiveBorder: '#4FA3F5', activeColor: '#FFFFFF', inactiveColor: '#1177c6', dot: '#4FA3F5' },
-  { key: '4', label: 'Locked', activeBg: '#1B2A4A', inactiveBorder: '#1B2A4A', activeColor: '#FFFFFF', inactiveColor: '#1B2A4A', dot: '#1B2A4A' },
+  { key: null, label: 'All', activeBg: '#0f172a', inactiveBg: '#ffffff', inactiveBorder: '#e2e8f0', activeColor: '#ffffff', inactiveColor: '#64748b' },
+  { key: '2', label: 'Active', activeBg: '#28a745', inactiveBg: '#e8f6ec', inactiveBorder: '#28a745', activeColor: '#ffffff', inactiveColor: '#28a745', dot: '#28a745' },
+  { key: '3', label: 'Pending', activeBg: '#e08102', inactiveBg: '#fff4e5', inactiveBorder: '#e08102', activeColor: '#ffffff', inactiveColor: '#e08102', dot: '#e08102' },
+  { key: '4', label: 'Locked', activeBg: '#dc3545', inactiveBg: '#fdecee', inactiveBorder: '#dc3545', activeColor: '#ffffff', inactiveColor: '#dc3545', dot: '#dc3545' },
 ];
 
 const PAGE_SIZE = 10;
@@ -397,7 +397,7 @@ export default function PatientsScreen({ route, navigation }) {
               limit: PAGE_SIZE,
               page: currentPage,
               search: debouncedSearch || undefined,
-              status: !activeFilter ? apiStatusParam : undefined,
+              status: apiStatusParam,
               dashboardFilter: activeFilter || undefined,
               program: 'rpm',
               includeDashboardEnrichment: true,
@@ -486,6 +486,26 @@ export default function PatientsScreen({ route, navigation }) {
     useCallback(() => {
       fetchPatients();
     }, [fetchPatients])
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      return () => {
+        const tabState = navigation.getState?.();
+        const focusedTab = tabState?.routes?.[tabState.index]?.name;
+        if (focusedTab === 'Patients') return;
+
+        setActiveFilter(null);
+        setActiveFilterTitle(null);
+        setStatusFilter(null);
+        setCurrentPage(1);
+        navigation.setParams({
+          dashboardFilter: null,
+          filterTitle: null,
+          filterToken: Date.now(),
+        });
+      };
+    }, [navigation])
   );
 
   const handleResetFilter = () => {
@@ -781,7 +801,7 @@ export default function PatientsScreen({ route, navigation }) {
                     style={[
                       styles.statusFilterChip,
                       {
-                        backgroundColor: isSelected ? tab.activeBg : '#FFFFFF',
+                        backgroundColor: isSelected ? tab.activeBg : (tab.inactiveBg || '#ffffff'),
                         borderColor: isSelected ? tab.activeBg : tab.inactiveBorder,
                       },
                     ]}

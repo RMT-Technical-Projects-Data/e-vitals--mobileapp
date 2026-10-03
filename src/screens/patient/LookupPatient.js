@@ -1,5 +1,5 @@
 /* LookupPatient.js — Patient Lookup Screen with Web-matched Filters & Patient List Cards */
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -11,6 +11,8 @@ import {
   ActivityIndicator,
   Modal,
   Dimensions,
+  Share,
+  Pressable,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
@@ -25,6 +27,16 @@ import {
   normalizeWeightToLbs,
 } from '../../utils/measurementUtils';
 import PulseIcon from '../../components/common/PulseIcon';
+import SuccessDialog from '../../components/common/SuccessDialog';
+import {
+  LOOKUP_COLUMNS,
+  isMandatoryLookupColumn,
+  buildLookupTable,
+  buildLookupCsv,
+  buildLookupReportText,
+  lookupExportFilename,
+  emailListError,
+} from './lookupPatientReport';
 
 const { width } = Dimensions.get('window');
 const guidelineBaseWidth = 375;
@@ -37,6 +49,81 @@ const BORDER = '#e8ecf0';
 const WHITE = '#ffffff';
 
 const VITAL_TARGETS = DEFAULT_VITAL_TARGETS;
+const PAGE_SIZE = 10;
+
+const escapeSearchRegExp = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const matchesWordStart = (value, query) => {
+  const q = String(query ?? '').trim().toLowerCase();
+  if (!q) return true;
+  const text = String(value ?? '').toLowerCase();
+  if (!text) return false;
+  if (text.startsWith(q)) return true;
+  return new RegExp(`(?:^|[\\s,./\\-_@(+])${escapeSearchRegExp(q)}`).test(text);
+};
+
+const matchesWordStartAny = (values, query) => {
+  const q = String(query ?? '').trim();
+  if (!q) return true;
+  return values.some((value) => matchesWordStart(value, q));
+};
+
+const chronicConditionLabel = (patient) => {
+  const raw = patient?.chronic_conditions || patient?.icd_codes || '';
+  const items = Array.isArray(raw) ? raw : [raw];
+  return items
+    .map((entry) => {
+      if (entry && typeof entry === 'object') {
+        return String(entry.condition_name || entry.name || entry.icd_description || entry.description || '').trim();
+      }
+      return String(entry || '').trim();
+    })
+    .filter(Boolean)
+    .join(', ');
+};
+
+const digitsOnly = (value) => String(value ?? '').replace(/\D/g, '');
+
+const phoneDigits = (value) => {
+  let digits = digitsOnly(value);
+  if (digits.length === 11 && digits.startsWith('1')) digits = digits.slice(1);
+  return digits;
+};
+
+const patientPhoneValues = (patient) => [
+  patient?.phone,
+  patient?.phone_number,
+  patient?.cell_phone_number,
+  patient?.cell_phone,
+  patient?.homePhone,
+  patient?.mobile_phone,
+].filter((value) => value != null && String(value).trim() && String(value).trim() !== '-');
+
+const matchesPatientPhone = (patient, query) => {
+  const queryDigits = phoneDigits(query);
+  if (queryDigits.length < 3) return false;
+  return patientPhoneValues(patient).some((phone) => phoneDigits(phone).includes(queryDigits));
+};
+
+const lookupPatientMatchesSearch = (patient, query) => {
+  if (matchesPatientPhone(patient, query)) return true;
+  const queryDigits = phoneDigits(query);
+  const queryLetters = String(query ?? '').replace(/[\d\s()+.-]/g, '');
+  if (queryDigits.length >= 7 && !queryLetters) return false;
+
+  const last = String(patient?.last_name || patient?.lastName || '').trim();
+  const first = String(patient?.first_name || patient?.firstName || '').trim();
+  const composed = `${last}${last && first ? ', ' : ''}${first}`.trim();
+  const name = patient?.name || patient?.patient_name || patient?.patientName || composed;
+  return matchesWordStartAny([
+    name,
+    composed,
+    patient?.email,
+    ...patientPhoneValues(patient),
+    patient?.vitals,
+    chronicConditionLabel(patient),
+  ], query);
+};
 
 const DOB_OPERATORS = [
   { value: '', label: '-- Select DOB Operator --' },
@@ -59,6 +146,10 @@ const VITALS_OPTIONS = [
   { value: '3', label: 'Weight (WT)' },
 ];
 
+const PROGRAM_RPM = 'rpm';
+const PROGRAM_CCM = 'ccm';
+const PROGRAM_BOTH = 'both';
+
 const emptyFilters = () => ({
   lastName: '',
   firstName: '',
@@ -67,12 +158,81 @@ const emptyFilters = () => ({
   provider: '',
   status: '',
   vitals: [],
+  serialNumber: '',
   rpmStartDate: '',
   rpmEndDate: '',
   dobOperator: '',
   dobFrom: '',
   dobTo: '',
+  programEnrolled: '',
 });
+
+const toLocalIsoDate = (date) => {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+};
+
+const todayIsoDate = () => toLocalIsoDate(new Date());
+
+const parseIsoDate = (value) => {
+  const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!match) return null;
+  return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+};
+
+const formatLookupDate = (value) => {
+  const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!match) return value || '';
+  return `${match[2]}/${match[3]}/${match[1]}`;
+};
+
+const maskDateInput = (value) => {
+  const digits = String(value || '').replace(/\D/g, '').slice(0, 8);
+  if (digits.length <= 2) return digits;
+  if (digits.length <= 4) return `${digits.slice(0, 2)}/${digits.slice(2)}`;
+  return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
+};
+
+const inspectLookupDate = (value) => {
+  const raw = String(value || '').trim();
+  if (!raw) return { empty: true };
+  const isoMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const usMatch = raw.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (!isoMatch && !usMatch) return { incomplete: true };
+  const year = Number(isoMatch ? isoMatch[1] : usMatch[3]);
+  const month = Number(isoMatch ? isoMatch[2] : usMatch[1]);
+  const day = Number(isoMatch ? isoMatch[3] : usMatch[2]);
+  const parsed = new Date(year, month - 1, day);
+  if (
+    parsed.getFullYear() !== year
+    || parsed.getMonth() !== month - 1
+    || parsed.getDate() !== day
+  ) {
+    return { invalid: true };
+  }
+  const iso = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  return { iso, future: iso > todayIsoDate() };
+};
+
+const lookupDateError = (value, label) => {
+  const checked = inspectLookupDate(value);
+  const isTo = label === 'DOB (to)';
+  if (checked.empty) {
+    return isTo
+      ? 'DOB (to) is required when using Between'
+      : 'Date of birth is required for the selected DOB filter';
+  }
+  if (checked.incomplete) return `Enter a complete ${label} (MM/DD/YYYY).`;
+  if (checked.invalid) return `Enter a valid ${label}.`;
+  if (checked.future) {
+    return isTo ? 'DOB (to) cannot be in the future' : 'Date of birth cannot be in the future';
+  }
+  return '';
+};
+
+const normalizeSerialInput = (value) => String(value || '').replace(/[^a-zA-Z0-9]/g, '').slice(0, 16);
 
 /* Helper Functions for Vitals & Patient Display matching PatientsScreen.js */
 const toCleanNum = (val) => {
@@ -152,14 +312,14 @@ const getPatientVitalPills = (item) => {
     const latest = item.latest_measurements || {};
     if (latest.blood_pressure || item.blood_pressure || (item.data_summary && String(item.data_summary).includes('/'))) list.push('BP');
     if (latest.blood_glucose || item.blood_glucose || item.glucose) list.push('BG');
-    if (latest.weight || item.weight_measurement || item.weight) list.push('Weight');
+    if (latest.weight || item.weight_measurement || item.weight) list.push('W');
   }
 
   const normalized = list.map((v) => {
     const lower = v.toLowerCase();
     if (lower.includes('pressure') || lower === 'bp') return 'BP';
     if (lower.includes('glucose') || lower === 'bg') return 'BG';
-    if (lower.includes('weight') || lower === 'wt') return 'Weight';
+    if (lower.includes('weight') || lower === 'wt' || lower === 'w') return 'W';
     if (lower.includes('pulse') || lower === 'hr') return 'Pulse';
     return v;
   });
@@ -223,9 +383,25 @@ export default function LookupPatient({ navigation }) {
   const [filters, setFilters] = useState(emptyFilters());
   const [isFilterExpanded, setIsFilterExpanded] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchMatches, setSearchMatches] = useState(null);
+  const [searchLoading, setSearchLoading] = useState(false);
   const [patients, setPatients] = useState([]);
   const [loading, setLoading] = useState(false);
   const [hasQueried, setHasQueried] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalPatients, setTotalPatients] = useState(0);
+  const [currentUserLabel, setCurrentUserLabel] = useState('User');
+  const [isExporting, setIsExporting] = useState(false);
+  const [showExportMenu, setShowExportMenu] = useState(false);
+  const [showPrintModal, setShowPrintModal] = useState(false);
+  const [showEmailModal, setShowEmailModal] = useState(false);
+  const [selectedColumns, setSelectedColumns] = useState(LOOKUP_COLUMNS);
+  const [emailForm, setEmailForm] = useState({ to: '', cc: '', bcc: '', subject: '', content: '' });
+  const [emailErrors, setEmailErrors] = useState({});
+  const [reportNotice, setReportNotice] = useState(null);
+  const scrollRef = useRef(null);
+  const appliedFiltersRef = useRef(null);
 
   // Modal selector states
   const [activeModal, setActiveModal] = useState(null); // 'status' | 'caregiver' | 'provider' | 'vitals' | 'dobOperator'
@@ -234,20 +410,49 @@ export default function LookupPatient({ navigation }) {
   // Care team dropdown lists
   const [caregivers, setCaregivers] = useState([]);
   const [providers, setProviders] = useState([]);
+  const [hasRpm, setHasRpm] = useState(false);
+  const [hasCcm, setHasCcm] = useState(false);
+  const [programsLoading, setProgramsLoading] = useState(false);
 
   // Load practice ID & fetch caregivers/providers across patient roster
   useEffect(() => {
     (async () => {
       let pId = await AsyncStorage.getItem('practiceId');
-      if (!pId) {
-        const userStr = await AsyncStorage.getItem('user');
-        if (userStr) {
+      const userStr = await AsyncStorage.getItem('user');
+      if (userStr) {
+        try {
           const user = JSON.parse(userStr);
-          pId = user.practice_id;
+          if (!pId) pId = user.practice_id;
+          const name = `${user.first_name || ''} ${user.last_name || ''}`.trim()
+            || user.name
+            || user.username
+            || 'User';
+          setCurrentUserLabel(name);
+        } catch (error) {
+          console.warn('Could not read signed-in user:', error);
         }
       }
       if (pId) {
         setPracticeId(String(pId));
+        setProgramsLoading(true);
+        try {
+          const summary = await apiService.getPracticeSummary(pId);
+          const data = summary?.data?.data ?? summary?.data ?? summary;
+          const enrolled = Array.isArray(data?.enrolled_programs) ? data.enrolled_programs : [];
+          const keys = enrolled.map((item) => String(typeof item === 'string' ? item : (item?.short_name || item?.id || item?.label || '')).trim().toLowerCase());
+          const rpm = keys.includes(PROGRAM_RPM);
+          const ccm = keys.includes(PROGRAM_CCM);
+          setHasRpm(rpm);
+          setHasCcm(ccm);
+          setFilters((prev) => ({
+            ...prev,
+            programEnrolled: rpm && ccm ? '' : rpm ? PROGRAM_RPM : ccm ? PROGRAM_CCM : '',
+          }));
+        } catch (error) {
+          console.warn('Could not load practice programs:', error);
+        } finally {
+          setProgramsLoading(false);
+        }
         try {
           const [providersRes, caregiversRes] = await Promise.all([
             apiService.getPracticeProviders(pId).catch(() => null),
@@ -321,52 +526,142 @@ export default function LookupPatient({ navigation }) {
     })();
   }, []);
 
-  const handleQuery = useCallback(async () => {
+  const applyLookupPage = (res, requestedPage) => {
+    const payload = res?.data?.patients ? res.data : (res?.data?.data || res?.data || {});
+    const list = Array.isArray(payload?.patients)
+      ? payload.patients
+      : (Array.isArray(payload) ? payload : []);
+    const pagination = payload?.pagination || res?.data?.pagination || {};
+    const total = Number(pagination.total);
+    const pages = Number(pagination.total_pages);
+    setPatients(list);
+    setTotalPatients(Number.isFinite(total) ? total : list.length);
+    setTotalPages(Math.max(1, Number.isFinite(pages) && pages > 0 ? pages : 1));
+    setCurrentPage(Number(pagination.current_page) || requestedPage);
+  };
+
+  const includeRpmFilters = !(hasRpm && hasCcm && filters.programEnrolled === PROGRAM_CCM);
+
+  const buildLookupRequest = (source, page, limit) => {
+    const rpmFilters = !(hasRpm && hasCcm && source.programEnrolled === PROGRAM_CCM);
+    return {
+      ...source,
+      dobFrom: inspectLookupDate(source.dobFrom).iso || '',
+      dobTo: source.dobOperator === 'between' ? (inspectLookupDate(source.dobTo).iso || '') : '',
+      vitals: rpmFilters ? (source.vitals || []).join(',') : '',
+      serialNumber: rpmFilters ? (source.serialNumber || '') : '',
+      rpmStartDate: rpmFilters ? (source.rpmStartDate || '') : '',
+      rpmEndDate: rpmFilters ? (source.rpmEndDate || '') : '',
+      programEnrolled: source.programEnrolled || '',
+      page,
+      limit,
+    };
+  };
+
+  const loadLookupPage = useCallback(async (page) => {
     if (!practiceId) return;
+    const requestedPage = Math.max(1, page);
+    appliedFiltersRef.current = {
+      ...filters,
+      vitals: [...(filters.vitals || [])],
+    };
     setLoading(true);
     setHasQueried(true);
     try {
-      let data = [];
-      if (filters.rpmStartDate || filters.rpmEndDate) {
-        const res = await apiService.lookupPatientRPM(practiceId, {
-          startDate: filters.rpmStartDate || undefined,
-          endDate: filters.rpmEndDate || undefined,
-          limit: 500,
-        });
-        data = res?.data?.patients || res?.data?.data || res?.data || [];
-      } else {
-        const res = await apiService.lookupPatient(practiceId, {
-          ...filters,
-          vitals: filters.vitals.join(','),
-          limit: 500,
-        });
-        data = res?.data?.patients || res?.data?.data || res?.data || [];
-      }
-      setPatients(Array.isArray(data) ? data : []);
+      const res = await apiService.lookupPatient(practiceId, buildLookupRequest(filters, requestedPage, PAGE_SIZE));
+      applyLookupPage(res, requestedPage);
+      scrollRef.current?.scrollTo({ y: 0, animated: true });
     } catch (err) {
       console.warn('Error querying patients:', err);
-      try {
-        const fallbackRes = await apiService.getPatients(practiceId, {
-          search: filters.lastName || filters.firstName || undefined,
-          status: filters.status || undefined,
-          caregiverId: filters.caregiver || undefined,
-          providerId: filters.provider || undefined,
-          limit: 500,
-        });
-        const list = fallbackRes?.data?.patients || fallbackRes?.data || [];
-        setPatients(Array.isArray(list) ? list : []);
-      } catch (e) {
-        setPatients([]);
-      }
+      setPatients([]);
+      setTotalPatients(0);
+      setTotalPages(1);
+      setCurrentPage(1);
+      setReportNotice({
+        title: 'Look up Patient',
+        message: 'The patient query could not be completed. Please try again.',
+        variant: 'warning',
+      });
     } finally {
       setLoading(false);
     }
-  }, [practiceId, filters]);
+  }, [practiceId, filters, hasRpm, hasCcm]);
+
+  const handleQuery = () => {
+    const today = todayIsoDate();
+    if (hasRpm && hasCcm && !filters.programEnrolled) {
+      setReportNotice({ title: 'Program Enrolled', message: 'Program Enrolled is required', variant: 'warning' });
+      return;
+    }
+    if (includeRpmFilters && filters.serialNumber && !/^[A-Za-z0-9]{16}$/.test(filters.serialNumber)) {
+      setReportNotice({
+        title: 'Serial number',
+        message: 'Serial number must be exactly 16 alphanumeric characters.',
+        variant: 'warning',
+      });
+      return;
+    }
+    if (filters.dobOperator) {
+      const fromLabel = filters.dobOperator === 'between' ? 'DOB (from)' : 'date of birth';
+      const fromError = lookupDateError(filters.dobFrom, fromLabel);
+      if (fromError) {
+        setReportNotice({ title: 'Date of birth', message: fromError, variant: 'warning' });
+        return;
+      }
+      if (filters.dobOperator === 'between') {
+        const toError = lookupDateError(filters.dobTo, 'DOB (to)');
+        if (toError) {
+          setReportNotice({ title: 'Date of birth', message: toError, variant: 'warning' });
+          return;
+        }
+        const fromIso = inspectLookupDate(filters.dobFrom).iso;
+        const toIso = inspectLookupDate(filters.dobTo).iso;
+        if (toIso < fromIso) {
+          setReportNotice({ title: 'Date of birth', message: 'DOB (to) must be on or after DOB (from)', variant: 'warning' });
+          return;
+        }
+      }
+    } else if (filters.dobFrom || filters.dobTo) {
+      setReportNotice({ title: 'Date of birth', message: 'Select a DOB operator (On, On or before, On or after, or Between)', variant: 'warning' });
+      return;
+    }
+
+    if (filters.rpmStartDate || filters.rpmEndDate) {
+      if (filters.rpmStartDate && filters.rpmStartDate > today) {
+        setReportNotice({ title: 'RPM start date', message: 'RPM Service Date (from) cannot be in the future', variant: 'warning' });
+        return;
+      }
+      if (filters.rpmEndDate && filters.rpmEndDate > today) {
+        setReportNotice({ title: 'RPM start date', message: 'RPM Service Date (to) cannot be in the future', variant: 'warning' });
+        return;
+      }
+      if (filters.rpmStartDate && filters.rpmEndDate && filters.rpmEndDate < filters.rpmStartDate) {
+        setReportNotice({ title: 'RPM start date', message: 'RPM Service Date (to) must be on or after RPM Service Date (from)', variant: 'warning' });
+        return;
+      }
+    }
+
+    loadLookupPage(1);
+  };
+
+  const handleSearchChange = (value) => {
+    setSearchQuery(value);
+    if (hasQueried && currentPage !== 1) {
+      loadLookupPage(1);
+    }
+  };
 
   const handleReset = () => {
-    setFilters(emptyFilters());
+    setFilters({
+      ...emptyFilters(),
+      programEnrolled: hasRpm && hasCcm ? '' : hasRpm ? PROGRAM_RPM : hasCcm ? PROGRAM_CCM : '',
+    });
     setPatients([]);
     setHasQueried(false);
+    setCurrentPage(1);
+    setTotalPages(1);
+    setTotalPatients(0);
+    setSearchQuery('');
   };
 
   const toggleVital = (id) => {
@@ -400,13 +695,7 @@ export default function LookupPatient({ navigation }) {
   // Filter returned list by live search term
   const filteredPatients = useMemo(() => {
     if (!searchQuery.trim()) return patients;
-    const q = searchQuery.toLowerCase().trim();
-    return patients.filter((p) => {
-      const { fullName } = getPatientNameParts(p);
-      const phone = String(p.phone || p.phone_number || p.cell_phone_number || '').toLowerCase();
-      const ssn = String(p.ssn || '').toLowerCase();
-      return fullName.toLowerCase().includes(q) || phone.includes(q) || ssn.includes(q);
-    });
+    return patients.filter((patient) => lookupPatientMatchesSearch(patient, searchQuery));
   }, [patients, searchQuery]);
 
   // Label display helpers for dropdown triggers
@@ -441,6 +730,224 @@ export default function LookupPatient({ navigation }) {
     return found ? found.label : '-- Select DOB Operator --';
   };
 
+  const showingSearch = searchQuery.trim().length > 0;
+  const visiblePatients = showingSearch ? (searchMatches || []) : filteredPatients;
+  const canReport = hasQueried && visiblePatients.length > 0 && !loading && !searchLoading && !isExporting;
+
+  const showReportNotice = (title, message, variant = 'success') => {
+    setReportNotice({ title, message, variant });
+  };
+
+  const extractLookupList = (res) => {
+    const payload = res?.data?.patients ? res.data : (res?.data?.data || res?.data || {});
+    const list = Array.isArray(payload?.patients)
+      ? payload.patients
+      : (Array.isArray(payload) ? payload : []);
+    const pagination = payload?.pagination || res?.data?.pagination || {};
+    const total = Number(pagination.total);
+    return { list, total: Number.isFinite(total) ? total : list.length };
+  };
+
+  const patientMatchesSearch = (patient, query) => lookupPatientMatchesSearch(patient, query);
+
+  const fetchAllLookupPatients = async () => {
+    const source = appliedFiltersRef.current || filters;
+    const pageSize = 100;
+    let page = 1;
+    let all = [];
+    let total = Infinity;
+    while (all.length < total && page <= 100) {
+      const res = await apiService.lookupPatient(practiceId, buildLookupRequest(source, page, pageSize));
+      const parsed = extractLookupList(res);
+      total = parsed.total;
+      all = all.concat(parsed.list);
+      if (parsed.list.length < pageSize) break;
+      page += 1;
+    }
+    const query = searchQuery.trim();
+    if (!query) return all;
+    return all.filter((patient) => patientMatchesSearch(patient, query));
+  };
+
+  useEffect(() => {
+    const query = searchQuery.trim();
+    if (!hasQueried || !query) {
+      setSearchMatches(null);
+      setSearchLoading(false);
+      return undefined;
+    }
+
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      setSearchLoading(true);
+      try {
+        const rows = await fetchAllLookupPatients();
+        if (!cancelled) setSearchMatches(rows);
+      } catch (error) {
+        console.warn('Lookup search failed:', error);
+        if (!cancelled) setSearchMatches([]);
+      } finally {
+        if (!cancelled) setSearchLoading(false);
+      }
+    }, 300);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [searchQuery, hasQueried, patients]);
+
+  const reportMeta = () => {
+    const source = appliedFiltersRef.current || filters;
+    const criteria = ['Query criteria:'];
+    if (source.lastName) criteria.push(`• Last name: ${source.lastName}`);
+    if (source.firstName) criteria.push(`• First name: ${source.firstName}`);
+    if (source.phone) criteria.push(`• Phone: ${source.phone}`);
+    if (source.status) criteria.push(`• Status: ${STATUS_OPTIONS.find((item) => item.value === source.status)?.label || source.status}`);
+    if (source.caregiver) criteria.push(`• Caregiver: ${caregivers.find((item) => item.value === source.caregiver)?.label || source.caregiver}`);
+    if (source.provider) criteria.push(`• Provider: ${providers.find((item) => item.value === source.provider)?.label || source.provider}`);
+    if (source.programEnrolled) criteria.push(`• Program enrolled: ${source.programEnrolled.toUpperCase()}`);
+    if (source.serialNumber) criteria.push(`• Serial number: ${source.serialNumber}`);
+    if (source.vitals?.length) criteria.push(`• Vitals: ${source.vitals.join(', ')}`);
+    if (source.rpmStartDate || source.rpmEndDate) {
+      criteria.push(`• RPM dates: ${formatLookupDate(source.rpmStartDate) || 'Any'} to ${formatLookupDate(source.rpmEndDate) || 'Any'}`);
+    }
+    if (source.dobOperator) criteria.push(`• DOB: ${source.dobOperator} ${formatLookupDate(source.dobFrom) || ''} ${formatLookupDate(source.dobTo) || ''}`.trim());
+    if (searchQuery.trim()) criteria.push(`• Search: ${searchQuery.trim()}`);
+    if (criteria.length === 1) criteria.push('• All patients');
+    return {
+      generatedAt: new Date().toLocaleString(),
+      user: currentUserLabel,
+      criteria,
+    };
+  };
+
+  const openPrint = () => {
+    if (!canReport) {
+      showReportNotice('Print', 'No data to print', 'warning');
+      return;
+    }
+    setSelectedColumns([...LOOKUP_COLUMNS]);
+    setShowPrintModal(true);
+  };
+
+  const performPrint = async () => {
+    setShowPrintModal(false);
+    setIsExporting(true);
+    try {
+      const rows = await fetchAllLookupPatients();
+      if (rows.length === 0) {
+        showReportNotice('Print', 'No data to print', 'warning');
+        return;
+      }
+      const table = buildLookupTable(rows, selectedColumns);
+      const message = buildLookupReportText(table, reportMeta());
+      await Share.share({ title: 'Look up Patient', message });
+    } catch (error) {
+      showReportNotice('Print', error?.message || 'Failed to print', 'warning');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const exportLookup = async (kind) => {
+    if (!canReport || isExporting) return;
+    setShowExportMenu(false);
+    setIsExporting(true);
+    try {
+      const rows = await fetchAllLookupPatients();
+      if (rows.length === 0) {
+        showReportNotice('Export', 'No data to export', 'warning');
+        return;
+      }
+      const table = buildLookupTable(rows);
+      if (kind === 'csv') {
+        await Share.share({
+          title: lookupExportFilename('csv'),
+          message: buildLookupCsv(table),
+        });
+      } else {
+        await Share.share({
+          title: lookupExportFilename('pdf'),
+          message: buildLookupReportText(table, reportMeta()),
+        });
+      }
+    } catch (error) {
+      showReportNotice('Export', error?.message || 'Failed to export', 'warning');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const openEmail = () => {
+    if (!canReport) {
+      showReportNotice('Email', 'No data to email', 'warning');
+      return;
+    }
+    const meta = reportMeta();
+    setSelectedColumns([...LOOKUP_COLUMNS]);
+    setEmailErrors({});
+    setEmailForm({
+      to: '',
+      cc: '',
+      bcc: '',
+      subject: 'Look up Patient',
+      content: [
+        'Please find the Look up Patient results attached as a CSV file.',
+        '',
+        ...meta.criteria,
+        '',
+        `Generated: ${meta.generatedAt}`,
+        `Generated by: ${meta.user}`,
+      ].join('\n'),
+    });
+    setShowEmailModal(true);
+  };
+
+  const toggleReportColumn = (column) => {
+    if (isMandatoryLookupColumn(column)) return;
+    setSelectedColumns((prev) => (
+      prev.includes(column) ? prev.filter((item) => item !== column) : [...prev, column]
+    ));
+  };
+
+  const sendLookupEmail = async () => {
+    const nextErrors = {
+      to: emailListError(emailForm.to, { required: true }),
+      cc: emailListError(emailForm.cc),
+      bcc: emailListError(emailForm.bcc),
+      subject: String(emailForm.subject || '').trim() ? '' : 'Subject is required',
+      content: String(emailForm.content || '').trim() ? '' : 'Content is required',
+    };
+    setEmailErrors(nextErrors);
+    if (Object.values(nextErrors).some(Boolean)) return;
+
+    setIsExporting(true);
+    try {
+      const rows = await fetchAllLookupPatients();
+      if (rows.length === 0) throw new Error('No data to email');
+      const table = buildLookupTable(rows, selectedColumns);
+      await apiService.sendCustomEmail({
+        to: emailForm.to.trim(),
+        cc: emailForm.cc.trim(),
+        bcc: emailForm.bcc.trim(),
+        subject: emailForm.subject.trim(),
+        text: emailForm.content,
+        html: `<pre style="font-family: Arial, sans-serif; white-space: pre-wrap;">${String(emailForm.content).replace(/</g, '&lt;')}</pre>`,
+        event_id: 11,
+        inlineAttachmentName: lookupExportFilename('csv'),
+        inlineAttachmentContent: buildLookupCsv(table),
+        inlineAttachmentType: 'text/csv',
+      });
+      setShowEmailModal(false);
+      showReportNotice('Email', 'Email queued successfully');
+    } catch (error) {
+      showReportNotice('Email', error?.message || 'Failed to send email', 'warning');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   return (
     <SafeAreaView style={st.container} edges={['top']}>
       <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
@@ -450,11 +957,25 @@ export default function LookupPatient({ navigation }) {
         <TouchableOpacity style={st.backBtn} onPress={() => navigation.goBack()}>
           <MaterialIcons name="arrow-back" size={22} color={DARK} />
         </TouchableOpacity>
-        <Text style={st.headerTitle}>Look up Patient</Text>
-        <View style={{ width: 40 }} />
+        <Text style={st.headerTitle} numberOfLines={1}>Look up Patient</Text>
+        <View style={st.headerSearch}>
+          <Text style={st.headerSearchLabel}>Search:</Text>
+          <View style={st.headerSearchField}>
+            <TextInput
+              style={st.headerSearchInput}
+              value={searchQuery}
+              onChangeText={handleSearchChange}
+              autoCapitalize="none"
+              autoCorrect={false}
+              returnKeyType="search"
+              accessibilityLabel="Search patients"
+            />
+            <MaterialIcons name="search" size={14} color="#999999" style={st.headerSearchIcon} />
+          </View>
+        </View>
       </View>
 
-      <ScrollView style={st.scroll} contentContainerStyle={st.scrollContent} showsVerticalScrollIndicator={false}>
+      <ScrollView ref={scrollRef} style={st.scroll} contentContainerStyle={st.scrollContent} showsVerticalScrollIndicator={false}>
         {/* Filter Card */}
         <View style={st.card}>
           <TouchableOpacity
@@ -558,7 +1079,28 @@ export default function LookupPatient({ navigation }) {
                 </View>
               </View>
 
-              {/* Row 4: Vitals Dropdown */}
+              <View style={st.fieldFull}>
+                <Text style={st.label}>Program Enrolled{hasRpm && hasCcm ? ' *' : ''}</Text>
+                <TouchableOpacity
+                  style={st.dropdownTrigger}
+                  onPress={() => setActiveModal('programEnrolled')}
+                  activeOpacity={0.75}
+                  disabled={programsLoading}
+                >
+                  <Text style={[st.dropdownTriggerText, !filters.programEnrolled && { color: MUTED }]} numberOfLines={1}>
+                    {filters.programEnrolled === PROGRAM_BOTH
+                      ? 'Both'
+                      : filters.programEnrolled === PROGRAM_RPM
+                        ? 'RPM'
+                        : filters.programEnrolled === PROGRAM_CCM
+                          ? 'CCM'
+                          : '-- Select --'}
+                  </Text>
+                  <MaterialIcons name="arrow-drop-down" size={22} color={MUTED} />
+                </TouchableOpacity>
+              </View>
+
+              {includeRpmFilters && (
               <View style={st.fieldFull}>
                 <Text style={st.label}>Vitals Filter</Text>
                 <TouchableOpacity
@@ -572,8 +1114,25 @@ export default function LookupPatient({ navigation }) {
                   <MaterialIcons name="arrow-drop-down" size={22} color={MUTED} />
                 </TouchableOpacity>
               </View>
+              )}
 
-              {/* Row 5: RPM Start Date Range */}
+              {includeRpmFilters && (
+              <View style={st.fieldFull}>
+                <Text style={st.label}>Serial Number</Text>
+                <TextInput
+                  style={st.input}
+                  value={filters.serialNumber}
+                  onChangeText={(val) => setFilters((p) => ({ ...p, serialNumber: normalizeSerialInput(val) }))}
+                  placeholder="16-character alphanumeric"
+                  placeholderTextColor="#94a3b8"
+                  autoCapitalize="characters"
+                  autoCorrect={false}
+                  maxLength={16}
+                />
+              </View>
+              )}
+
+              {includeRpmFilters && (
               <View style={st.fieldFull}>
                 <Text style={st.label}>RPM Start Date Range</Text>
                 <View style={st.row}>
@@ -581,22 +1140,23 @@ export default function LookupPatient({ navigation }) {
                     style={[st.dateBtn, st.fieldCol]}
                     onPress={() => setShowDatePicker('rpmStart')}
                   >
-                    <Text style={st.dateBtnText}>{filters.rpmStartDate || 'Start Date'}</Text>
+                    <Text style={st.dateBtnText}>{formatLookupDate(filters.rpmStartDate) || 'Start Date'}</Text>
                     <MaterialIcons name="event" size={18} color={DARK} />
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={[st.dateBtn, st.fieldCol]}
                     onPress={() => setShowDatePicker('rpmEnd')}
                   >
-                    <Text style={st.dateBtnText}>{filters.rpmEndDate || 'End Date'}</Text>
+                    <Text style={st.dateBtnText}>{formatLookupDate(filters.rpmEndDate) || 'End Date'}</Text>
                     <MaterialIcons name="event" size={18} color={DARK} />
                   </TouchableOpacity>
                 </View>
               </View>
+              )}
 
-              {/* Row 6: DOB Operator & Dates */}
               <View style={st.fieldFull}>
                 <Text style={st.label}>Date of Birth (DOB)</Text>
+                <Text style={st.fieldHint}>Choose how the date of birth should match, then enter a complete date.</Text>
                 <TouchableOpacity
                   style={st.dropdownTrigger}
                   onPress={() => setActiveModal('dobOperator')}
@@ -611,21 +1171,41 @@ export default function LookupPatient({ navigation }) {
 
               {!!filters.dobOperator && (
                 <View style={st.row}>
-                  <TouchableOpacity
-                    style={[st.dateBtn, st.fieldCol]}
-                    onPress={() => setShowDatePicker('dobFrom')}
-                  >
-                    <Text style={st.dateBtnText}>{filters.dobFrom || 'DOB From'}</Text>
-                    <MaterialIcons name="event" size={18} color={DARK} />
-                  </TouchableOpacity>
+                  <View style={st.fieldCol}>
+                    <Text style={st.label}>{filters.dobOperator === 'between' ? 'DOB (from)' : 'Date of Birth'}</Text>
+                    <View style={st.dateEntry}>
+                      <TextInput
+                        style={[st.input, st.dateEntryInput]}
+                        value={formatLookupDate(filters.dobFrom)}
+                        onChangeText={(val) => setFilters((p) => ({ ...p, dobFrom: maskDateInput(val) }))}
+                        placeholder="MM/DD/YYYY"
+                        placeholderTextColor="#94a3b8"
+                        keyboardType="number-pad"
+                        maxLength={10}
+                      />
+                      <TouchableOpacity style={st.dateIconBtn} onPress={() => setShowDatePicker('dobFrom')}>
+                        <MaterialIcons name="event" size={20} color={DARK} />
+                      </TouchableOpacity>
+                    </View>
+                  </View>
                   {filters.dobOperator === 'between' && (
-                    <TouchableOpacity
-                      style={[st.dateBtn, st.fieldCol]}
-                      onPress={() => setShowDatePicker('dobTo')}
-                    >
-                      <Text style={st.dateBtnText}>{filters.dobTo || 'DOB To'}</Text>
-                      <MaterialIcons name="event" size={18} color={DARK} />
-                    </TouchableOpacity>
+                    <View style={st.fieldCol}>
+                      <Text style={st.label}>DOB (to)</Text>
+                      <View style={st.dateEntry}>
+                        <TextInput
+                          style={[st.input, st.dateEntryInput]}
+                          value={formatLookupDate(filters.dobTo)}
+                          onChangeText={(val) => setFilters((p) => ({ ...p, dobTo: maskDateInput(val) }))}
+                          placeholder="MM/DD/YYYY"
+                          placeholderTextColor="#94a3b8"
+                          keyboardType="number-pad"
+                          maxLength={10}
+                        />
+                        <TouchableOpacity style={st.dateIconBtn} onPress={() => setShowDatePicker('dobTo')}>
+                          <MaterialIcons name="event" size={20} color={DARK} />
+                        </TouchableOpacity>
+                      </View>
+                    </View>
                   )}
                 </View>
               )}
@@ -639,6 +1219,32 @@ export default function LookupPatient({ navigation }) {
                   <Text style={st.queryBtnText}>Query</Text>
                 </TouchableOpacity>
               </View>
+              <View style={st.reportBtnRow}>
+                <TouchableOpacity
+                  style={[st.reportBtn, !canReport && st.reportBtnDisabled]}
+                  onPress={openPrint}
+                  disabled={!canReport}
+                >
+                  <MaterialIcons name="print" size={16} color={WHITE} />
+                  <Text style={st.reportBtnText}>Print</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[st.reportBtn, !canReport && st.reportBtnDisabled]}
+                  onPress={() => setShowExportMenu(true)}
+                  disabled={!canReport}
+                >
+                  <MaterialIcons name="file-download" size={16} color={WHITE} />
+                  <Text style={st.reportBtnText}>{isExporting ? 'Exporting...' : 'Export'}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[st.reportBtn, !canReport && st.reportBtnDisabled]}
+                  onPress={openEmail}
+                  disabled={!canReport}
+                >
+                  <MaterialIcons name="email" size={16} color={WHITE} />
+                  <Text style={st.reportBtnText}>Email</Text>
+                </TouchableOpacity>
+              </View>
             </View>
           )}
         </View>
@@ -647,22 +1253,19 @@ export default function LookupPatient({ navigation }) {
         {hasQueried && (
           <View style={st.resultsCardContainer}>
             <View style={st.resultsHeader}>
-              <Text style={st.resultsTitle}>Query Results ({filteredPatients.length})</Text>
-              <TextInput
-                style={st.searchInput}
-                value={searchQuery}
-                onChangeText={setSearchQuery}
-                placeholder="Search..."
-                placeholderTextColor="#94a3b8"
-              />
+              <Text style={st.resultsTitle}>
+                {showingSearch ? `Search Results (${visiblePatients.length})` : `Query Results (${totalPatients})`}
+              </Text>
             </View>
 
-            {loading ? (
+            {loading || (showingSearch && (searchLoading || searchMatches == null)) ? (
               <ActivityIndicator size="large" color={DARK} style={{ marginVertical: 30 }} />
-            ) : filteredPatients.length === 0 ? (
-              <Text style={st.emptyText}>No patients match the selected criteria.</Text>
+            ) : visiblePatients.length === 0 ? (
+              <Text style={st.emptyText}>
+                {showingSearch ? 'No patients match this search.' : 'No patients match the selected criteria.'}
+              </Text>
             ) : (
-              filteredPatients.map((item) => {
+              visiblePatients.map((item) => {
                 const { firstName, lastName, fullName } = getPatientNameParts(item);
                 const vitals = getPatientVitalsDisplay(item);
                 const vitalPills = getPatientVitalPills(item);
@@ -782,6 +1385,32 @@ export default function LookupPatient({ navigation }) {
                 );
               })
             )}
+            {!loading && !showingSearch && totalPatients > 0 && (
+              <View style={st.paginationBar}>
+                <Text style={st.paginationInfo}>
+                  {`${((currentPage - 1) * PAGE_SIZE) + 1}–${Math.min(currentPage * PAGE_SIZE, totalPatients)} of ${totalPatients}`}
+                </Text>
+                <View style={st.paginationControls}>
+                  <TouchableOpacity
+                    style={[st.paginationBtn, currentPage <= 1 && st.paginationBtnDisabled]}
+                    onPress={() => loadLookupPage(currentPage - 1)}
+                    disabled={currentPage <= 1 || loading}
+                  >
+                    <MaterialIcons name="chevron-left" size={20} color={currentPage <= 1 ? '#A0AAB4' : DARK} />
+                    <Text style={[st.paginationBtnText, currentPage <= 1 && st.paginationBtnTextDisabled]}>Previous</Text>
+                  </TouchableOpacity>
+                  <Text style={st.paginationPageText}>{`Page ${currentPage} of ${totalPages}`}</Text>
+                  <TouchableOpacity
+                    style={[st.paginationBtn, currentPage >= totalPages && st.paginationBtnDisabled]}
+                    onPress={() => loadLookupPage(currentPage + 1)}
+                    disabled={currentPage >= totalPages || loading}
+                  >
+                    <Text style={[st.paginationBtnText, currentPage >= totalPages && st.paginationBtnTextDisabled]}>Next</Text>
+                    <MaterialIcons name="chevron-right" size={20} color={currentPage >= totalPages ? '#A0AAB4' : DARK} />
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
           </View>
         )}
       </ScrollView>
@@ -824,12 +1453,160 @@ export default function LookupPatient({ navigation }) {
         isMulti
       />
 
+      <Modal transparent animationType="fade" visible={showExportMenu} onRequestClose={() => setShowExportMenu(false)}>
+        <Pressable style={st.modalOverlay} onPress={() => setShowExportMenu(false)}>
+          <View style={st.modalContent}>
+            <View style={st.modalHeader}>
+              <Text style={st.modalTitle}>Export</Text>
+              <TouchableOpacity onPress={() => setShowExportMenu(false)} style={st.modalCloseBtn}>
+                <MaterialIcons name="close" size={20} color={DARK} />
+              </TouchableOpacity>
+            </View>
+            <TouchableOpacity style={st.modalItem} onPress={() => exportLookup('csv')} disabled={isExporting}>
+              <Text style={st.modalItemText}>CSV</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={st.modalItem} onPress={() => exportLookup('pdf')} disabled={isExporting}>
+              <Text style={st.modalItemText}>PDF</Text>
+            </TouchableOpacity>
+          </View>
+        </Pressable>
+      </Modal>
+
+      <Modal transparent animationType="fade" visible={showPrintModal} onRequestClose={() => setShowPrintModal(false)}>
+        <View style={st.modalOverlay}>
+          <View style={st.modalContent}>
+            <View style={st.modalHeader}>
+              <Text style={st.modalTitle}>Print Look up Patient</Text>
+              <TouchableOpacity onPress={() => setShowPrintModal(false)} style={st.modalCloseBtn}>
+                <MaterialIcons name="close" size={20} color={DARK} />
+              </TouchableOpacity>
+            </View>
+            <Text style={st.reportHint}>Select the columns to include in the printed report.</Text>
+            <ScrollView style={{ maxHeight: 320 }} showsVerticalScrollIndicator={false}>
+              {LOOKUP_COLUMNS.map((column) => {
+                const locked = isMandatoryLookupColumn(column);
+                const checked = selectedColumns.includes(column);
+                return (
+                  <TouchableOpacity
+                    key={column}
+                    style={st.modalItem}
+                    onPress={() => toggleReportColumn(column)}
+                    disabled={locked}
+                  >
+                    <Text style={st.modalItemText}>{column}{locked ? ' (Required)' : ''}</Text>
+                    <MaterialIcons
+                      name={checked ? 'check-box' : 'check-box-outline-blank'}
+                      size={20}
+                      color={checked ? DARK : MUTED}
+                    />
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+            <TouchableOpacity style={st.reportConfirmBtn} onPress={performPrint} disabled={selectedColumns.length === 0}>
+              <Text style={st.reportBtnText}>Print</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal transparent animationType="fade" visible={showEmailModal} onRequestClose={() => setShowEmailModal(false)}>
+        <View style={st.modalOverlay}>
+          <View style={st.modalContent}>
+            <View style={st.modalHeader}>
+              <Text style={st.modalTitle}>Email</Text>
+              <TouchableOpacity onPress={() => setShowEmailModal(false)} style={st.modalCloseBtn}>
+                <MaterialIcons name="close" size={20} color={DARK} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={{ maxHeight: 460 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+              {[
+                ['to', 'To', 'Recipient email'],
+                ['cc', 'Cc', 'Optional'],
+                ['bcc', 'Bcc', 'Optional'],
+                ['subject', 'Subject', 'Subject'],
+              ].map(([field, label, placeholder]) => (
+                <View key={field} style={st.emailField}>
+                  <Text style={st.label}>{label}</Text>
+                  <TextInput
+                    style={st.input}
+                    value={emailForm[field]}
+                    onChangeText={(value) => setEmailForm((prev) => ({ ...prev, [field]: value }))}
+                    placeholder={placeholder}
+                    placeholderTextColor="#94a3b8"
+                    autoCapitalize="none"
+                    keyboardType={field === 'subject' ? 'default' : 'email-address'}
+                  />
+                  {emailErrors[field] ? <Text style={st.fieldError}>{emailErrors[field]}</Text> : null}
+                </View>
+              ))}
+              <View style={st.emailField}>
+                <Text style={st.label}>Message</Text>
+                <TextInput
+                  style={[st.input, st.emailMessage]}
+                  value={emailForm.content}
+                  onChangeText={(value) => setEmailForm((prev) => ({ ...prev, content: value }))}
+                  multiline
+                  textAlignVertical="top"
+                />
+                {emailErrors.content ? <Text style={st.fieldError}>{emailErrors.content}</Text> : null}
+              </View>
+              <Text style={st.reportHint}>Columns included in the CSV attachment</Text>
+              {LOOKUP_COLUMNS.map((column) => {
+                const locked = isMandatoryLookupColumn(column);
+                const checked = selectedColumns.includes(column);
+                return (
+                  <TouchableOpacity
+                    key={column}
+                    style={st.modalItem}
+                    onPress={() => toggleReportColumn(column)}
+                    disabled={locked}
+                  >
+                    <Text style={st.modalItemText}>{column}{locked ? ' (Required)' : ''}</Text>
+                    <MaterialIcons
+                      name={checked ? 'check-box' : 'check-box-outline-blank'}
+                      size={20}
+                      color={checked ? DARK : MUTED}
+                    />
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+            <TouchableOpacity style={st.reportConfirmBtn} onPress={sendLookupEmail} disabled={isExporting}>
+              <Text style={st.reportBtnText}>{isExporting ? 'Sending...' : 'Send'}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      <SuccessDialog
+        visible={Boolean(reportNotice)}
+        variant={reportNotice?.variant || 'success'}
+        title={reportNotice?.title}
+        message={reportNotice?.message}
+        onClose={() => setReportNotice(null)}
+      />
+
+      <SelectModal
+        visible={activeModal === 'programEnrolled'}
+        title="Program Enrolled"
+        options={[
+          { value: '', label: '-- Select --' },
+          ...((hasRpm && hasCcm) || (!hasRpm && !hasCcm) ? [{ value: PROGRAM_BOTH, label: 'Both' }] : []),
+          ...(hasRpm || (!hasRpm && !hasCcm) ? [{ value: PROGRAM_RPM, label: 'RPM' }] : []),
+          ...(hasCcm || (!hasRpm && !hasCcm) ? [{ value: PROGRAM_CCM, label: 'CCM' }] : []),
+        ]}
+        selectedValue={filters.programEnrolled}
+        onSelect={(val) => setFilters((p) => ({ ...p, programEnrolled: val }))}
+        onClose={() => setActiveModal(null)}
+      />
+
       <SelectModal
         visible={activeModal === 'dobOperator'}
         title="Select DOB Operator"
         options={DOB_OPERATORS}
         selectedValue={filters.dobOperator}
-        onSelect={(val) => setFilters((p) => ({ ...p, dobOperator: val }))}
+        onSelect={(val) => setFilters((p) => ({ ...p, dobOperator: val, dobTo: val === 'between' ? p.dobTo : '' }))}
         onClose={() => setActiveModal(null)}
       />
 
@@ -842,22 +1619,45 @@ export default function LookupPatient({ navigation }) {
             : showDatePicker === 'rpmEnd'
               ? 'Select RPM End Date'
               : showDatePicker === 'dobFrom'
-                ? 'Select DOB From'
-                : 'Select DOB To'
+                ? (filters.dobOperator === 'between' ? 'Select DOB (from)' : 'Select Date of Birth')
+                : 'Select DOB (to)'
         }
-        value={new Date()}
+        value={parseIsoDate(
+          showDatePicker === 'rpmStart'
+            ? filters.rpmStartDate
+            : showDatePicker === 'rpmEnd'
+              ? filters.rpmEndDate
+              : showDatePicker === 'dobFrom'
+                ? filters.dobFrom
+                : filters.dobTo
+        ) || new Date()}
+        minimumDate={
+          showDatePicker === 'rpmEnd'
+            ? parseIsoDate(filters.rpmStartDate) || undefined
+            : showDatePicker === 'dobTo'
+              ? parseIsoDate(filters.dobFrom) || undefined
+              : undefined
+        }
+        maximumDate={new Date()}
         onClose={() => setShowDatePicker(null)}
         onConfirm={(date) => {
-          const formattedIso = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-          const formattedUs = `${String(date.getMonth() + 1).padStart(2, '0')}/${String(date.getDate()).padStart(2, '0')}/${date.getFullYear()}`;
+          const formattedIso = toLocalIsoDate(date);
           if (showDatePicker === 'rpmStart') {
-            setFilters((prev) => ({ ...prev, rpmStartDate: formattedIso }));
+            setFilters((prev) => ({
+              ...prev,
+              rpmStartDate: formattedIso,
+              rpmEndDate: prev.rpmEndDate && prev.rpmEndDate < formattedIso ? '' : prev.rpmEndDate,
+            }));
           } else if (showDatePicker === 'rpmEnd') {
             setFilters((prev) => ({ ...prev, rpmEndDate: formattedIso }));
           } else if (showDatePicker === 'dobFrom') {
-            setFilters((prev) => ({ ...prev, dobFrom: formattedUs }));
+            setFilters((prev) => ({
+              ...prev,
+              dobFrom: formattedIso,
+              dobTo: prev.dobTo && prev.dobTo < formattedIso ? '' : prev.dobTo,
+            }));
           } else if (showDatePicker === 'dobTo') {
-            setFilters((prev) => ({ ...prev, dobTo: formattedUs }));
+            setFilters((prev) => ({ ...prev, dobTo: formattedIso }));
           }
           setShowDatePicker(null);
         }}
@@ -874,12 +1674,12 @@ const st = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: scaleWidth(16),
-    paddingVertical: 12,
+    paddingHorizontal: scaleWidth(12),
+    paddingVertical: 10,
     backgroundColor: WHITE,
     borderBottomWidth: 1,
     borderBottomColor: BORDER,
+    gap: 8,
   },
   backBtn: {
     width: 40,
@@ -890,9 +1690,42 @@ const st = StyleSheet.create({
     justifyContent: 'center',
   },
   headerTitle: {
-    fontSize: scaleFont(18),
+    fontSize: scaleFont(16),
     fontWeight: '800',
     color: DARK,
+    flexShrink: 1,
+  },
+  headerSearch: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 6,
+  },
+  headerSearchLabel: {
+    fontSize: scaleFont(13),
+    fontWeight: '500',
+    color: '#333333',
+  },
+  headerSearchField: {
+    flex: 1,
+    maxWidth: 160,
+    minWidth: 72,
+    justifyContent: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: '#cccccc',
+  },
+  headerSearchInput: {
+    height: 28,
+    paddingVertical: 0,
+    paddingLeft: 4,
+    paddingRight: 18,
+    fontSize: scaleFont(13),
+    color: DARK,
+  },
+  headerSearchIcon: {
+    position: 'absolute',
+    right: 0,
   },
   scroll: {
     flex: 1,
@@ -992,6 +1825,30 @@ const st = StyleSheet.create({
     color: MUTED,
     fontWeight: '600',
   },
+  fieldHint: {
+    fontSize: scaleFont(12),
+    color: MUTED,
+    marginBottom: 8,
+    lineHeight: scaleFont(16),
+  },
+  dateEntry: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  dateEntryInput: {
+    flex: 1,
+  },
+  dateIconBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: BORDER,
+    backgroundColor: '#F8FAFC',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   btnRow: {
     flexDirection: 'row',
     gap: 12,
@@ -1024,6 +1881,56 @@ const st = StyleSheet.create({
     fontSize: scaleFont(14),
     fontWeight: '800',
     color: WHITE,
+  },
+  reportBtnRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 10,
+  },
+  reportBtn: {
+    flex: 1,
+    height: 42,
+    borderRadius: 12,
+    backgroundColor: '#03045E',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 4,
+  },
+  reportBtnDisabled: {
+    opacity: 0.45,
+  },
+  reportBtnText: {
+    fontSize: scaleFont(13),
+    fontWeight: '800',
+    color: WHITE,
+  },
+  reportHint: {
+    fontSize: scaleFont(12),
+    color: MUTED,
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  reportConfirmBtn: {
+    marginTop: 12,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: '#03045E',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emailField: {
+    marginBottom: 10,
+  },
+  emailMessage: {
+    minHeight: 90,
+    textAlignVertical: 'top',
+  },
+  fieldError: {
+    marginTop: 4,
+    color: '#dc3545',
+    fontSize: scaleFont(11),
+    fontWeight: '700',
   },
   /* Modal Styles */
   modalOverlay: {
@@ -1087,6 +1994,52 @@ const st = StyleSheet.create({
   resultsCardContainer: {
     marginTop: 8,
   },
+  paginationBar: {
+    marginTop: 8,
+    marginBottom: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    borderRadius: 16,
+    backgroundColor: WHITE,
+    borderWidth: 1,
+    borderColor: BORDER,
+  },
+  paginationInfo: {
+    fontSize: scaleFont(12),
+    fontWeight: '700',
+    color: MUTED,
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  paginationControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  paginationBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 8,
+    borderRadius: 10,
+    backgroundColor: '#F4F7FB',
+  },
+  paginationBtnDisabled: {
+    opacity: 0.55,
+  },
+  paginationBtnText: {
+    fontSize: scaleFont(13),
+    fontWeight: '800',
+    color: DARK,
+  },
+  paginationBtnTextDisabled: {
+    color: '#A0AAB4',
+  },
+  paginationPageText: {
+    fontSize: scaleFont(13),
+    fontWeight: '800',
+    color: DARK,
+  },
   resultsHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -1097,17 +2050,6 @@ const st = StyleSheet.create({
   resultsTitle: {
     fontSize: scaleFont(16),
     fontWeight: '800',
-    color: DARK,
-  },
-  searchInput: {
-    height: 36,
-    width: 140,
-    backgroundColor: WHITE,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: BORDER,
-    paddingHorizontal: 10,
-    fontSize: scaleFont(11),
     color: DARK,
   },
   emptyText: {

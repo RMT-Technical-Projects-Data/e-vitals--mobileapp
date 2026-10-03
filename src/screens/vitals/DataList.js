@@ -24,7 +24,18 @@ import DatePickerModal from '../../components/common/DatePickerModal';
 import { getDashboardTheme } from '../../constants/dashboardThemes';
 import PulseIcon from '../../components/common/PulseIcon';
 import { getDataListRowColors } from '../../utils/patientVitalTargets';
-import { resolveEffectiveScheduleTargets } from '../../utils/scheduleTargetUtils';
+import {
+  checkBGValue,
+  checkPulseValue,
+  checkWeightValue,
+  DEFAULT_VITAL_TARGETS,
+  getMeasurementAlertStatus,
+} from '../../utils/measurementUtils';
+import {
+  getBloodGlucoseTargetForMeasurement,
+  getBloodPressureTargetForMeasurement,
+  resolveEffectiveScheduleTargets,
+} from '../../utils/scheduleTargetUtils';
 
 const { width, height } = Dimensions.get('window');
 const guidelineBaseWidth = 375;
@@ -71,9 +82,28 @@ const periodOptions = [
   'All',
 ];
 const sortOptions = {
-  bloodPressure: ['Date (newest first)', 'Date (oldest first)', 'Systolic (high-low)', 'Diastolic (high-low)', 'Pulse (high-low)'],
-  bloodGlucose: ['Date (newest first)', 'Date (oldest first)', 'Glucose (high-low)', 'Glucose (low-high)'],
-  weight: ['Date (newest first)', 'Date (oldest first)', 'Weight (high-low)', 'Weight (low-high)'],
+  bloodPressure: [
+    'Date (newest first)',
+    'Date (oldest first)',
+    'Systolic (high)',
+    'Systolic (low)',
+    'Diastolic (high)',
+    'Diastolic (low)',
+    'Pulse (high)',
+    'Pulse (low)',
+  ],
+  bloodGlucose: [
+    'Date (newest first)',
+    'Date (oldest first)',
+    'Glucose (high)',
+    'Glucose (low)',
+  ],
+  weight: [
+    'Date (newest first)',
+    'Date (oldest first)',
+    'Weight (high)',
+    'Weight (low)',
+  ],
 };
 
 /* ──────────────────────  CUSTOM DROPDOWN  ────────────────────── */
@@ -412,34 +442,88 @@ const DataList = ({ navigation, route }) => {
   };
 
   /* ───── SORT LOGIC ───── */
-  const sortData = useCallback((data) => {
-    const sorted = [...data];
-    if (sortBy === 'Date (newest first)') {
-      sorted.sort((a, b) => b.timestamp - a.timestamp);
-    } else if (sortBy === 'Date (oldest first)') {
-      sorted.sort((a, b) => a.timestamp - b.timestamp);
-    } else if (sortBy === 'Systolic (high-low)') {
-      sorted.sort((a, b) => (b.systolic || 0) - (a.systolic || 0));
-    } else if (sortBy === 'Diastolic (high-low)') {
-      sorted.sort((a, b) => (b.diastolic || 0) - (a.diastolic || 0));
-    } else if (sortBy === 'Pulse (high-low)') {
-      sorted.sort((a, b) => (b.pulse || 0) - (a.pulse || 0));
-    } else if (sortBy === 'Glucose (high-low)') {
-      sorted.sort((a, b) => (b.glucose || 0) - (a.glucose || 0));
-    } else if (sortBy === 'Glucose (low-high)') {
-      sorted.sort((a, b) => (a.glucose || 0) - (b.glucose || 0));
-    } else if (sortBy === 'Weight (high-low)') {
-      sorted.sort((a, b) => (b.weight || 0) - (a.weight || 0));
-    } else if (sortBy === 'Weight (low-high)') {
-      sorted.sort((a, b) => (a.weight || 0) - (b.weight || 0));
-    }
-    return sorted;
+  const sortMetric = useMemo(() => {
+    const label = String(sortBy || '').toLowerCase();
+    if (label.includes('systolic')) return 'systolic';
+    if (label.includes('diastolic')) return 'diastolic';
+    if (label.includes('pulse')) return 'pulse';
+    if (label.includes('glucose')) return 'glucose';
+    if (label.includes('weight')) return 'weight';
+    return null;
   }, [sortBy]);
 
-  const measurements = useMemo(
-    () => sortData(rawMeasurements),
-    [rawMeasurements, sortData],
-  );
+  const sortLevel = useMemo(() => {
+    const label = String(sortBy || '').toLowerCase();
+    if (label.includes('(low') || label.includes('low-high') || label.includes('lowest')) return 'low';
+    if (label.includes('(high') || label.includes('high-low') || label.includes('highest')) return 'high';
+    return null;
+  }, [sortBy]);
+
+  const readingAlertStatus = useCallback((item, metric) => {
+    const effective = scheduleTargets && typeof scheduleTargets === 'object' ? scheduleTargets : {};
+    const measurement = {
+      measure_date_time: item.rawDateTime,
+      measurement_date: item.dateYmd,
+      measurement_time: item.timeHms || item.time,
+      period_name: item.period_name || item.period,
+      period: item.period || item.period_name,
+      measure_note: item.period_name || item.period,
+    };
+
+    if (metric === 'systolic' || metric === 'diastolic' || metric === 'pulse') {
+      const bpTarget = getBloodPressureTargetForMeasurement(measurement, effective) || {
+        systolicMin: DEFAULT_VITAL_TARGETS.systolicMin,
+        systolicMax: DEFAULT_VITAL_TARGETS.systolicMax,
+        diastolicMin: DEFAULT_VITAL_TARGETS.diastolicMin,
+        diastolicMax: DEFAULT_VITAL_TARGETS.diastolicMax,
+        pulseMin: DEFAULT_VITAL_TARGETS.pulseMin,
+        pulseMax: DEFAULT_VITAL_TARGETS.pulseMax,
+      };
+      if (metric === 'systolic') {
+        return getMeasurementAlertStatus(item.systolic, bpTarget.systolicMin, bpTarget.systolicMax);
+      }
+      if (metric === 'diastolic') {
+        return getMeasurementAlertStatus(item.diastolic, bpTarget.diastolicMin, bpTarget.diastolicMax);
+      }
+      return checkPulseValue(item.pulse, bpTarget);
+    }
+
+    if (metric === 'glucose') {
+      const bgTarget = getBloodGlucoseTargetForMeasurement(measurement, effective) || {
+        minimum: DEFAULT_VITAL_TARGETS.glucoseMin,
+        maximum: DEFAULT_VITAL_TARGETS.glucoseMax,
+      };
+      return checkBGValue(item.glucose, bgTarget);
+    }
+
+    const weightTarget = effective.weightTargetRange && typeof effective.weightTargetRange === 'object'
+      ? effective.weightTargetRange
+      : {
+        weightMin: DEFAULT_VITAL_TARGETS.weightMin,
+        weightMax: DEFAULT_VITAL_TARGETS.weightMax,
+      };
+    return checkWeightValue(item.weight, weightTarget);
+  }, [scheduleTargets]);
+
+  const metricValue = (item, metric) => {
+    const value = Number(item?.[metric]);
+    return Number.isFinite(value) ? value : 0;
+  };
+
+  const sortData = useCallback((data) => {
+    const sorted = [...data];
+    if (sortBy === 'Date (oldest first)') {
+      sorted.sort((a, b) => a.timestamp - b.timestamp);
+      return sorted;
+    }
+    if (sortMetric) {
+      const direction = sortLevel === 'low' ? 1 : -1;
+      sorted.sort((a, b) => (metricValue(a, sortMetric) - metricValue(b, sortMetric)) * direction);
+      return sorted;
+    }
+    sorted.sort((a, b) => b.timestamp - a.timestamp);
+    return sorted;
+  }, [sortBy, sortLevel, sortMetric]);
 
   /* ───── FETCH & FILTER DATA ───── */
   const resolveMeasurementIds = useCallback(async () => {
@@ -769,9 +853,29 @@ const DataList = ({ navigation, route }) => {
   };
 
   const handleQueryPress = () => {
-    if (usesCustomRange && (!fromDate || !toDate)) {
-      Alert.alert('Select dates', 'Please choose both a start date and an end date for the custom range.');
-      return;
+    if (usesCustomRange) {
+      if (!fromDate || !toDate) {
+        Alert.alert('Select dates', 'Please choose both a start date and an end date for the custom range.');
+        return;
+      }
+      const start = parseInputDate(fromDate);
+      const end = parseInputDate(toDate);
+      const today = new Date();
+      start.setHours(0, 0, 0, 0);
+      end.setHours(0, 0, 0, 0);
+      today.setHours(0, 0, 0, 0);
+      if (start > today) {
+        Alert.alert('Validation', 'Start date cannot be in the future');
+        return;
+      }
+      if (end > today) {
+        Alert.alert('Validation', 'End date cannot be in the future');
+        return;
+      }
+      if (end < start) {
+        Alert.alert('Validation', 'End date must be on or after the start date');
+        return;
+      }
     }
     fetchPatientData();
   };
@@ -848,11 +952,6 @@ const DataList = ({ navigation, route }) => {
 
   const displayMeasurements = useMemo(() => {
     let list = [...rawMeasurements];
-    if (sortBy === 'Date (newest first)') {
-      list.sort((a, b) => b.timestamp - a.timestamp);
-    } else if (sortBy === 'Date (oldest first)') {
-      list.sort((a, b) => a.timestamp - b.timestamp);
-    }
 
     if (selectedSlotFilter && selectedSlotFilter !== 'All') {
       const normSelected = selectedSlotFilter.toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -863,8 +962,12 @@ const DataList = ({ navigation, route }) => {
       });
     }
 
-    return list;
-  }, [rawMeasurements, sortBy, selectedSlotFilter, dataType]);
+    if (sortMetric && sortLevel) {
+      list = list.filter((item) => readingAlertStatus(item, sortMetric) === sortLevel);
+    }
+
+    return sortData(list);
+  }, [rawMeasurements, selectedSlotFilter, dataType, sortMetric, sortLevel, readingAlertStatus, sortData]);
 
   const matrixData = useMemo(() => {
     const periodList = getPeriodListForType(dataType);
@@ -903,10 +1006,10 @@ const DataList = ({ navigation, route }) => {
 
   /* ───── CHART DATA ───── */
   const getChartDataForDisplay = () => {
-    if (measurements.length === 0) return { labels: [], datasets: [] };
+    if (displayMeasurements.length === 0) return { labels: [], datasets: [] };
 
     // Trend charts must always run chronologically (oldest -> newest left-to-right)
-    const chronologicalData = [...measurements].sort((a, b) => a.timestamp - b.timestamp);
+    const chronologicalData = [...displayMeasurements].sort((a, b) => a.timestamp - b.timestamp);
 
     // For smooth visual display without horizontal scrolling:
     // If readings count is small, show all. If large (>12), sample up to ~12 points across the dataset.
@@ -1128,7 +1231,7 @@ const DataList = ({ navigation, route }) => {
             </View>
 
             {/* Trend Chart */}
-            {activeTab === 'Graph List' && measurements.length > 0 && (
+            {activeTab === 'Graph List' && displayMeasurements.length > 0 && (
               <View style={styles.card}>
                 <Text style={styles.cardTitle}>Trend</Text>
                 <View style={styles.chartContainer}>
@@ -1190,7 +1293,11 @@ const DataList = ({ navigation, route }) => {
                 {loading ? (
                   <ActivityIndicator size="large" color={themePrimary} style={{ marginVertical: 30 }} />
                 ) : displayMeasurements.length === 0 ? (
-                  <Text style={styles.emptyText}>No measurement data available for the selected period</Text>
+                  <Text style={styles.emptyText}>
+                    {sortLevel
+                      ? `No ${sortLevel} readings match the selected filter.`
+                      : 'No measurement data available for the selected period'}
+                  </Text>
                 ) : (
                   <View style={styles.vTable}>
                     {/* Navy Blue Table Header */}
@@ -1301,7 +1408,7 @@ const DataList = ({ navigation, route }) => {
       <FullTrendChartModal
         visible={showChartModal}
         onClose={handleCloseChartModal}
-        measurements={measurements}
+        measurements={displayMeasurements}
         dataType={dataType}
         title={`${getTitle()} - Trend Chart`}
         themePrimary={themePrimary}

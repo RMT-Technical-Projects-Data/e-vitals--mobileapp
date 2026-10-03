@@ -229,7 +229,7 @@ export default function AddPatientModal({ visible, onClose, onSuccess, practiceI
     carePrograms: ['rpm', 'ccm'],
 
     // RPM Configuration
-    rpmStartDate: new Date().toISOString().split('T')[0],
+    rpmStartDate: formatDateToYmd(new Date()),
     monitoringTypes: ['Blood Pressure', 'Blood Glucose', 'Weight'],
 
     // CCM Configuration
@@ -502,6 +502,7 @@ export default function AddPatientModal({ visible, onClose, onSuccess, practiceI
       if (!formData.firstName.trim()) newErrors.firstName = 'First name is required';
       if (!formData.lastName.trim()) newErrors.lastName = 'Last name is required';
       if (!formData.dateOfBirth.trim()) newErrors.dateOfBirth = 'Date of birth is required';
+      else if (formData.dateOfBirth > formatDateToYmd(new Date())) newErrors.dateOfBirth = 'Date of Birth cannot be in the future';
       
       if (!formData.email.trim()) {
         newErrors.email = 'Email address is required';
@@ -521,6 +522,14 @@ export default function AddPatientModal({ visible, onClose, onSuccess, practiceI
 
       if (formData.password !== formData.confirmPassword) {
         newErrors.confirmPassword = 'Passwords do not match';
+      }
+    }
+
+    if (activeStep?.id === 'rpm' && formData.carePrograms.includes('rpm')) {
+      if (!String(formData.rpmStartDate || '').trim()) {
+        newErrors.rpmStartDate = 'RPM Start Date is required';
+      } else if (formData.rpmStartDate > formatDateToYmd(new Date())) {
+        newErrors.rpmStartDate = 'RPM Start Date cannot be in the future';
       }
     }
 
@@ -1188,11 +1197,12 @@ export default function AddPatientModal({ visible, onClose, onSuccess, practiceI
                   <View style={styles.formGroup}>
                     <Text style={styles.label}>RPM Start Date *</Text>
                     <TouchableOpacity
-                      style={styles.dropdownSelectInput}
+                      style={[styles.dropdownSelectInput, errors.rpmStartDate && styles.inputInvalid]}
                       onPress={() => setShowRpmDatePicker(true)}>
                       <Text style={styles.dropdownSelectText}>{formData.rpmStartDate || 'Select RPM Start Date'}</Text>
                       <MaterialIcons name="event" size={20} color="#1177c6" />
                     </TouchableOpacity>
+                    {errors.rpmStartDate ? <Text style={styles.errorText}>{errors.rpmStartDate}</Text> : null}
                   </View>
 
                   <View style={styles.formGroup}>
@@ -1557,6 +1567,7 @@ export default function AddPatientModal({ visible, onClose, onSuccess, practiceI
               themeVariant="light"
               textColor="#111827"
               accentColor="#1177c6"
+              maximumDate={new Date()}
               onChange={handleDobChange}
             />
           </View>
@@ -1566,6 +1577,7 @@ export default function AddPatientModal({ visible, onClose, onSuccess, practiceI
             mode="date"
             display="default"
             themeVariant="light"
+            maximumDate={new Date()}
             onChange={handleDobChange}
           />
         ) : null}
@@ -1585,6 +1597,7 @@ export default function AddPatientModal({ visible, onClose, onSuccess, practiceI
               themeVariant="light"
               textColor="#111827"
               accentColor="#1177c6"
+              maximumDate={new Date()}
               onChange={handleRpmDateChange}
             />
           </View>
@@ -1594,6 +1607,7 @@ export default function AddPatientModal({ visible, onClose, onSuccess, practiceI
             mode="date"
             display="default"
             themeVariant="light"
+            maximumDate={new Date()}
             onChange={handleRpmDateChange}
           />
         ) : null}
