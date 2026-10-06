@@ -283,8 +283,8 @@ const Login = ({ navigation }) => {
   const handleVerifyOtp = async () => {
     clearFeedback();
 
-    if (!otp.trim()) {
-      showFeedback('Please enter the OTP code.');
+    if (!/^\d{6}$/.test(otp.trim())) {
+      showFeedback('Please enter a 6-digit OTP code.');
       return;
     }
 
@@ -313,8 +313,9 @@ const Login = ({ navigation }) => {
                 placeholder="Enter OTP code"
                 placeholderTextColor={COLORS.muted}
                 value={otp}
-                onChangeText={setOtp}
+                onChangeText={(value) => setOtp(value.replace(/\D/g, '').slice(0, 6))}
                 keyboardType="number-pad"
+                maxLength={6}
                 editable={!isLoading}
                 autoFocus
               />
