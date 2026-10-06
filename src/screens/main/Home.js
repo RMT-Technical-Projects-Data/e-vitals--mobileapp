@@ -28,15 +28,18 @@ import PremiumBottomNav, { PREMIUM_BOTTOM_NAV_CLEARANCE } from '../../components
 import { EV } from '../../config/colors';
 import {
   DEFAULT_VITAL_TARGETS,
+  checkPulseValue,
   getVitalColor,
   normalizeWeightToLbs,
 } from '../../utils/measurementUtils';
+import PulseIcon from '../../components/common/PulseIcon';
 import { subscribeAbnormalAssignmentReceived } from '../../utils/abnormalAssignmentEvents';
 import {
   getUnreadNotificationCount,
   refreshNotificationInbox,
   subscribeNotificationInbox,
 } from '../../utils/notificationInbox';
+import { areNotificationsEnabled } from '../../utils/notificationPreference';
 import PatientAvatar from '../../components/common/PatientAvatar';
 
 const { width, height } = Dimensions.get('window');
@@ -1310,6 +1313,10 @@ export default function Home({ navigation }) {
     useCallback(() => {
       loadUserData();
       const syncNotificationBadge = async () => {
+        if (!(await areNotificationsEnabled())) {
+          setHasUnreadNotifications(false);
+          return;
+        }
         await refreshNotificationInbox();
         let apiCount = 0;
         try {
@@ -1333,7 +1340,13 @@ export default function Home({ navigation }) {
 
   useEffect(() => {
     const unsubscribe = subscribeNotificationInbox(() => {
-      setHasUnreadNotifications((current) => getUnreadNotificationCount() > 0 || current);
+      areNotificationsEnabled().then((enabled) => {
+        if (!enabled) {
+          setHasUnreadNotifications(false);
+          return;
+        }
+        setHasUnreadNotifications((current) => getUnreadNotificationCount() > 0 || current);
+      });
     });
     refreshNotificationInbox();
     return unsubscribe;
@@ -1434,6 +1447,11 @@ export default function Home({ navigation }) {
     const hasSplitBp = bpParts.length === 2 && bpVal !== '--';
     const sysColor = hasSplitBp ? getVitalColor(bpParts[0], t.systolicMin, t.systolicMax) : null;
     const diaColor = hasSplitBp ? getVitalColor(bpParts[1], t.diastolicMin, t.diastolicMax) : null;
+    const pulseRaw = measurements.bloodPressure?.pulse;
+    const pulseNum = Number(pulseRaw);
+    const pulseVal = Number.isFinite(pulseNum) && pulseNum > 0 ? Math.round(pulseNum) : null;
+    const pulseStatus = pulseVal != null ? checkPulseValue(pulseVal, t) : null;
+    const pulseColor = pulseVal != null ? getVitalColor(pulseVal, t.pulseMin, t.pulseMax) : null;
     const bgColor = getVitalColor(bgVal, t.glucoseMin, t.glucoseMax);
     const wtColor = getVitalColor(wtVal, t.weightMin, t.weightMax);
     const formatReadingTime = (dt) => {
@@ -1492,7 +1510,11 @@ export default function Home({ navigation }) {
               </View>
 
               <View style={st.lrCardContainer}>
-                <TouchableOpacity style={st.lrRow} onPress={() => openList('bp')} activeOpacity={0.7}>
+                <TouchableOpacity
+                  style={[st.lrRow, pulseVal != null && st.lrRowPulseSpace]}
+                  onPress={() => openList('bp')}
+                  activeOpacity={0.7}
+                >
                   <View style={st.lrMeta}>
                     <Text style={st.lrName}>Blood Pressure</Text>
                     <Text style={st.lrTime}>{bpTime}</Text>
@@ -1508,6 +1530,16 @@ export default function Home({ navigation }) {
                       <Text style={st.lrValText}>{bpVal}</Text>
                     )}
                     <Text style={st.lrUnitText}>mmHg</Text>
+                    {pulseVal != null ? (
+                      <View style={st.lrPulseRow}>
+                        <Text style={[st.lrPulseValue, { color: pulseColor }]}>{pulseVal}</Text>
+                        <PulseIcon
+                          isAbnormal={pulseStatus === 'high' || pulseStatus === 'low'}
+                          size={scaleFont(12)}
+                        />
+                        <Text style={st.lrPulseUnit}>bpm</Text>
+                      </View>
+                    ) : null}
                   </View>
                 </TouchableOpacity>
 
@@ -2449,6 +2481,9 @@ const st = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: scaleHeight(16),
   },
+  lrRowPulseSpace: {
+    paddingBottom: scaleHeight(34),
+  },
   lrRowDivider: {
     borderBottomWidth: 1,
     borderBottomColor: EV.border,
@@ -2473,6 +2508,7 @@ const st = StyleSheet.create({
   lrValWrap: {
     alignItems: 'flex-end',
     justifyContent: 'center',
+    position: 'relative',
   },
   lrValText: {
     fontSize: scaleFont(22),
@@ -2494,6 +2530,24 @@ const st = StyleSheet.create({
     fontWeight: '600',
     color: EV.mutedLight,
     marginTop: scaleHeight(2),
+  },
+  lrPulseRow: {
+    position: 'absolute',
+    right: 0,
+    top: '100%',
+    marginTop: scaleHeight(10),
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scaleWidth(4),
+  },
+  lrPulseValue: {
+    fontSize: scaleFont(13),
+    fontWeight: '800',
+  },
+  lrPulseUnit: {
+    fontSize: scaleFont(11),
+    fontWeight: '600',
+    color: EV.mutedLight,
   },
   trendCarouselWrap: {
     marginVertical: scaleHeight(10),

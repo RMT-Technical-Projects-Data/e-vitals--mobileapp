@@ -28,6 +28,16 @@ import {
   enableBiometricLogin,
   getBiometricStatus,
 } from '../../services/biometricAuth';
+import {
+  registerPushTokenWithBackend,
+  unregisterPushTokenFromBackend,
+} from '../../services/pushNotificationService';
+import { refreshNotificationInbox } from '../../utils/notificationInbox';
+import {
+  areNotificationsEnabled,
+  setNotificationsEnabled,
+} from '../../utils/notificationPreference';
+import notifee from '@notifee/react-native';
 import { pick, types, errorCodes, isErrorWithCode } from '@react-native-documents/picker';
 
 const TICKET_CATEGORIES = ['Bug', 'Error', 'Enhancement', 'Feature Request', 'Other'];
@@ -77,7 +87,7 @@ const SettingsScreen = ({ navigation }) => {
   const [lastName, setLastName] = useState('');
   const [profilePic, setProfilePic] = useState(null);
 
-  // const [isNotificationsEnabled, setIsNotificationsEnabled] = useState(true);
+  const [isNotificationsEnabled, setIsNotificationsEnabled] = useState(true);
   const [isBiometricAvailable, setIsBiometricAvailable] = useState(false);
   const [isBiometricEnabled, setIsBiometricEnabled] = useState(false);
   const [biometricLabel, setBiometricLabel] = useState(Platform.OS === 'ios' ? 'Face ID' : 'Biometric login');
@@ -143,6 +153,8 @@ const SettingsScreen = ({ navigation }) => {
         setSessionTime(sessionMinutes);
       }
 
+      setIsNotificationsEnabled(await areNotificationsEnabled());
+
       const biometricStatus = await getBiometricStatus();
       setIsBiometricAvailable(biometricStatus.available);
       setIsBiometricEnabled(biometricStatus.enabled);
@@ -179,7 +191,25 @@ const SettingsScreen = ({ navigation }) => {
     }
   };
 
-  // const toggleSwitch = () => setIsNotificationsEnabled(previousState => !previousState);
+  const toggleNotifications = async () => {
+    const next = !isNotificationsEnabled;
+    setIsNotificationsEnabled(next);
+    try {
+      await setNotificationsEnabled(next);
+      if (next) {
+        await registerPushTokenWithBackend();
+      } else {
+        await unregisterPushTokenFromBackend();
+        await notifee.cancelAllNotifications();
+        await refreshNotificationInbox();
+      }
+    } catch (error) {
+      const reverted = !next;
+      setIsNotificationsEnabled(reverted);
+      await setNotificationsEnabled(reverted);
+      Alert.alert('Notifications', 'Could not update notification settings. Please try again.');
+    }
+  };
 
   const toggleBiometricLogin = async () => {
     if (!isBiometricAvailable) {
@@ -421,25 +451,25 @@ const SettingsScreen = ({ navigation }) => {
             </TouchableOpacity>
             <View style={styles.divider} />
 
-            {/* Notifications
             <View style={styles.settingRow}>
               <View style={styles.iconBox}>
                 <Image source={require('../../assets/images/batch_06/notification.png')} style={{ width: scaleWidth(20), height: scaleWidth(20), tintColor: NAVY_BLUE }} resizeMode="contain" />
               </View>
               <View style={styles.settingTextContainer}>
                 <Text style={styles.settingTitle}>Notifications</Text>
-                <Text style={styles.settingSubtitle}>Manage your notification preferences</Text>
+                <Text style={styles.settingSubtitle}>
+                  {isNotificationsEnabled ? 'You will receive notifications' : 'Notifications are turned off'}
+                </Text>
               </View>
               <TouchableOpacity
                 style={[styles.toggleContainer, isNotificationsEnabled ? styles.toggleActive : styles.toggleInactive]}
-                onPress={toggleSwitch}
+                onPress={toggleNotifications}
                 activeOpacity={1}
               >
                 <View style={[styles.toggleCircle, isNotificationsEnabled ? styles.circleActive : styles.circleInactive]} />
               </TouchableOpacity>
             </View>
             <View style={styles.divider} />
-            */}
 
             {isBiometricAvailable ? (
               <>

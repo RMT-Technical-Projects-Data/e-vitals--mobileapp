@@ -16,6 +16,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import apiService from '../../services/apiService';
 import { dismissAbnormalNotification, dismissChatNotifications } from '../../utils/notificationInbox';
+import { areNotificationsEnabled } from '../../utils/notificationPreference';
 
 const { width, height } = Dimensions.get('window');
 const guidelineBaseWidth = 375;
@@ -225,6 +226,11 @@ export default function Notifications({ navigation }) {
   const loadRealNotifications = async () => {
     try {
       setLoading(true);
+      if (!(await areNotificationsEnabled())) {
+        setNotifications([]);
+        await AsyncStorage.setItem('unreadBadgeCount', '0');
+        return;
+      }
       const userStr = await AsyncStorage.getItem('user');
       const user = userStr ? JSON.parse(userStr) : null;
       const items = [];

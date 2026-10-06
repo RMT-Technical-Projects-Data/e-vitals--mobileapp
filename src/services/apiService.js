@@ -955,6 +955,16 @@ const apiService = {
     return readApiResponse(response, 'Failed to load messages');
   },
 
+  checkChatSendAccess: async ({ from_user_id, to_user_id, practice_id }) => {
+    const params = new URLSearchParams({
+      from_user_id: String(from_user_id),
+      to_user_id: String(to_user_id),
+    });
+    if (practice_id) params.set('practice_id', String(practice_id));
+    const response = await apiRequest(`${API_ENDPOINTS.CHAT_CAN_SEND}?${params.toString()}`, { method: 'GET' });
+    return readApiResponse(response, 'Failed to check chat access');
+  },
+
   sendChatMessage: async (payload) => {
     const response = await apiRequest(API_ENDPOINTS.CHAT_SEND, {
       method: 'POST',

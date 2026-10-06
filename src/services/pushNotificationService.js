@@ -12,6 +12,12 @@ import {
   dismissOpenedNotification,
   refreshNotificationInbox,
 } from '../utils/notificationInbox';
+import {
+  areNotificationsEnabled,
+  loadNotificationPreference,
+} from '../utils/notificationPreference';
+
+const PUSH_TOKEN_STORAGE_KEY = 'pushDeviceToken';
 
 const CHAT_CHANNEL_ID = 'chat_messages';
 const ABNORMAL_CHANNEL_ID = 'abnormal_readings';
@@ -147,6 +153,10 @@ const getNotificationMeta = (data) => {
 };
 
 const displayRemoteNotification = async (remoteMessage, { isForeground = false } = {}) => {
+  if (!(await areNotificationsEnabled())) {
+    return;
+  }
+
   // A notification+data message is already shown by Android in the background.
   // Posting it again is what leaves a second "New message" alert after a swipe.
   if (!isForeground && remoteMessage?.notification) {
@@ -316,6 +326,10 @@ export const captureInitialNotificationIntent = async () => {
 
 export const registerPushTokenWithBackend = async (attempt = 1) => {
   try {
+    if (!(await areNotificationsEnabled())) {
+      return null;
+    }
+
     const androidOk = await ensureAndroidNotificationPermission();
     const iosOk = await ensureIosNotificationPermission();
     if (!androidOk || !iosOk) {
@@ -342,6 +356,7 @@ export const registerPushTokenWithBackend = async (attempt = 1) => {
       throw new Error(result?.message || 'Backend rejected push token registration');
     }
 
+    await AsyncStorage.setItem(PUSH_TOKEN_STORAGE_KEY, token);
     return token;
   } catch (error) {
     console.warn(`[push] failed to register token (attempt ${attempt}):`, error?.message || error);
@@ -355,17 +370,23 @@ export const registerPushTokenWithBackend = async (attempt = 1) => {
 
 export const unregisterPushTokenFromBackend = async () => {
   try {
-    const token = await messaging().getToken();
+    const storedToken = await AsyncStorage.getItem(PUSH_TOKEN_STORAGE_KEY);
+    let token = storedToken;
+    if (!token) {
+      token = await messaging().getToken();
+    }
     if (token) {
       await apiService.unregisterPushToken({ fcm_token: token });
     }
     await messaging().deleteToken();
+    await AsyncStorage.removeItem(PUSH_TOKEN_STORAGE_KEY);
   } catch (error) {
     console.warn('[push] failed to unregister token:', error?.message || error);
   }
 };
 
 export const initializePushNotifications = async (handlers = {}) => {
+  await loadNotificationPreference();
   await ensureNotificationChannels();
 
   const unsubscribeForegroundEvent = notifee.onForegroundEvent(({ type, detail }) => {
@@ -394,7 +415,13 @@ export const initializePushNotifications = async (handlers = {}) => {
     await registerPushTokenWithBackend();
   });
 
-  await registerPushTokenWithBackend();
+  if (await areNotificationsEnabled()) {
+    await registerPushTokenWithBackend();
+  } else {
+    await unregisterPushTokenFromBackend();
+    await notifee.cancelAllNotifications();
+    await refreshNotificationInbox();
+  }
 
   return () => {
     unsubscribeForegroundEvent();

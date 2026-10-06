@@ -141,6 +141,7 @@ export const API_ENDPOINTS = {
 
   // Chat
   CHAT_SEND: '/chat/send',
+  CHAT_CAN_SEND: '/chat/can-send',
   CHAT_CONVERSATIONS: (userId) => `/chat/conversations/${userId}`,
   CHAT_HISTORY: (userId1, userId2) => `/chat/history/${userId1}/${userId2}`,
   CHAT_AVAILABLE_USERS: (practiceId, userId) => `/chat/users/${practiceId}/${userId}`,

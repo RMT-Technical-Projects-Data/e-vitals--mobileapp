@@ -48,6 +48,7 @@ import { setActiveChatPeer, setChatScreenFocused } from '../../services/chatPres
 import PremiumBottomNav, { PREMIUM_BOTTOM_NAV_CLEARANCE } from '../../components/navigation/PremiumBottomNav';
 import { setActiveChatUserId } from '../../utils/activeChatState';
 import { dismissChatNotifications } from '../../utils/notificationInbox';
+import { areNotificationsEnabled } from '../../utils/notificationPreference';
 import useVoiceMessageRecorder from '../../hooks/useVoiceMessageRecorder';
 import useVoiceMessagePlayer from '../../hooks/useVoiceMessagePlayer';
 import VoiceMessageBubble from '../../components/chat/VoiceMessageBubble';
@@ -452,6 +453,10 @@ const ChatScreen = ({ navigation, route }) => {
   const [loadingList, setLoadingList] = useState(true);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [sending, setSending] = useState(false);
+  const [sendBlockedMessage, setSendBlockedMessage] = useState('');
+  const [sendBlockModalVisible, setSendBlockModalVisible] = useState(false);
+  const [sendAccessChecking, setSendAccessChecking] = useState(false);
+  const [blockedChatCounts, setBlockedChatCounts] = useState({ patient: 0, provider: 0, caregiver: 0 });
   const [uploadingVoice, setUploadingVoice] = useState(false);
   const [uploadingFile, setUploadingFile] = useState(false);
   const [imagePreviewUrl, setImagePreviewUrl] = useState(null);
@@ -514,6 +519,7 @@ const ChatScreen = ({ navigation, route }) => {
   const socketRef = useRef(null);
   const messagesRef = useRef(null);
   const selectedContactRef = useRef(null);
+  const sendAccessRequestRef = useRef(0);
   const currentUserRef = useRef(null);
   const handledPushNonceRef = useRef(null);
   const viewRef = useRef(view);
@@ -700,12 +706,15 @@ const ChatScreen = ({ navigation, route }) => {
 
   // â”€â”€ Banner Notification â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const showBanner = (data) => {
-    setNotifBanner(data);
-    Animated.spring(bannerAnim, { toValue: 0, useNativeDriver: true }).start();
-    if (bannerTimer.current) clearTimeout(bannerTimer.current);
-    bannerTimer.current = setTimeout(() => {
-      Animated.timing(bannerAnim, { toValue: -80, duration: 300, useNativeDriver: true }).start(() => setNotifBanner(null));
-    }, 3500);
+    areNotificationsEnabled().then((enabled) => {
+      if (!enabled) return;
+      setNotifBanner(data);
+      Animated.spring(bannerAnim, { toValue: 0, useNativeDriver: true }).start();
+      if (bannerTimer.current) clearTimeout(bannerTimer.current);
+      bannerTimer.current = setTimeout(() => {
+        Animated.timing(bannerAnim, { toValue: -80, duration: 300, useNativeDriver: true }).start(() => setNotifBanner(null));
+      }, 3500);
+    });
   };
 
   // â”€â”€ Emit Typing Events â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -874,6 +883,45 @@ const ChatScreen = ({ navigation, route }) => {
   }, []);
 
   // â”€â”€ Open / Close Conversation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  const rememberSendBlock = (message) => {
+    const text = String(message || '');
+    if (!/turned off|chat access|not able to send|not allowed to send|cannot send|sending is not available/i.test(text)) {
+      return false;
+    }
+    setSendBlockedMessage(text);
+    setSendBlockModalVisible(true);
+    return true;
+  };
+
+  const refreshSendAccess = async (contact) => {
+    if (!contact?.id || !currentUser?.id) {
+      setSendBlockedMessage('');
+      return;
+    }
+    const requestId = ++sendAccessRequestRef.current;
+    setSendAccessChecking(true);
+    try {
+      const practiceId = currentUser.practice_id || (await AsyncStorage.getItem('practiceId')) || null;
+      const result = await apiService.checkChatSendAccess({
+        from_user_id: currentUser.id,
+        to_user_id: contact.id,
+        practice_id: practiceId,
+      });
+      if (requestId !== sendAccessRequestRef.current) return;
+      const data = result?.data || {};
+      if (data.can_send === false) {
+        setSendBlockedMessage(data.message || 'Messaging is turned off with this person. You can still read earlier messages. Ask your practice administrator to turn chat access on.');
+        setSendBlockModalVisible(true);
+      } else {
+        setSendBlockedMessage('');
+      }
+    } catch {
+      if (requestId !== sendAccessRequestRef.current) return;
+    } finally {
+      if (requestId === sendAccessRequestRef.current) setSendAccessChecking(false);
+    }
+  };
+
   const openChat = (contact) => {
     setSelectedContact(contact);
     setActiveChatUserId(contact?.id);
@@ -885,7 +933,10 @@ const ChatScreen = ({ navigation, route }) => {
     setEditText('');
     setSelectedMessageIds([]);
     setPendingDeleteIds(null);
+    setSendBlockedMessage('');
+    setSendBlockModalVisible(false);
     dismissChatNotifications(contact?.id);
+    refreshSendAccess(contact);
   };
 
   useEffect(() => {
@@ -922,6 +973,7 @@ const ChatScreen = ({ navigation, route }) => {
     setEditText('');
     setSelectedMessageIds([]);
     setPendingDeleteIds(null);
+    setSendBlockedMessage('');
     setPeerIsTyping(false);
   };
 
@@ -977,6 +1029,11 @@ const ChatScreen = ({ navigation, route }) => {
           role_name: u.role_name || u.role || resolveRoleLabel(u.role_id),
         }));
       setAvailableUsers(list);
+      setBlockedChatCounts({
+        patient: Number(res?.blocked_counts?.patient) || 0,
+        provider: Number(res?.blocked_counts?.provider) || 0,
+        caregiver: Number(res?.blocked_counts?.caregiver) || 0,
+      });
     } catch (error) {
       console.warn('Failed to load available users for modal:', error);
       const userStr = await AsyncStorage.getItem('user');
@@ -1016,6 +1073,7 @@ const ChatScreen = ({ navigation, route }) => {
   };
 
   const handleAttachFile = async () => {
+    if (sendBlockedMessage) return;
     if (!selectedContact || !currentUser || uploadingFile || uploadingVoice || sending || isRecording) return;
 
     let optimisticId = null;
@@ -1124,7 +1182,9 @@ const ChatScreen = ({ navigation, route }) => {
     } catch (error) {
       const canceled = isErrorWithCode(error) && error.code === errorCodes.OPERATION_CANCELED;
       if (!canceled) {
-        Alert.alert('Attachment', error?.message || 'Failed to send the file.');
+        if (!rememberSendBlock(error?.message)) {
+          Alert.alert('Attachment', error?.message || 'Failed to send the file.');
+        }
         if (optimisticId) {
           setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
         }
@@ -1135,6 +1195,7 @@ const ChatScreen = ({ navigation, route }) => {
   };
 
   const handleStartVoiceRecording = async () => {
+    if (sendBlockedMessage) return;
     try {
       await startRecording();
     } catch (error) {
@@ -1151,6 +1212,7 @@ const ChatScreen = ({ navigation, route }) => {
   };
 
   const sendVoiceMessage = async () => {
+    if (sendBlockedMessage) return;
     if (!selectedContact || !currentUser || uploadingVoice || !isRecording) return;
 
     setUploadingVoice(true);
@@ -1198,7 +1260,9 @@ const ChatScreen = ({ navigation, route }) => {
           : item
       ));
     } catch (error) {
-      Alert.alert('Voice message', error?.message || 'Failed to send voice message.');
+      if (!rememberSendBlock(error?.message)) {
+        Alert.alert('Voice message', error?.message || 'Failed to send voice message.');
+      }
       setMessages((prev) => prev.filter((m) => !String(m.id).startsWith('temp-audio-')));
       await cancelRecording();
     } finally {
@@ -1226,11 +1290,37 @@ const ChatScreen = ({ navigation, route }) => {
 
   // â”€â”€ Send Message â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const sendMessage = async () => {
+    if (sendBlockedMessage) {
+      setSendBlockModalVisible(true);
+      return;
+    }
     const text = input.trim();
-    if (!text || !selectedContact || !currentUser || sending) return;
+    if (!text || !selectedContact || !currentUser || sending || sendAccessChecking) return;
 
     socketRef.current?.emit('stop_typing', { from_user_id: currentUser.id, to_user_id: selectedContact.id });
     isTypingEmitted.current = false;
+    setSending(true);
+
+    try {
+      const pId = currentUser.practice_id || (await AsyncStorage.getItem('practiceId')) || null;
+      if (!(usingFallback || String(selectedContact.id).startsWith('mock-'))) {
+        const access = await apiService.checkChatSendAccess({
+          from_user_id: currentUser.id,
+          to_user_id: selectedContact.id,
+          practice_id: pId,
+        });
+        if (access?.data?.can_send === false) {
+          rememberSendBlock(access.data.message);
+          setSending(false);
+          return;
+        }
+      }
+    } catch (error) {
+      if (rememberSendBlock(error?.message)) {
+        setSending(false);
+        return;
+      }
+    }
 
     const optimistic = {
       id: `temp-${Date.now()}`,
@@ -1285,6 +1375,9 @@ const ChatScreen = ({ navigation, route }) => {
       console.error('Send failed:', error);
       setMessages((prev) => prev.filter((m) => m.id !== optimistic.id));
       setInput(text);
+      if (!rememberSendBlock(error?.message)) {
+        Alert.alert('Message not sent', error?.message || 'Something went wrong. Please try again.');
+      }
     } finally {
       setSending(false);
     }
@@ -1919,7 +2012,15 @@ const ChatScreen = ({ navigation, route }) => {
 
         {/* Composer */}
         <View style={[styles.composer, { paddingBottom: Math.max(scaleHeight(10), insets.bottom + scaleHeight(6)) }]}>
-          {isRecording ? (
+          {sendBlockedMessage ? (
+            <View style={styles.sendBlockedNotice}>
+              <MaterialIcons name="chat-bubble-outline" size={20} color={ACCENT_COLOR} />
+              <View style={styles.sendBlockedCopy}>
+                <Text style={styles.sendBlockedTitle}>You can't send a message</Text>
+                <Text style={styles.sendBlockedText}>{sendBlockedMessage}</Text>
+              </View>
+            </View>
+          ) : isRecording ? (
             <View style={styles.recordingBar}>
               <View style={styles.recordingIndicator}>
                 <View style={styles.recordingDot} />
@@ -1995,6 +2096,43 @@ const ChatScreen = ({ navigation, route }) => {
   // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   // Render: New Conversation Modal (CENTERED IN MIDDLE, NO AUTO-KEYBOARD)
   // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  const newChatEmptyCopy = () => {
+    if (modalSearchQuery.trim()) {
+      return {
+        title: 'No matches',
+        body: 'Try another name or role.',
+      };
+    }
+
+    const blockedParts = [];
+    if ((modalRoleTab === 'all' || modalRoleTab === 'patients') && blockedChatCounts.patient > 0) blockedParts.push('patients');
+    if ((modalRoleTab === 'all' || modalRoleTab === 'providers') && blockedChatCounts.provider > 0) blockedParts.push('providers');
+    if ((modalRoleTab === 'all' || modalRoleTab === 'caregivers') && blockedChatCounts.caregiver > 0) blockedParts.push('caregivers');
+    const showBlocked = modalRoleTab === 'all'
+      ? availableUsers.length === 0 && blockedParts.length > 0
+      : blockedParts.length > 0;
+
+    if (showBlocked) {
+      const who = modalRoleTab === 'all' ? blockedParts.join(' or ') : blockedParts[0];
+      return {
+        title: 'Chat access is turned off',
+        body: `You are not allowed to chat with ${who} right now. You can still open an older conversation to read it. Ask your practice administrator to turn chat access on.`,
+      };
+    }
+
+    const roleLabel = modalRoleTab === 'patients'
+      ? 'patients'
+      : modalRoleTab === 'providers'
+        ? 'providers'
+        : modalRoleTab === 'caregivers'
+          ? 'caregivers'
+          : 'people';
+    return {
+      title: 'No one to message',
+      body: `There are no ${roleLabel} available for a new conversation.`,
+    };
+  };
+
   const renderNewChatModal = () => (
     <Modal
       visible={isNewChatModalOpen}
@@ -2067,16 +2205,51 @@ const ChatScreen = ({ navigation, route }) => {
                       <MaterialIcons name="chevron-right" size={22} color={TEXT_MUTED} />
                     </TouchableOpacity>
                   )}
-                  ListEmptyComponent={
-                    <View style={{ padding: 30, alignItems: 'center' }}>
-                      <Text style={{ color: TEXT_MUTED, fontSize: scaleFont(14), fontWeight: '600', textAlign: 'center' }}>
-                        No users available for new conversation
-                      </Text>
-                    </View>
-                  }
+                  ListEmptyComponent={(() => {
+                    const emptyCopy = newChatEmptyCopy();
+                    return (
+                      <View style={styles.newChatEmpty}>
+                        <MaterialIcons name="chat-bubble-outline" size={28} color={ACCENT_COLOR} />
+                        <Text style={styles.newChatEmptyTitle}>{emptyCopy.title}</Text>
+                        <Text style={styles.newChatEmptyText}>{emptyCopy.body}</Text>
+                      </View>
+                    );
+                  })()}
                   contentContainerStyle={{ paddingBottom: 16 }}
                 />
               )}
+            </View>
+          </TouchableWithoutFeedback>
+        </View>
+      </TouchableWithoutFeedback>
+    </Modal>
+  );
+
+  const renderSendBlockModal = () => (
+    <Modal
+      visible={sendBlockModalVisible}
+      transparent
+      animationType="fade"
+      onRequestClose={() => setSendBlockModalVisible(false)}
+    >
+      <TouchableWithoutFeedback onPress={() => setSendBlockModalVisible(false)}>
+        <View style={styles.modalOverlay}>
+          <TouchableWithoutFeedback>
+            <View style={styles.sendBlockModalCard}>
+              <View style={styles.sendBlockModalIcon}>
+                <MaterialIcons name="chat-bubble-outline" size={26} color={ACCENT_COLOR} />
+              </View>
+              <Text style={styles.sendBlockModalTitle}>You can't send a message</Text>
+              <Text style={styles.sendBlockModalBody}>
+                {sendBlockedMessage || 'Messaging is turned off with this person. You can still read earlier messages. Ask your practice administrator to turn chat access on.'}
+              </Text>
+              <TouchableOpacity
+                style={[styles.sendBlockModalButton, { backgroundColor: ACCENT_COLOR }]}
+                onPress={() => setSendBlockModalVisible(false)}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.sendBlockModalButtonText}>OK</Text>
+              </TouchableOpacity>
             </View>
           </TouchableWithoutFeedback>
         </View>
@@ -2278,6 +2451,7 @@ const ChatScreen = ({ navigation, route }) => {
       )}
 
       {renderNewChatModal()}
+      {renderSendBlockModal()}
       <Modal
         visible={Boolean(imagePreviewUrl)}
         transparent
@@ -2516,6 +2690,19 @@ const styles = StyleSheet.create({
 
   // Composer
   composer: { flexDirection: 'row', alignItems: 'flex-end', paddingHorizontal: scaleWidth(10), paddingVertical: scaleHeight(8), backgroundColor: '#f0f2f5', borderTopWidth: 1, borderTopColor: 'rgba(7,27,52,0.06)' },
+  newChatEmpty: { paddingHorizontal: scaleWidth(24), paddingVertical: scaleHeight(28), alignItems: 'center' },
+  newChatEmptyTitle: { marginTop: scaleHeight(10), color: TEXT_DARK, fontSize: scaleFont(15), fontWeight: '700', textAlign: 'center' },
+  newChatEmptyText: { marginTop: scaleHeight(6), color: TEXT_MUTED, fontSize: scaleFont(13), lineHeight: scaleFont(18), textAlign: 'center' },
+  sendBlockModalCard: { width: '100%', maxWidth: 360, backgroundColor: '#fff', borderRadius: scaleWidth(18), paddingHorizontal: scaleWidth(20), paddingTop: scaleHeight(22), paddingBottom: scaleHeight(16), alignItems: 'center' },
+  sendBlockModalIcon: { width: scaleWidth(52), height: scaleWidth(52), borderRadius: scaleWidth(26), backgroundColor: '#EEF4FB', alignItems: 'center', justifyContent: 'center', marginBottom: scaleHeight(12) },
+  sendBlockModalTitle: { color: TEXT_DARK, fontSize: scaleFont(17), fontWeight: '700', textAlign: 'center', marginBottom: scaleHeight(8) },
+  sendBlockModalBody: { color: TEXT_MUTED, fontSize: scaleFont(14), lineHeight: scaleFont(20), textAlign: 'center' },
+  sendBlockModalButton: { marginTop: scaleHeight(16), alignSelf: 'stretch', borderRadius: scaleWidth(10), paddingVertical: scaleHeight(12), alignItems: 'center' },
+  sendBlockModalButtonText: { color: '#fff', fontSize: scaleFont(15), fontWeight: '700' },
+  sendBlockedNotice: { flex: 1, flexDirection: 'row', alignItems: 'flex-start', gap: scaleWidth(10), backgroundColor: '#EEF4FB', borderRadius: scaleWidth(14), borderWidth: 1, borderColor: 'rgba(7,27,52,0.08)', paddingHorizontal: scaleWidth(12), paddingVertical: scaleHeight(12) },
+  sendBlockedCopy: { flex: 1 },
+  sendBlockedTitle: { color: '#0A1C30', fontSize: scaleFont(14), fontWeight: '700', marginBottom: scaleHeight(2) },
+  sendBlockedText: { color: '#5C6B7A', fontSize: scaleFont(13), lineHeight: scaleFont(18) },
   attachButton: { width: scaleWidth(36), height: scaleWidth(42), alignItems: 'center', justifyContent: 'center', marginRight: scaleWidth(2) },
   attachmentImage: { width: scaleWidth(200), height: scaleWidth(150), borderRadius: scaleWidth(8), marginBottom: scaleHeight(4), backgroundColor: 'rgba(0,0,0,0.05)' },
   imagePreviewBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.92)', justifyContent: 'center', alignItems: 'center' },
