@@ -35,6 +35,7 @@ import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import apiService from '../../services/apiService';
+import { formatLastFirstName } from '../../utils/formatPersonName';
 import DatePickerModal from '../../components/common/DatePickerModal';
 import SuccessDialog from '../../components/common/SuccessDialog';
 import {
@@ -627,7 +628,7 @@ export default function FollowUp({ navigation, route }) {
         .map((p) => ({
           id: p.id, value: String(p.id),
           label: `${p.last_name || ''}, ${p.first_name || ''}`.replace(/^,\s*|\s*,$/g, '').trim() || p.name || `Provider #${p.id}`,
-          name: p.name || p.full_name || `${p.first_name || ''} ${p.last_name || ''}`.trim(),
+          name: formatLastFirstName(p) || p.name || p.full_name,
         }));
 
       let caregiversData = caregiversRes?.data?.data?.caregivers || caregiversRes?.data?.caregivers || caregiversRes?.data?.data || caregiversRes?.data || [];
@@ -637,7 +638,7 @@ export default function FollowUp({ navigation, route }) {
         .map((c) => ({
           id: c.id, value: String(c.id),
           label: `${c.last_name || ''}, ${c.first_name || ''}`.replace(/^,\s*|\s*,$/g, '').trim() || c.name || `Caregiver #${c.id}`,
-          name: c.name || c.full_name || `${c.first_name || ''} ${c.last_name || ''}`.trim(),
+          name: formatLastFirstName(c) || c.name || c.full_name,
         }));
 
       setProviders(uniqueProviders);

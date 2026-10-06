@@ -18,12 +18,15 @@ import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { useFocusEffect } from '@react-navigation/native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import apiService from '../../services/apiService';
 import { MEASUREMENT_COLORS } from '../../utils/measurementUtils';
 import { subscribeAbnormalAssignmentReceived } from '../../utils/abnormalAssignmentEvents';
 import { dismissAbnormalNotification } from '../../utils/notificationInbox';
 import { getAssignedReadingVitalColors } from '../../utils/patientVitalTargets';
 import PulseIcon from '../../components/common/PulseIcon';
+import SuccessDialog from '../../components/common/SuccessDialog';
+import { formatLastFirstName } from '../../utils/formatPersonName';
 
 const { width } = Dimensions.get('window');
 const guidelineBaseWidth = 375;
@@ -120,10 +123,12 @@ const isMeasurementReading = (reading) =>
     && reading.vital_type !== 'assigned_review',
   );
 
-const formatAssigneeName = (person) => {
-  const name = `${person?.first_name || ''} ${person?.last_name || ''}`.trim();
-  return name || person?.name || person?.username || `User #${person?.id || ''}`;
-};
+const formatAssigneeName = (person) => (
+  formatLastFirstName(person)
+  || person?.name
+  || person?.username
+  || `User #${person?.id || ''}`
+);
 
 const formatPatientName = (group) => {
   const formatted = `${group.last_name || ''}, ${group.first_name || ''}`.replace(/^,\s*|\s*,$/g, '').trim();
@@ -140,8 +145,20 @@ const AssignedAbnormalReviewsScreen = ({ navigation }) => {
   const [assignees, setAssignees] = useState([]);
   const [assigneesLoading, setAssigneesLoading] = useState(false);
   const [assigningId, setAssigningId] = useState(null);
+  const [assignSuccess, setAssignSuccess] = useState(null);
   const [activeReadingByPatient, setActiveReadingByPatient] = useState({});
   const [scheduleCache, setScheduleCache] = useState({ practice: {}, patient: {} });
+  const [currentUserId, setCurrentUserId] = useState(null);
+
+  useEffect(() => {
+    AsyncStorage.getItem('user')
+      .then((raw) => {
+        if (!raw) return;
+        const user = JSON.parse(raw);
+        setCurrentUserId(user?.id ?? user?.user_id ?? null);
+      })
+      .catch(() => null);
+  }, []);
 
   const groupedPatients = useMemo(
     () => groupAssignedByPatient(assignedReadings),
@@ -325,8 +342,20 @@ const AssignedAbnormalReviewsScreen = ({ navigation }) => {
 
       const providers = providersData.map((p) => ({ ...p, assigneeRole: 'provider' }));
       const caregivers = caregiversData.map((c) => ({ ...c, assigneeRole: 'caregiver' }));
+      let signedInUserId = currentUserId;
+      if (signedInUserId == null) {
+        const rawUser = await AsyncStorage.getItem('user');
+        const storedUser = rawUser ? JSON.parse(rawUser) : null;
+        signedInUserId = storedUser?.id ?? storedUser?.user_id ?? null;
+        if (signedInUserId != null) setCurrentUserId(signedInUserId);
+      }
+      const currentAssigneeId = reading?.assigned_to_user_id ?? signedInUserId;
 
-      setAssignees([...providers, ...caregivers]);
+      setAssignees([...providers, ...caregivers].filter((person) => {
+        const personId = person?.id ?? person?.user_id;
+        if (personId == null || currentAssigneeId == null) return true;
+        return String(personId) !== String(currentAssigneeId);
+      }));
     } catch (error) {
       Alert.alert('Error', error?.message || 'Failed to load team members');
       setAssignModalVisible(false);
@@ -338,6 +367,12 @@ const AssignedAbnormalReviewsScreen = ({ navigation }) => {
 
   const handleAssignTo = async (assignee) => {
     if (!assignTarget || !assignee?.id) return;
+    const assigneeId = assignee.id ?? assignee.user_id;
+    const currentAssigneeId = assignTarget.assigned_to_user_id ?? currentUserId;
+    if (currentAssigneeId != null && String(assigneeId) === String(currentAssigneeId)) {
+      Alert.alert('Already assigned', 'This reading is already assigned to that person.');
+      return;
+    }
 
     setAssigningId(assignee.id);
     try {
@@ -371,7 +406,10 @@ const AssignedAbnormalReviewsScreen = ({ navigation }) => {
 
       setAssignModalVisible(false);
       setAssignTarget(null);
-      Alert.alert('Assigned', `Reading reassigned to ${formatAssigneeName(assignee)}.`);
+      setAssignSuccess({
+        title: 'Assigned',
+        message: `Reading reassigned to ${formatAssigneeName(assignee)}.`,
+      });
       await fetchAssigned(true);
     } catch (error) {
       Alert.alert('Assign failed', error?.message || 'Failed to reassign reading');
@@ -384,7 +422,7 @@ const AssignedAbnormalReviewsScreen = ({ navigation }) => {
     navigation.navigate('PatientHub', {
       patientId: group.patient_id,
       practiceId: group.practice_id,
-      patientName: `${group.first_name || ''} ${group.last_name || ''}`.trim(),
+      patientName: formatPatientName(group),
     });
   };
 
@@ -397,7 +435,7 @@ const AssignedAbnormalReviewsScreen = ({ navigation }) => {
     );
     const activeReading = readings[activeIndex] || readings[0] || {};
     const readingNumber = Math.max(1, readings.length - activeIndex);
-    const patientName = `${group.first_name || ''} ${group.last_name || ''}`.trim() || formatPatientName(group);
+    const patientName = formatPatientName(group);
     const isProcessing = processingKey === groupKey;
     const activeVitalType = classifyVitalType(activeReading.vital_type);
     const values = parseAssignedReadingValues(activeReading);
@@ -686,6 +724,13 @@ const AssignedAbnormalReviewsScreen = ({ navigation }) => {
               </Pressable>
             </Pressable>
           </Modal>
+          <SuccessDialog
+            embedded
+            visible={Boolean(assignSuccess)}
+            title={assignSuccess?.title || 'Assigned'}
+            message={assignSuccess?.message || ''}
+            onClose={() => setAssignSuccess(null)}
+          />
         </SafeAreaView>
       </LinearGradient>
     </SafeAreaProvider>

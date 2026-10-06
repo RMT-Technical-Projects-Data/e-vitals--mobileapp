@@ -23,6 +23,7 @@ import { MEASUREMENT_COLORS } from '../../utils/measurementUtils';
 import { getPatientListVitalColors } from '../../utils/patientVitalTargets';
 import PulseIcon from '../../components/common/PulseIcon';
 import PatientAvatar from '../../components/common/PatientAvatar';
+import { formatLastFirstName } from '../../utils/formatPersonName';
 
 const { width } = Dimensions.get('window');
 const guidelineBaseWidth = 375;
@@ -527,7 +528,7 @@ export default function PatientsScreen({ route, navigation }) {
     navigation.navigate('PatientHub', {
       patientId: resolvedPatientId,
       practiceId,
-      patientName: `${patient.first_name || ''} ${patient.last_name || ''}`.trim(),
+      patientName: formatLastFirstName(patient),
       dashboardRole: userRole,
     });
   };
@@ -595,7 +596,7 @@ export default function PatientsScreen({ route, navigation }) {
 
           {/* Name + Vital Pills (BP, BG, Weight, etc.) */}
           <View style={styles.pcInfo}>
-            <Text style={styles.pcName} numberOfLines={1}>{item.first_name} {item.last_name}</Text>
+            <Text style={styles.pcName} numberOfLines={1}>{formatLastFirstName(item)}</Text>
             <View style={styles.vitalsPillRow}>
               {vitalPills.map((pill, idx) => (
                 <View key={idx} style={styles.inlineVitalPill}>

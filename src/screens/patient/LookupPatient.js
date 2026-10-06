@@ -18,6 +18,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import apiService from '../../services/apiService';
+import { formatLastFirstName } from '../../utils/formatPersonName';
 import DatePickerModal from '../../components/common/DatePickerModal';
 import {
   DEFAULT_VITAL_TARGETS,
@@ -423,7 +424,7 @@ export default function LookupPatient({ navigation }) {
         try {
           const user = JSON.parse(userStr);
           if (!pId) pId = user.practice_id;
-          const name = `${user.first_name || ''} ${user.last_name || ''}`.trim()
+          const name = formatLastFirstName(user)
             || user.name
             || user.username
             || 'User';
@@ -466,7 +467,7 @@ export default function LookupPatient({ navigation }) {
           const uniqueProviders = providersData
             .filter((p, index, self) => p && index === self.findIndex((item) => item && (item.id != null && p.id != null ? item.id === p.id : item.name === p.name)))
             .map((p) => {
-              const name = p.name || p.full_name || `${p.first_name || ''} ${p.last_name || ''}`.trim() || p.username || `Provider #${p.id}`;
+              const name = formatLastFirstName(p) || p.name || p.full_name || p.username || `Provider #${p.id}`;
               return { value: String(p.id || name), label: name.trim() };
             });
 
@@ -477,7 +478,7 @@ export default function LookupPatient({ navigation }) {
           const uniqueCaregivers = caregiversData
             .filter((c, index, self) => c && index === self.findIndex((item) => item && (item.id != null && c.id != null ? item.id === c.id : item.name === c.name)))
             .map((c) => {
-              const name = c.name || c.full_name || `${c.first_name || ''} ${c.last_name || ''}`.trim() || c.username || `Caregiver #${c.id}`;
+              const name = formatLastFirstName(c) || c.name || c.full_name || c.username || `Caregiver #${c.id}`;
               return { value: String(c.id || name), label: name.trim() };
             });
 
@@ -498,14 +499,14 @@ export default function LookupPatient({ navigation }) {
               list.forEach((p) => {
                 const pvName = p.provider && typeof p.provider === 'string' && p.provider !== '-'
                   ? p.provider
-                  : (p.provider_first_name ? `${p.provider_first_name} ${p.provider_last_name || ''}`.trim() : '');
+                  : formatLastFirstName({ first_name: p.provider_first_name, last_name: p.provider_last_name });
                 if (pvName && !fallbackPv.has(pvName)) {
                   fallbackPv.set(pvName, { value: String(p.provider_id || p.providerId || pvName), label: pvName });
                 }
 
                 const cgName = typeof p.caregiver === 'string' && p.caregiver !== '-'
                   ? p.caregiver
-                  : (p.caregiver_first_name ? `${p.caregiver_first_name} ${p.caregiver_last_name || ''}`.trim() : '');
+                  : formatLastFirstName({ first_name: p.caregiver_first_name, last_name: p.caregiver_last_name });
                 if (cgName && !fallbackCg.has(cgName)) {
                   fallbackCg.set(cgName, { value: String(p.caregiver_id || p.caregiverId || cgName), label: cgName });
                 }
@@ -688,7 +689,7 @@ export default function LookupPatient({ navigation }) {
         last = (parts.slice(1).join(' ') || '').trim();
       }
     }
-    const fullName = `${first} ${last}`.trim() || 'Patient #' + (p.id || p.patient_table_id || '');
+    const fullName = formatLastFirstName({ first_name: first, last_name: last }) || 'Patient #' + (p.id || p.patient_table_id || '');
     return { firstName: first, lastName: last, fullName };
   };
 

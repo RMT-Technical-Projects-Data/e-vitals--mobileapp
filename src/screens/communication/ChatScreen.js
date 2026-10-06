@@ -18,10 +18,12 @@ import {
   TextInput,
   TouchableOpacity,
   TouchableWithoutFeedback,
+  Pressable,
   FlatList,
   StyleSheet,
   KeyboardAvoidingView,
   Modal,
+  PanResponder,
   Platform,
   Dimensions,
   StatusBar,
@@ -38,8 +40,9 @@ import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
 import { io } from 'socket.io-client';
-import { pick, types, errorCodes, isErrorWithCode } from '@react-native-documents/picker';
+import { pick, keepLocalCopy, types, errorCodes, isErrorWithCode } from '@react-native-documents/picker';
 import apiService from '../../services/apiService';
+import { formatLastFirstName } from '../../utils/formatPersonName';
 import { API_CONFIG, SOCKET_BASE_URL } from '../../config/api';
 import { setActiveChatPeer, setChatScreenFocused } from '../../services/chatPresence';
 import PremiumBottomNav, { PREMIUM_BOTTOM_NAV_CLEARANCE } from '../../components/navigation/PremiumBottomNav';
@@ -301,12 +304,34 @@ const fileExtension = (name) => {
   return parts.length > 1 ? parts.pop() : '';
 };
 
+const CHAT_EXTENSION_BY_MIME = {
+  'image/jpeg': 'jpg',
+  'image/jpg': 'jpg',
+  'image/pjpeg': 'jpg',
+  'image/png': 'png',
+  'image/gif': 'gif',
+  'image/webp': 'webp',
+  'application/pdf': 'pdf',
+  'application/msword': 'doc',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+};
+
 const resolveChatFileMime = (file) => {
   const fromExtension = CHAT_FILE_MIME_BY_EXTENSION[fileExtension(file?.name)];
   const fromType = String(file?.type || '').toLowerCase();
-  if (fromType === 'image/jpg') return 'image/jpeg';
-  if (fromExtension && (!fromType || fromType === 'application/octet-stream')) return fromExtension;
+  if (fromType === 'image/jpg' || fromType === 'image/pjpeg') return 'image/jpeg';
+  if (fromExtension && (!fromType || fromType === 'application/octet-stream' || fromType === 'image/*')) {
+    return fromExtension;
+  }
   return fromType || fromExtension || 'application/octet-stream';
+};
+
+const ensureChatFileName = (name, mimeType) => {
+  const fallback = `attachment-${Date.now()}`;
+  const safe = String(name || fallback).replace(/[\\/:*?"<>|]/g, '_').trim() || fallback;
+  if (CHAT_FILE_EXTENSIONS.includes(fileExtension(safe))) return safe;
+  const extension = CHAT_EXTENSION_BY_MIME[mimeType] || 'jpg';
+  return `${safe}.${extension}`;
 };
 
 const isAllowedChatFile = (file) => {
@@ -316,6 +341,7 @@ const isAllowedChatFile = (file) => {
   return (
     mime === 'image/jpeg'
     || mime === 'image/jpg'
+    || mime === 'image/pjpeg'
     || mime === 'image/png'
     || mime === 'image/gif'
     || mime === 'image/webp'
@@ -325,11 +351,20 @@ const isAllowedChatFile = (file) => {
   );
 };
 
+const IMAGE_FILE_EXTENSIONS = ['jpeg', 'jpg', 'png', 'gif', 'webp', 'heic', 'heif'];
+
 const isImageAttachment = (item) => {
   if (isAudioMessage(item)) return false;
   const mime = String(item?.file_type || '').toLowerCase();
-  if (mime.startsWith('image/')) return true;
-  return ['jpeg', 'jpg', 'png', 'gif', 'webp'].includes(
+  if (
+    mime.startsWith('image/')
+    || mime === 'public.jpeg'
+    || mime === 'public.png'
+    || mime === 'public.gif'
+    || mime === 'public.heic'
+    || mime === 'public.heif'
+  ) return true;
+  return IMAGE_FILE_EXTENSIONS.includes(
     fileExtension(item?.original_file_name || item?.file_path)
   );
 };
@@ -363,16 +398,6 @@ const isWithinDeleteForEveryoneWindow = (createdAt) => {
   return Date.now() - createdMs <= DELETE_FOR_EVERYONE_WINDOW_MS;
 };
 
-const asDeletedForEveryone = (message) => ({
-  ...message,
-  message: null,
-  file_path: null,
-  file_type: null,
-  original_file_name: null,
-  message_type: null,
-  deleted_for_everyone_at: message?.deleted_for_everyone_at || new Date().toISOString(),
-});
-
 const getMessagePreview = (msg) => {
   if (isDeletedForEveryone(msg)) return DELETED_MESSAGE_LABEL;
   if (isMessageRemoved(msg)) return '';
@@ -385,8 +410,16 @@ const getMessagePreview = (msg) => {
   return '';
 };
 
+const mergeServerMessages = (prev, incoming) => {
+  const server = (incoming || []).filter((message) => !isDeletedForEveryone(message) && !isMessageRemoved(message));
+  const serverIds = new Set(server.map((message) => String(message.id)));
+  const pending = (prev || []).filter((message) => message?._pending && !serverIds.has(String(message.id)));
+  return pending.length ? [...server, ...pending] : server;
+};
+
 const isMessageRemoved = (item) => {
-  if (!item || item._pending || isDeletedForEveryone(item)) return false;
+  if (!item || item._pending) return false;
+  if (isDeletedForEveryone(item)) return true;
   if (item.is_deleted === true || item.is_deleted === 1 || item.is_deleted === '1') return true;
   if (item.deleted === true || item.deleted === 1 || item.deleted === '1') return true;
   const text = String(item.message ?? '').trim();
@@ -421,6 +454,7 @@ const ChatScreen = ({ navigation, route }) => {
   const [sending, setSending] = useState(false);
   const [uploadingVoice, setUploadingVoice] = useState(false);
   const [uploadingFile, setUploadingFile] = useState(false);
+  const [imagePreviewUrl, setImagePreviewUrl] = useState(null);
   const [loadingAudioMessageId, setLoadingAudioMessageId] = useState(null);
   const [usingFallback, setUsingFallback] = useState(false);
 
@@ -489,6 +523,22 @@ const ChatScreen = ({ navigation, route }) => {
   const returnToMessageListRef = useRef(() => {});
   const closeChatRef = useRef(() => {});
   const handledMessagesRootRef = useRef(null);
+  const iosChatBackSwipe = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponderCapture: (_, gesture) => {
+        if (Platform.OS !== 'ios' || viewRef.current !== 'chat') return false;
+        return gesture.x0 <= 28 && gesture.dx > 14 && Math.abs(gesture.dx) > Math.abs(gesture.dy);
+      },
+      onPanResponderRelease: (_, gesture) => {
+        if (gesture.dx < 70) return;
+        if (selectedMessageIdsRef.current.length) {
+          setSelectedMessageIds([]);
+          return;
+        }
+        closeChatRef.current();
+      },
+    })
+  ).current;
 
   viewRef.current = view;
   selectedMessageIdsRef.current = selectedMessageIds;
@@ -503,8 +553,10 @@ const ChatScreen = ({ navigation, route }) => {
     cancelRecording();
   }, [cancelRecording, stopPlayback]);
 
-  const scrollToBottom = useCallback(() => {
-    setTimeout(() => { messagesRef.current?.scrollToEnd({ animated: true }); }, 120);
+  const scrollToBottom = useCallback((animated = false) => {
+    requestAnimationFrame(() => {
+      messagesRef.current?.scrollToOffset({ offset: 0, animated });
+    });
   }, []);
 
   // â”€â”€ Socket.IO Setup â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -570,8 +622,7 @@ const ChatScreen = ({ navigation, route }) => {
           }
           return [...prev, msg];
         });
-        scrollToBottom();
-        apiService.markChatNotificationsRead(myId).catch(() => null);
+        scrollToBottom(true);
         dismissChatNotifications(otherId);
       } else if (fromId !== myId) {
         const senderName = msg.sender_name || msg.from_user_name || 'New message';
@@ -614,13 +665,7 @@ const ChatScreen = ({ navigation, route }) => {
       if (!ids.size) return;
 
       if (deletedForEveryone) {
-        setMessages((prev) => prev.map((message) => {
-          if (!ids.has(String(message.id))) return message;
-          if (updated && String(updated.id) === String(message.id)) {
-            return { ...message, ...updated, _pending: false };
-          }
-          return asDeletedForEveryone(message);
-        }));
+        setMessages((prev) => prev.filter((message) => !ids.has(String(message.id))));
         setSelectedMessageIds((prev) => prev.filter((id) => !ids.has(id)));
         loadChats();
         return;
@@ -727,26 +772,33 @@ const ChatScreen = ({ navigation, route }) => {
   const loadMessages = useCallback(async (contact) => {
     if (!contact || !currentUser) return;
     setPeerIsTyping(false);
+    setLoadingMessages(true);
     try {
       if (usingFallback || String(contact.id).startsWith('mock-')) {
         setMessages(getFallbackMessages(contact, currentUser));
-        scrollToBottom();
         return;
       }
 
       const result = await apiService.getChatMessages(currentUser.id, contact.id);
-      setMessages(result?.data || []);
-      scrollToBottom();
-      await apiService.markChatNotificationsRead(currentUser.id).catch(() => null);
-      setUnreadCount(0);
+      setMessages((prev) => mergeServerMessages(prev, result?.data));
+      setChatList((prev) => {
+        const openedUnread = Number(
+          prev.find((item) => String(item.id) === String(contact.id))?.unread || 0
+        );
+        if (openedUnread > 0) {
+          setUnreadCount((count) => Math.max(0, Number(count || 0) - openedUnread));
+        }
+        return prev.map((item) => (
+          String(item.id) === String(contact.id) ? { ...item, unread: 0 } : item
+        ));
+      });
     } catch (error) {
       console.warn('Message history fallback:', error?.message);
       setMessages(getFallbackMessages(contact, currentUser));
-      scrollToBottom();
     } finally {
       setLoadingMessages(false);
     }
-  }, [currentUser, scrollToBottom, usingFallback]);
+  }, [currentUser, usingFallback]);
 
   useFocusEffect(
     useCallback(() => {
@@ -788,7 +840,9 @@ const ChatScreen = ({ navigation, route }) => {
         if (me?.id) {
           if (contact?.id) {
             apiService.getChatMessages(me.id, contact.id).then((res) => {
-              if (Array.isArray(res?.data)) setMessages(res.data);
+              if (Array.isArray(res?.data)) {
+                setMessages((prev) => mergeServerMessages(prev, res.data));
+              }
             }).catch(() => null);
           }
           apiService.getChatConversations(me.id).then((res) => {
@@ -824,6 +878,8 @@ const ChatScreen = ({ navigation, route }) => {
     setSelectedContact(contact);
     setActiveChatUserId(contact?.id);
     setActiveChatPeer(contact?.id);
+    setMessages([]);
+    setLoadingMessages(true);
     setView('chat');
     setEditingId(null);
     setEditText('');
@@ -916,7 +972,7 @@ const ChatScreen = ({ navigation, route }) => {
         .filter((u) => isUserAllowedToChat(activeUser, u))
         .map((u) => ({
           id: u.id,
-          name: u.name || `${u.first_name || ''} ${u.last_name || ''}`.trim() || u.username || 'Unknown',
+          name: formatLastFirstName(u) || u.name || u.username || 'Unknown',
           role_id: u.role_id || resolveUserRoleId(u),
           role_name: u.role_name || u.role || resolveRoleLabel(u.role_id),
         }));
@@ -945,6 +1001,11 @@ const ChatScreen = ({ navigation, route }) => {
   };
 
   const openAttachment = async (item) => {
+    if (isImageAttachment(item)) {
+      const previewUrl = resolveChatFileUrl(item?.file_path);
+      if (previewUrl) setImagePreviewUrl(previewUrl);
+      return;
+    }
     const url = resolveChatFileUrl(item?.file_path);
     if (!url || /^(file|content):/i.test(url)) return;
     try {
@@ -964,7 +1025,7 @@ const ChatScreen = ({ navigation, route }) => {
         type: [types.images, types.pdf, types.doc, types.docx],
       });
       if (!file?.uri) return;
-      if (file.hasRequestedType === false || !isAllowedChatFile(file)) {
+      if (!isAllowedChatFile(file)) {
         Alert.alert('Attachment', 'Choose an image, PDF, or Word document.');
         return;
       }
@@ -973,11 +1034,26 @@ const ChatScreen = ({ navigation, route }) => {
         return;
       }
 
-      const fileName = file.name || `attachment-${Date.now()}`;
       const mimeType = resolveChatFileMime(file);
       if (!Object.values(CHAT_FILE_MIME_BY_EXTENSION).includes(mimeType)) {
         Alert.alert('Attachment', 'Choose an image, PDF, or Word document.');
         return;
+      }
+      const fileName = ensureChatFileName(file.name, mimeType);
+      let uploadUri = file.uri;
+      if (Platform.OS === 'android' || String(file.uri).startsWith('content://')) {
+        const [copy] = await keepLocalCopy({
+          files: [{
+            uri: file.uri,
+            fileName,
+            ...(file.isVirtual ? { convertVirtualFileToType: mimeType } : {}),
+          }],
+          destination: 'cachesDirectory',
+        });
+        if (copy?.status !== 'success' || !copy.localUri) {
+          throw new Error(copy?.copyError || 'Unable to read this image.');
+        }
+        uploadUri = copy.localUri;
       }
       optimisticId = `temp-file-${Date.now()}`;
       const optimistic = {
@@ -985,7 +1061,7 @@ const ChatScreen = ({ navigation, route }) => {
         from_user_id: currentUser.id,
         to_user_id: selectedContact.id,
         message: '',
-        file_path: file.uri,
+        file_path: uploadUri,
         file_type: mimeType,
         original_file_name: fileName,
         created_at: new Date().toISOString(),
@@ -995,11 +1071,11 @@ const ChatScreen = ({ navigation, route }) => {
 
       setUploadingFile(true);
       setMessages((prev) => [...prev, optimistic]);
-      scrollToBottom();
+      scrollToBottom(true);
 
       const formData = new FormData();
       formData.append('file', {
-        uri: file.uri,
+        uri: uploadUri,
         type: mimeType,
         name: fileName,
       });
@@ -1030,10 +1106,14 @@ const ChatScreen = ({ navigation, route }) => {
       };
 
       setMessages((prev) => {
+        const savedMessage = { ...saved, file_path: saved.file_path || uploaded.file_path, file_type: saved.file_type || mimeType, original_file_name: saved.original_file_name || fileName, _pending: false };
         if (saved?.id != null && prev.some((m) => String(m.id) === String(saved.id) && m.id !== optimisticId)) {
           return prev.filter((m) => m.id !== optimisticId);
         }
-        return prev.map((m) => (m.id === optimisticId ? { ...saved, _pending: false } : m));
+        if (!prev.some((m) => m.id === optimisticId)) {
+          return [...prev, savedMessage];
+        }
+        return prev.map((m) => (m.id === optimisticId ? savedMessage : m));
       });
 
       setChatList((prev) => prev.map((item) =>
@@ -1094,7 +1174,7 @@ const ChatScreen = ({ navigation, route }) => {
       };
 
       setMessages((prev) => [...prev, optimistic]);
-      scrollToBottom();
+      scrollToBottom(true);
 
       const result = await apiService.uploadChatAudio({
         uri: recording.uri,
@@ -1164,7 +1244,7 @@ const ChatScreen = ({ navigation, route }) => {
 
     setInput('');
     setMessages((prev) => [...prev, optimistic]);
-    scrollToBottom();
+    scrollToBottom(true);
     setSending(true);
 
     try {
@@ -1175,7 +1255,7 @@ const ChatScreen = ({ navigation, route }) => {
             { ...optimistic, _pending: false },
             { id: `reply-${Date.now()}`, from_user_id: selectedContact.id, to_user_id: currentUser.id, message: 'Thanks for your message. I will review and get back to you shortly.', created_at: new Date().toISOString(), is_read: 0 },
           ]);
-          scrollToBottom();
+          scrollToBottom(true);
         }, 700);
         return;
       }
@@ -1281,9 +1361,7 @@ const ChatScreen = ({ navigation, route }) => {
 
     const snapshot = messages;
     const idSet = new Set(ids);
-    const nextMessages = mode === 'everyone'
-      ? messages.map((message) => (idSet.has(String(message.id)) ? asDeletedForEveryone(message) : message))
-      : messages.filter((message) => !idSet.has(String(message.id)));
+    const nextMessages = messages.filter((message) => !idSet.has(String(message.id)));
     const visible = nextMessages.filter((message) => !isMessageRemoved(message));
     const last = visible[visible.length - 1];
 
@@ -1462,9 +1540,10 @@ const ChatScreen = ({ navigation, route }) => {
   // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const visibleMessages = messages.filter((item) => !isMessageRemoved(item));
 
-  const renderMessage = ({ item, index }) => {
+  const renderMessage = ({ item }) => {
     const isMine = String(item.from_user_id) === String(currentUser?.id);
-    const prevMsg = visibleMessages[index - 1];
+    const chronoIndex = visibleMessages.findIndex((message) => String(message.id) === String(item.id));
+    const prevMsg = chronoIndex > 0 ? visibleMessages[chronoIndex - 1] : null;
     const showDate = !prevMsg || !isSameDay(prevMsg.created_at, item.created_at);
 
     const isBeingEdited = editingId === item.id;
@@ -1473,7 +1552,7 @@ const ChatScreen = ({ navigation, route }) => {
     const selectionMode = selectedMessageIds.length > 0;
 
     return (
-      <>
+      <View collapsable={false}>
         {showDate && (
           <View style={styles.dateSeparatorRow}>
             <View style={styles.dateSeparatorLine} />
@@ -1481,11 +1560,12 @@ const ChatScreen = ({ navigation, route }) => {
             <View style={styles.dateSeparatorLine} />
           </View>
         )}
-        <TouchableWithoutFeedback
+        <Pressable
+          collapsable={false}
           onPress={selectionMode ? () => toggleMessageSelection(item) : undefined}
           onLongPress={() => beginMessageSelection(item)}
-          delayLongPress={400}>
-          <View style={[
+          delayLongPress={350}
+          style={[
             styles.messageRow,
             isMine ? styles.messageRowMine : styles.messageRowOther,
             isSelected && styles.messageRowSelected,
@@ -1579,9 +1659,12 @@ const ChatScreen = ({ navigation, route }) => {
                       <TouchableOpacity
                         activeOpacity={0.85}
                         onPress={() => openAttachment(item)}
+                        onLongPress={() => beginMessageSelection(item)}
+                        delayLongPress={350}
                         disabled={item._pending || selectedMessageIds.length > 0}
                       >
                         <Image
+                          key={resolveChatFileUrl(item.file_path)}
                           source={{ uri: resolveChatFileUrl(item.file_path) }}
                           style={styles.attachmentImage}
                           resizeMode="cover"
@@ -1591,6 +1674,8 @@ const ChatScreen = ({ navigation, route }) => {
                       <TouchableOpacity
                         style={styles.attachmentFile}
                         onPress={() => openAttachment(item)}
+                        onLongPress={() => beginMessageSelection(item)}
+                        delayLongPress={350}
                         disabled={item._pending || selectedMessageIds.length > 0}
                       >
                         <MaterialIcons name="attach-file" size={18} color={TEXT_DARK} />
@@ -1622,9 +1707,8 @@ const ChatScreen = ({ navigation, route }) => {
                 </>
               )}
             </View>
-          </View>
-        </TouchableWithoutFeedback>
-      </>
+        </Pressable>
+      </View>
     );
   };
 
@@ -1745,7 +1829,7 @@ const ChatScreen = ({ navigation, route }) => {
   // Render: Conversation View
   // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const renderConversationView = () => (
-    <View style={styles.conversationRoot}>
+    <View style={styles.conversationRoot} {...iosChatBackSwipe.panHandlers}>
       {/* Header â€” matches PatientsScreen topbar */}
       <View style={styles.conversationHeaderWrap}>
         <SafeAreaView edges={['top']} style={{ backgroundColor: '#ffffff' }}>
@@ -1820,12 +1904,15 @@ const ChatScreen = ({ navigation, route }) => {
           ) : (
             <FlatList
               ref={messagesRef}
-              data={visibleMessages}
+              data={[...visibleMessages].reverse()}
+              extraData={selectedMessageIds}
+              inverted
+              removeClippedSubviews={false}
               keyExtractor={(item) => String(item.id)}
               renderItem={renderMessage}
               contentContainerStyle={styles.messagesContent}
               showsVerticalScrollIndicator={false}
-              onContentSizeChange={scrollToBottom}
+              keyboardShouldPersistTaps="handled"
             />
           )}
         </View>
@@ -2191,6 +2278,29 @@ const ChatScreen = ({ navigation, route }) => {
       )}
 
       {renderNewChatModal()}
+      <Modal
+        visible={Boolean(imagePreviewUrl)}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setImagePreviewUrl(null)}
+      >
+        <View style={styles.imagePreviewBackdrop}>
+          <TouchableOpacity
+            style={styles.imagePreviewClose}
+            onPress={() => setImagePreviewUrl(null)}
+            accessibilityLabel="Close image"
+          >
+            <MaterialIcons name="close" size={26} color="#fff" />
+          </TouchableOpacity>
+          {imagePreviewUrl ? (
+            <Image
+              source={{ uri: imagePreviewUrl }}
+              style={styles.imagePreview}
+              resizeMode="contain"
+            />
+          ) : null}
+        </View>
+      </Modal>
       {renderActionSheet()}
       {renderDeleteDialog()}
       {renderDeleteChatDialog()}
@@ -2408,6 +2518,9 @@ const styles = StyleSheet.create({
   composer: { flexDirection: 'row', alignItems: 'flex-end', paddingHorizontal: scaleWidth(10), paddingVertical: scaleHeight(8), backgroundColor: '#f0f2f5', borderTopWidth: 1, borderTopColor: 'rgba(7,27,52,0.06)' },
   attachButton: { width: scaleWidth(36), height: scaleWidth(42), alignItems: 'center', justifyContent: 'center', marginRight: scaleWidth(2) },
   attachmentImage: { width: scaleWidth(200), height: scaleWidth(150), borderRadius: scaleWidth(8), marginBottom: scaleHeight(4), backgroundColor: 'rgba(0,0,0,0.05)' },
+  imagePreviewBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.92)', justifyContent: 'center', alignItems: 'center' },
+  imagePreviewClose: { position: 'absolute', top: scaleHeight(48), right: scaleWidth(16), zIndex: 2, padding: scaleWidth(8) },
+  imagePreview: { width: '100%', height: '80%' },
   attachmentFile: { flexDirection: 'row', alignItems: 'center', marginBottom: scaleHeight(4) },
   attachmentFileName: { flexShrink: 1, marginLeft: scaleWidth(6), fontSize: scaleFont(14), fontWeight: '600', color: '#111b21', textDecorationLine: 'underline' },
   composerInput: { flex: 1, minHeight: scaleHeight(42), maxHeight: scaleHeight(110), borderRadius: scaleWidth(22), backgroundColor: '#fff', paddingHorizontal: scaleWidth(16), paddingVertical: scaleHeight(10), fontSize: scaleFont(15), color: TEXT_DARK, marginRight: scaleWidth(8) },

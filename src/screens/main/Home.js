@@ -22,6 +22,7 @@ import Svg, { Line, Polyline, Circle, Text as SvgText } from 'react-native-svg';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import apiService from '../../services/apiService';
+import { formatLastFirstName } from '../../utils/formatPersonName';
 import { useFocusEffect } from '@react-navigation/native';
 import PremiumBottomNav, { PREMIUM_BOTTOM_NAV_CLEARANCE } from '../../components/navigation/PremiumBottomNav';
 import { EV } from '../../config/colors';
@@ -622,14 +623,15 @@ const CptEligibilityCard = ({ rows, theme = 'care', onCptPress }) => {
 
 const PatientTrendSlidesCarousel = () => {
   const [activeIndex, setActiveIndex] = useState(0);
-  const cardWidth = Math.min(width - scaleWidth(32), scaleWidth(360));
-  const chartWidth = cardWidth - scaleWidth(32);
+  const [pageWidth, setPageWidth] = useState(0);
+  const cardPadding = scaleWidth(16);
+  const chartWidth = Math.max(pageWidth - cardPadding * 2, 0);
   const chartHeight = scaleHeight(150);
   const left = 32;
   const right = 12;
   const top = 16;
   const bottom = 28;
-  const innerW = chartWidth - left - right;
+  const innerW = Math.max(chartWidth - left - right, 0);
   const innerH = chartHeight - top - bottom;
 
   const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -644,8 +646,9 @@ const PatientTrendSlidesCarousel = () => {
   const weightData = [182.5, 182.2, 181.8, 181.5, 181.2, 180.9, 180.6];
 
   const handleScroll = (event) => {
+    if (!pageWidth) return;
     const contentOffsetX = event.nativeEvent.contentOffset.x;
-    const index = Math.round(contentOffsetX / cardWidth);
+    const index = Math.round(contentOffsetX / pageWidth);
     if (index !== activeIndex && index >= 0 && index < 3) {
       setActiveIndex(index);
     }
@@ -661,7 +664,8 @@ const PatientTrendSlidesCarousel = () => {
     };
 
     return (
-      <View key={title} style={[st.trendSlideCard, { width: cardWidth }]}>
+      <View key={title} style={[st.trendSlidePage, { width: pageWidth }]}>
+        <View style={st.trendSlideCard}>
         <View style={st.trendSlideHeader}>
           <Text style={st.trendSlideTitle}>{title}</Text>
           <View style={st.trendSlideLegendRow}>
@@ -735,12 +739,20 @@ const PatientTrendSlidesCarousel = () => {
             </SvgText>
           ))}
         </Svg>
+        </View>
       </View>
     );
   };
 
   return (
-    <View style={st.trendCarouselWrap}>
+    <View
+      style={st.trendCarouselWrap}
+      onLayout={(event) => {
+        const nextWidth = Math.floor(event.nativeEvent.layout.width);
+        if (nextWidth > 0 && nextWidth !== pageWidth) setPageWidth(nextWidth);
+      }}
+    >
+      {pageWidth > 0 ? (
       <ScrollView
         horizontal
         pagingEnabled
@@ -748,6 +760,7 @@ const PatientTrendSlidesCarousel = () => {
         onScroll={handleScroll}
         scrollEventThrottle={16}
         decelerationRate="fast"
+        style={{ width: pageWidth }}
         contentContainerStyle={st.trendCarouselContent}
       >
         {/* Slide 1: Blood Pressure & Pulse */}
@@ -782,6 +795,7 @@ const PatientTrendSlidesCarousel = () => {
           maxVal: 185,
         })}
       </ScrollView>
+      ) : null}
 
       {/* Pagination Indicators */}
       <View style={st.trendDotsRow}>
@@ -1121,7 +1135,7 @@ export default function Home({ navigation }) {
                     .filter((f) => f.date && String(f.date).startsWith(today))
                     .map((f) => ({
                       ...f,
-                      patientName: `${p.first_name || ''} ${p.last_name || ''}`.trim(),
+                      patientName: formatLastFirstName(p),
                     }));
                 }
                 return [];
@@ -1241,7 +1255,9 @@ export default function Home({ navigation }) {
         const user = JSON.parse(userStr);
         const roleId = Number(user.role_id);
         // Set practice name from user object (returned by auth API)
-        if (user.practice_name) {
+        if (roleId === 6) {
+          setPracticeName('');
+        } else if (user.practice_name) {
           setPracticeName(user.practice_name);
         } else if (user.practice?.name) {
           setPracticeName(user.practice.name);
@@ -1250,19 +1266,30 @@ export default function Home({ navigation }) {
         }
         if (roleId === 4) {
           setUserRole('provider');
-          setPatientName(user.first_name ? `Dr. ${user.first_name} ${user.last_name}` : user.name || 'Elena Reyes');
+          setPatientName(formatLastFirstName(user) || user.name || 'Reyes, Elena');
           fetchProviderDashboardData(user);
           fetchAssignedReviewsCount(user.practice_id);
         } else if (roleId === 5 || roleId === 7) {
           setUserRole('caregiver');
-          setPatientName(`${user.first_name || 'Maria'} ${user.last_name || 'Johnson'}`);
+          setPatientName(formatLastFirstName(user) || 'Johnson, Maria');
           fetchCaregiverPatientsList(user);
           fetchAssignedReviewsCount(user.practice_id);
         } else {
           setAssignedReviewsCount(0);
           setUserRole('patient');
-          setPatientName(`${user.first_name || 'Cyrus'} ${user.last_name || 'Nguyen'}`);
+          setPatientName(formatLastFirstName(user) || 'Patient');
           fetchPatientVitals();
+          try {
+            const patientResult = await apiService.getPatientProfile();
+            const patientRecord = patientResult?.data?.patient || patientResult?.data || null;
+            const practiceLabel = patientRecord?.practice_name || patientRecord?.practice?.practice_name || '';
+            if (practiceLabel) setPracticeName(practiceLabel);
+            const recordName = formatLastFirstName(patientRecord);
+            if (recordName) setPatientName(recordName);
+          } catch (patientError) {
+            console.warn('Could not load patient practice:', patientError?.message || patientError);
+            if (user.practice_name) setPracticeName(user.practice_name);
+          }
         }
       } else {
         setUserRole('patient');
@@ -1381,7 +1408,7 @@ export default function Home({ navigation }) {
     navigation.navigate('PatientHub', {
       patientId: resolvedPatientId,
       practiceId: practiceId || patient.practice_id,
-      patientName: `${patient.first_name || ''} ${patient.last_name || ''}`.trim(),
+      patientName: formatLastFirstName(patient),
       dashboardRole,
     });
   };
@@ -1672,7 +1699,7 @@ export default function Home({ navigation }) {
                           textStyle={st.uploadAvatarText}
                         />
                         <View style={st.uploadText}>
-                          <Text style={st.uploadName}>{patient.first_name} {patient.last_name}</Text>
+                          <Text style={st.uploadName}>{formatLastFirstName(patient)}</Text>
                           {readings.map((reading) => (
                             <Text key={reading.type} style={st.uploadDetail}>
                               {reading.label}: {reading.value}
@@ -1702,7 +1729,7 @@ export default function Home({ navigation }) {
                     return (
                       <CriticalAlertRow
                         key={String(p.id)}
-                        name={`${p.first_name} ${p.last_name}`}
+                        name={formatLastFirstName(p)}
                         detail={reading}
                         severity={isCritical ? 'Critical' : 'High'}
                         critical={isCritical}
@@ -1841,7 +1868,7 @@ export default function Home({ navigation }) {
                   {criticalPatients.slice(0, 4).map((p) => (
                     <CriticalAlertRow
                       key={String(p.id)}
-                      name={`${p.first_name} ${p.last_name}`}
+                      name={formatLastFirstName(p)}
                       detail={p.data_summary ? `Blood pressure ${p.data_summary} requires provider review` : 'Reading outside configured clinical threshold'}
                       severity={p.status === 'Critical' || p.status === 'Locked' ? 'Critical' : 'High'}
                       critical={p.status === 'Critical' || p.status === 'Locked'}
@@ -2471,9 +2498,14 @@ const st = StyleSheet.create({
   trendCarouselWrap: {
     marginVertical: scaleHeight(10),
     width: '100%',
+    overflow: 'hidden',
   },
   trendCarouselContent: {
-    alignItems: 'center',
+    alignItems: 'stretch',
+  },
+  trendSlidePage: {
+    alignItems: 'stretch',
+    overflow: 'hidden',
   },
   trendSlideCard: {
     backgroundColor: EV.surface,
@@ -2481,7 +2513,6 @@ const st = StyleSheet.create({
     borderWidth: 1,
     borderColor: EV.border,
     padding: scaleWidth(16),
-    marginRight: scaleWidth(12),
     shadowColor: EV.navy,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.04,

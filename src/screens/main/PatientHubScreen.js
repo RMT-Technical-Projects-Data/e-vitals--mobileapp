@@ -36,6 +36,7 @@ import {
 import { resolveEffectiveScheduleTargets } from '../../utils/scheduleTargetUtils';
 import PulseIcon from '../../components/common/PulseIcon';
 import PatientAvatar from '../../components/common/PatientAvatar';
+import { formatLastFirstName } from '../../utils/formatPersonName';
 import SuccessDialog from '../../components/common/SuccessDialog';
 
 const { width, height: screenHeight } = Dimensions.get('window');
@@ -754,7 +755,7 @@ export default function PatientHubScreen({ navigation, route }) {
   const wt = latest.weight;
 
   const displayName = routePatientName
-    || `${patient.first_name || ''} ${patient.last_name || ''}`.trim()
+    || formatLastFirstName(patient)
     || 'Patient';
 
   return (

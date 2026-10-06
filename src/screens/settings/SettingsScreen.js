@@ -3,6 +3,7 @@ import {
   View,
   Text,
   TouchableOpacity,
+  Pressable,
   StyleSheet,
   Dimensions,
   StatusBar,
@@ -20,6 +21,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '../../context/AuthContext';
 import apiService from '../../services/apiService';
 import PremiumBottomNav from '../../components/navigation/PremiumBottomNav';
+import PatientAvatar from '../../components/common/PatientAvatar';
+import { formatLastFirstName } from '../../utils/formatPersonName';
 import {
   disableBiometricLogin,
   enableBiometricLogin,
@@ -70,6 +73,9 @@ const SettingsScreen = ({ navigation }) => {
   const [userName, setUserName] = useState('E-Vitals');
   const [userEmail, setUserEmail] = useState('aamirse007@gmail.com');
   const [userRole, setUserRole] = useState('patient');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [profilePic, setProfilePic] = useState(null);
 
   // const [isNotificationsEnabled, setIsNotificationsEnabled] = useState(true);
   const [isBiometricAvailable, setIsBiometricAvailable] = useState(false);
@@ -101,9 +107,31 @@ const SettingsScreen = ({ navigation }) => {
       const userStr = await AsyncStorage.getItem('user');
       if (userStr) {
         const user = JSON.parse(userStr);
-        setUserName(`${user.first_name || ''} ${user.last_name || ''}`.trim() || 'E-Vitals');
+        const storedFirst = user.first_name || '';
+        const storedLast = user.last_name || '';
+        setFirstName(storedFirst);
+        setLastName(storedLast);
+        setUserName(formatLastFirstName({ first_name: storedFirst, last_name: storedLast }) || 'E-Vitals');
         setUserEmail(user.email || 'aamirse007@gmail.com');
         setUserRole(user.role_name || user.role || 'patient');
+        setProfilePic(user.profile_pic || user.profilePic || user.profile_image || null);
+
+        const isPatient = Number(user.role_id) === 6
+          || String(user.role_name || user.role || '').toLowerCase() === 'patient';
+        if (isPatient) {
+          try {
+            const patientResult = await apiService.getPatientProfile();
+            const patientRecord = patientResult?.data?.patient || patientResult?.data || null;
+            const picture = patientRecord?.profile_pic || patientRecord?.profilePic || patientRecord?.profile_image || null;
+            if (picture) setProfilePic(picture);
+            if (patientRecord?.first_name) setFirstName(patientRecord.first_name);
+            if (patientRecord?.last_name) setLastName(patientRecord.last_name);
+            const recordName = formatLastFirstName(patientRecord);
+            if (recordName) setUserName(recordName);
+          } catch (patientError) {
+            console.log('Could not load patient profile picture:', patientError.message);
+          }
+        }
         
         let sessionMinutes = 30;
         if (user.session_time) {
@@ -356,7 +384,18 @@ const SettingsScreen = ({ navigation }) => {
           >
             <View style={styles.profileCard}>
               <View style={styles.avatarContainer}>
-                <Image source={require('../../assets/images/batch_09/user.png')} style={styles.avatarIcon} resizeMode="contain" />
+                {profilePic ? (
+                  <PatientAvatar
+                    profilePic={profilePic}
+                    firstName={firstName}
+                    lastName={lastName}
+                    size={scaleWidth(60)}
+                    borderRadius={scaleWidth(20)}
+                    backgroundColor="#0b1f3f"
+                  />
+                ) : (
+                  <Image source={require('../../assets/images/batch_09/user.png')} style={styles.avatarIcon} resizeMode="contain" />
+                )}
               </View>
               <View style={styles.profileInfo}>
                 <Text style={styles.profileName}>{userName}</Text>
@@ -622,12 +661,20 @@ const SettingsScreen = ({ navigation }) => {
             />
 
             <View style={styles.modalActions}>
-              <TouchableOpacity
-                style={styles.cancelBtn}
+              <Pressable
                 onPress={() => setIsSessionModalVisible(false)}
+                style={({ pressed }) => [
+                  styles.sessionCancelBtn,
+                  pressed && styles.sessionCancelBtnPressed,
+                ]}
+                android_ripple={{ color: 'rgba(1, 68, 91, 0.16)' }}
               >
-                <Text style={styles.cancelBtnText}>Cancel</Text>
-              </TouchableOpacity>
+                {({ pressed }) => (
+                  <Text style={[styles.sessionCancelBtnText, pressed && styles.sessionCancelBtnTextPressed]}>
+                    Cancel
+                  </Text>
+                )}
+              </Pressable>
               <TouchableOpacity
                 style={styles.sendBtn}
                 onPress={handleSaveSessionTime}
@@ -672,7 +719,7 @@ const SettingsScreen = ({ navigation }) => {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Logout</Text>
-            <Text style={styles.noticeBody}>Are you sure you want to logout?</Text>
+            <Text style={styles.logoutConfirmText}>Are you sure you want to log out?</Text>
             <View style={styles.modalActions}>
               <TouchableOpacity
                 style={styles.cancelBtn}
@@ -778,6 +825,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#0b1f3f',
     justifyContent: 'center',
     alignItems: 'center',
+    overflow: 'hidden',
   },
   avatarIcon: {
     width: scaleWidth(30),
@@ -1021,6 +1069,27 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     fontSize: scaleFont(14),
   },
+  sessionCancelBtn: {
+    paddingVertical: scaleHeight(10),
+    paddingHorizontal: scaleWidth(20),
+    backgroundColor: '#F1F5F9',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    borderRadius: scaleWidth(8),
+    marginRight: scaleWidth(10),
+  },
+  sessionCancelBtnPressed: {
+    backgroundColor: NAVY_BLUE,
+    borderColor: NAVY_BLUE,
+  },
+  sessionCancelBtnText: {
+    color: NAVY_BLUE,
+    fontWeight: '600',
+    fontSize: scaleFont(14),
+  },
+  sessionCancelBtnTextPressed: {
+    color: WHITE,
+  },
   sendBtn: {
     paddingVertical: scaleHeight(10),
     paddingHorizontal: scaleWidth(20),
@@ -1037,6 +1106,15 @@ const styles = StyleSheet.create({
     color: WHITE,
     fontWeight: '600',
     fontSize: scaleFont(14),
+  },
+  logoutConfirmText: {
+    width: '100%',
+    alignSelf: 'stretch',
+    textAlign: 'center',
+    fontSize: scaleFont(14),
+    lineHeight: scaleFont(20),
+    color: TEXT_DARK,
+    marginBottom: scaleHeight(8),
   },
   noticeBody: {
     fontSize: scaleFont(14),

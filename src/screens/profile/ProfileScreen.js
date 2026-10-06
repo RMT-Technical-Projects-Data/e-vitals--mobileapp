@@ -16,6 +16,7 @@ import { colors, fonts } from '../../config/globall';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import apiService from '../../services/apiService';
 import PatientAvatar from '../../components/common/PatientAvatar';
+import { formatLastFirstName } from '../../utils/formatPersonName';
 
 // Get screen width and height
 const { width, height } = Dimensions.get('window');
@@ -128,7 +129,7 @@ const PatientProfileScreen = ({ navigation }) => {
 
       const firstName = user.first_name || patientRecord?.first_name || '';
       const lastName = user.last_name || patientRecord?.last_name || '';
-      const fullName = `${firstName} ${lastName}`.trim() || user.username || 'Not provided';
+      const fullName = formatLastFirstName({ first_name: firstName, last_name: lastName }) || user.username || 'Not provided';
       const phoneSource = user.phone || user.cell_phone || patientRecord?.phone_number || patientRecord?.cell_phone_number || '';
       const address = formatAddress(user.address) || formatAddress(patientRecord);
       const dob = patientRole ? formatDob(patientRecord?.date_of_birth || patientRecord?.dob) : '';
@@ -145,7 +146,7 @@ const PatientProfileScreen = ({ navigation }) => {
         profilePic: patientRecord?.profile_pic || user.profile_pic || null,
       });
       setMedicalTeam({
-        practice: displayText(user.practice_name || patientRecord?.practice_name, 'Not assigned'),
+        practice: displayText(patientRecord?.practice_name || user.practice_name, 'Not assigned'),
         roleName: displayText(user.role_name || ROLE_LABELS[roleId] || ''),
         provider: displayText(patientRecord?.provider_name, 'Not assigned'),
         caregiver: displayText(patientRecord?.caregiver_name, 'Not assigned'),

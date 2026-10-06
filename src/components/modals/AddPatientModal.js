@@ -17,6 +17,7 @@ import {
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import apiService from '../../services/apiService';
+import { formatLastFirstName } from '../../utils/formatPersonName';
 
 const COLORS = {
   primary: '#1177c6',
@@ -1053,7 +1054,7 @@ export default function AddPatientModal({ visible, onClose, onSuccess, practiceI
                       <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                         {providersList.map((p) => {
                           const pId = String(p.id || p.provider_id);
-                          const pName = p.name || `Dr. ${p.first_name || ''} ${p.last_name || ''}`;
+                          const pName = formatLastFirstName(p) || p.name || 'Provider';
                           const isSelected = formData.providerId === pId;
                           return (
                             <TouchableOpacity
@@ -1080,7 +1081,7 @@ export default function AddPatientModal({ visible, onClose, onSuccess, practiceI
                         <View style={styles.chipRow}>
                           {systemCaregivers.map((cg) => {
                             const cgId = String(cg.id || cg.user_id);
-                            const cgName = `${cg.first_name || ''} ${cg.last_name || ''}`.trim() || cg.username;
+                            const cgName = formatLastFirstName(cg) || cg.username;
                             const isSelected = formData.systemCaregiverIds.includes(cgId);
                             return (
                               <TouchableOpacity
@@ -1107,7 +1108,7 @@ export default function AddPatientModal({ visible, onClose, onSuccess, practiceI
                       <View style={styles.chipRow}>
                         {practiceCaregivers.map((cg) => {
                           const cgId = String(cg.id || cg.user_id);
-                          const cgName = `${cg.first_name || ''} ${cg.last_name || ''}`.trim() || cg.username;
+                          const cgName = formatLastFirstName(cg) || cg.username;
                           const isSelected = formData.practiceCaregiverIds.includes(cgId);
                           return (
                             <TouchableOpacity
