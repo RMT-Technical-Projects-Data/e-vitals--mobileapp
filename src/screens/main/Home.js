@@ -1510,11 +1510,7 @@ export default function Home({ navigation }) {
               </View>
 
               <View style={st.lrCardContainer}>
-                <TouchableOpacity
-                  style={[st.lrRow, pulseVal != null && st.lrRowPulseSpace]}
-                  onPress={() => openList('bp')}
-                  activeOpacity={0.7}
-                >
+                <TouchableOpacity style={st.lrRow} onPress={() => openList('bp')} activeOpacity={0.7}>
                   <View style={st.lrMeta}>
                     <Text style={st.lrName}>Blood Pressure</Text>
                     <Text style={st.lrTime}>{bpTime}</Text>
@@ -1529,17 +1525,20 @@ export default function Home({ navigation }) {
                     ) : (
                       <Text style={st.lrValText}>{bpVal}</Text>
                     )}
-                    <Text style={st.lrUnitText}>mmHg</Text>
-                    {pulseVal != null ? (
-                      <View style={st.lrPulseRow}>
-                        <Text style={[st.lrPulseValue, { color: pulseColor }]}>{pulseVal}</Text>
-                        <PulseIcon
-                          isAbnormal={pulseStatus === 'high' || pulseStatus === 'low'}
-                          size={scaleFont(12)}
-                        />
-                        <Text style={st.lrPulseUnit}>bpm</Text>
-                      </View>
-                    ) : null}
+                    <View style={st.lrUnitRow}>
+                      <Text style={[st.lrUnitText, st.lrUnitTextInRow]}>mmHg</Text>
+                      {pulseVal != null ? (
+                        <>
+                          <Text style={st.lrUnitDot}>·</Text>
+                          <Text style={[st.lrPulseValue, { color: pulseColor }]}>{pulseVal}</Text>
+                          <PulseIcon
+                            isAbnormal={pulseStatus === 'high' || pulseStatus === 'low'}
+                            size={scaleFont(11)}
+                          />
+                          <Text style={st.lrPulseUnit}>bpm</Text>
+                        </>
+                      ) : null}
+                    </View>
                   </View>
                 </TouchableOpacity>
 
@@ -2481,9 +2480,6 @@ const st = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: scaleHeight(16),
   },
-  lrRowPulseSpace: {
-    paddingBottom: scaleHeight(34),
-  },
   lrRowDivider: {
     borderBottomWidth: 1,
     borderBottomColor: EV.border,
@@ -2508,7 +2504,6 @@ const st = StyleSheet.create({
   lrValWrap: {
     alignItems: 'flex-end',
     justifyContent: 'center',
-    position: 'relative',
   },
   lrValText: {
     fontSize: scaleFont(22),
@@ -2525,20 +2520,25 @@ const st = StyleSheet.create({
     color: '#64748b',
     marginHorizontal: 2,
   },
+  lrUnitRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: scaleHeight(2),
+    gap: scaleWidth(4),
+  },
   lrUnitText: {
     fontSize: scaleFont(11),
     fontWeight: '600',
     color: EV.mutedLight,
     marginTop: scaleHeight(2),
   },
-  lrPulseRow: {
-    position: 'absolute',
-    right: 0,
-    top: '100%',
-    marginTop: scaleHeight(10),
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: scaleWidth(4),
+  lrUnitTextInRow: {
+    marginTop: 0,
+  },
+  lrUnitDot: {
+    fontSize: scaleFont(11),
+    fontWeight: '700',
+    color: EV.mutedLight,
   },
   lrPulseValue: {
     fontSize: scaleFont(13),
