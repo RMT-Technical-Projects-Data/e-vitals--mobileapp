@@ -1,5 +1,5 @@
 /* eslint-disable react-native/no-inline-styles */
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -28,11 +28,16 @@ import PremiumBottomNav, { PREMIUM_BOTTOM_NAV_CLEARANCE } from '../../components
 import { EV } from '../../config/colors';
 import {
   DEFAULT_VITAL_TARGETS,
+  checkFatValue,
   checkPulseValue,
+  getBmiCategoryStatus,
   getVitalColor,
+  getVitalStatusColor,
   normalizeWeightToLbs,
+  readOptionalVitalNumber,
 } from '../../utils/measurementUtils';
 import PulseIcon from '../../components/common/PulseIcon';
+import { getPatientListVitalColors } from '../../utils/patientVitalTargets';
 import { subscribeAbnormalAssignmentReceived } from '../../utils/abnormalAssignmentEvents';
 import {
   getUnreadNotificationCount,
@@ -897,35 +902,57 @@ const collectPatientReadings = (patient) => {
   const readings = [];
   const systolic = patient?.last_systolic ?? patient?.systolic;
   const diastolic = patient?.last_diastolic ?? patient?.diastolic;
+  const glucose = patient?.last_glucose ?? patient?.glucose;
+  const weight = patient?.last_weight ?? patient?.weight;
+  const weightNum = Number(weight);
+  const pulseNum = Number(patient?.last_pulse ?? patient?.pulse);
+  const hasPulse = Number.isFinite(pulseNum) && pulseNum > 0;
+  const colors = getPatientListVitalColors(patient, {
+    bp: systolic != null && diastolic != null && systolic !== '' && diastolic !== ''
+      ? `${systolic}/${diastolic}`
+      : '--',
+    glucose: glucose != null && glucose !== '' ? glucose : '--',
+    weight: Number.isFinite(weightNum) && weightNum > 0 ? weightNum : '--',
+    pulse: hasPulse ? pulseNum : null,
+  });
+
   const bpAt = parseUploadMs(patient?.last_bp_at || patient?.last_bp_date);
   if (bpAt && systolic != null && diastolic != null && systolic !== '' && diastolic !== '') {
     readings.push({
       type: 'BP',
-      label: 'Blood pressure',
-      value: `${systolic}/${diastolic}`,
+      label: 'BP (mmHg)',
+      systolic: Math.round(Number(systolic)),
+      diastolic: Math.round(Number(diastolic)),
+      sysColor: colors.sysColor,
+      diaColor: colors.diaColor,
+      pulse: hasPulse ? Math.round(pulseNum) : null,
+      pulseColor: colors.pulseColor,
+      isPulseAbnormal: colors.isPulseAbnormal,
       at: bpAt,
     });
   }
 
-  const glucose = patient?.last_glucose ?? patient?.glucose;
   const bgAt = parseUploadMs(patient?.last_bg_at || patient?.last_bg_date);
-  if (bgAt && glucose != null && glucose !== '') {
+  const glucoseNum = Number(glucose);
+  if (bgAt && glucose != null && glucose !== '' && Number.isFinite(glucoseNum)) {
     readings.push({
       type: 'BG',
-      label: 'Blood glucose',
-      value: `${glucose} mg/dL`,
+      label: 'BG (mg/dL)',
+      value: String(Math.round(glucoseNum)),
+      unit: 'mg/dL',
+      color: colors.glucoseColor,
       at: bgAt,
     });
   }
 
-  const weight = patient?.last_weight ?? patient?.weight;
   const wtAt = parseUploadMs(patient?.last_wt_at || patient?.last_wt_date);
-  const weightNum = Number(weight);
-  if (wtAt && weight != null && weight !== '' && Number.isFinite(weightNum)) {
+  if (wtAt && weight != null && weight !== '' && Number.isFinite(weightNum) && weightNum > 0) {
     readings.push({
-      type: 'W',
-      label: 'Weight',
-      value: `${weightNum.toFixed(1)} lb`,
+      type: 'WT',
+      label: 'WT (lbs)',
+      value: weightNum.toFixed(1),
+      unit: 'lb',
+      color: colors.weightColor,
       at: wtAt,
     });
   }
@@ -957,6 +984,142 @@ const formatUploadAge = (ms) => {
   const hours = Math.floor(minutes / 60);
   if (hours < 24) return `${hours}h ago`;
   return `${Math.floor(hours / 24)}d ago`;
+};
+
+const recentUploadPillLabel = (type) => {
+  if (type === 'WT') return 'W';
+  return type;
+};
+
+const RecentUploadCard = ({ patient, readings, page, onChangePage, onOpen }) => {
+  const safePage = Math.min(page, Math.max(readings.length - 1, 0));
+  const scrollRef = useRef(null);
+  const [cardWidth, setCardWidth] = useState(0);
+  const onChangeRef = useRef(onChangePage);
+  onChangeRef.current = onChangePage;
+
+  useEffect(() => {
+    if (cardWidth <= 0) return;
+    scrollRef.current?.scrollTo({ x: safePage * cardWidth, animated: true });
+  }, [safePage, cardWidth]);
+
+  const renderReadingValue = (item) => (
+    item.type === 'BP' ? (
+      <View style={st.uploadVitalValueRow}>
+        <Text style={[st.uploadVitalValue, { color: item.sysColor }]}>{item.systolic}</Text>
+        <Text style={st.uploadVitalSlash}>/</Text>
+        <Text style={[st.uploadVitalValue, { color: item.diaColor }]}>{item.diastolic}</Text>
+        {item.pulse != null ? (
+          <View style={st.uploadPulseWrap}>
+            <Text style={[st.uploadPulse, { color: item.pulseColor }]}>{item.pulse}</Text>
+            <PulseIcon isAbnormal={item.isPulseAbnormal} size={scaleFont(11)} />
+          </View>
+        ) : null}
+      </View>
+    ) : (
+      <Text style={[st.uploadVitalValue, { color: item.color }]}>{item.value}</Text>
+    )
+  );
+
+  const settlePage = (event) => {
+    if (cardWidth <= 0) return;
+    const nextPage = Math.round(event.nativeEvent.contentOffset.x / cardWidth);
+    const clamped = Math.max(0, Math.min(readings.length - 1, nextPage));
+    if (clamped !== safePage) onChangeRef.current(clamped);
+  };
+
+  return (
+    <View
+      style={st.uploadPager}
+      onLayout={(event) => {
+        const nextWidth = Math.round(event.nativeEvent.layout.width);
+        if (nextWidth > 0 && nextWidth !== cardWidth) setCardWidth(nextWidth);
+      }}
+    >
+      {cardWidth > 0 ? (
+        <ScrollView
+          ref={scrollRef}
+          horizontal
+          pagingEnabled
+          nestedScrollEnabled
+          directionalLockEnabled
+          showsHorizontalScrollIndicator={false}
+          scrollEnabled={readings.length > 1}
+          onMomentumScrollEnd={settlePage}
+        >
+          {readings.map((reading, index) => {
+            const hasPrevious = index > 0;
+            const hasNext = index < readings.length - 1;
+            const showArrows = readings.length > 1;
+            return (
+              <View key={`${reading.type}-${reading.at}`} style={[st.uploadRow, { width: cardWidth }]}>
+                {showArrows ? (
+                  <TouchableOpacity
+                    style={st.uploadSideArrow}
+                    onPress={() => hasPrevious && onChangePage(index - 1)}
+                    disabled={!hasPrevious}
+                    hitSlop={{ top: 10, bottom: 10, left: 6, right: 6 }}
+                    accessibilityRole="button"
+                    accessibilityLabel="Previous reading"
+                  >
+                    <MaterialIcons
+                      name="chevron-left"
+                      size={24}
+                      color={hasPrevious ? EV.navy : 'transparent'}
+                    />
+                  </TouchableOpacity>
+                ) : null}
+                <Pressable style={st.uploadCardPress} onPress={onOpen}>
+                  <PatientAvatar
+                    profilePic={patient.profile_pic || patient.profilePic || patient.profile_image}
+                    firstName={patient.first_name}
+                    lastName={patient.last_name}
+                    size={scaleWidth(38)}
+                    borderRadius={scaleWidth(14)}
+                    backgroundColor={EV.bluePale}
+                    textColor={EV.blueDeep}
+                    textStyle={st.uploadAvatarText}
+                  />
+                  <View style={st.uploadMain}>
+                    <View style={st.uploadNameRow}>
+                      <View style={st.uploadNameGroup}>
+                        <Text style={st.uploadName} numberOfLines={1}>{formatLastFirstName(patient)}</Text>
+                        <View style={st.uploadVitalPill}>
+                          <Text style={st.uploadVitalPillText}>{recentUploadPillLabel(reading.type)}</Text>
+                        </View>
+                      </View>
+                    </View>
+                    {formatUploadAge(reading.at) ? (
+                      <Text style={[st.uploadAge, st.uploadAgeBelow]}>{formatUploadAge(reading.at)}</Text>
+                    ) : null}
+                  </View>
+                </Pressable>
+                <View style={st.uploadValueActions}>
+                  {renderReadingValue(reading)}
+                </View>
+                {showArrows ? (
+                  <TouchableOpacity
+                    style={st.uploadSideArrow}
+                    onPress={() => hasNext && onChangePage(index + 1)}
+                    disabled={!hasNext}
+                    hitSlop={{ top: 10, bottom: 10, left: 6, right: 6 }}
+                    accessibilityRole="button"
+                    accessibilityLabel="Next reading"
+                  >
+                    <MaterialIcons
+                      name="chevron-right"
+                      size={24}
+                      color={hasNext ? EV.navy : 'transparent'}
+                    />
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+            );
+          })}
+        </ScrollView>
+      ) : null}
+    </View>
+  );
 };
 
 const fallbackProviderPatients = [
@@ -1000,6 +1163,7 @@ export default function Home({ navigation }) {
   // --- Caregiver Dashboard State ---
   const [caregiverPatients, setCaregiverPatients] = useState([]);
   const [recentUploadPatients, setRecentUploadPatients] = useState([]);
+  const [recentUploadIndex, setRecentUploadIndex] = useState({});
   const [isCaregiverLoading, setIsCaregiverLoading] = useState(true);
   const [caregiverFollowUps, setCaregiverFollowUps] = useState([]);
   const [totalPatientCount, setTotalPatientCount] = useState(null);
@@ -1052,6 +1216,8 @@ export default function Home({ navigation }) {
         const wt = lm.weight
           ? {
             value: lm.weight.weight || lm.weight.weight_value,
+            fat: readOptionalVitalNumber(lm.weight.fat ?? lm.weight.body_fat),
+            bmi: readOptionalVitalNumber(lm.weight.bmi),
             date: lm.weight.measure_new_date_time
               || lm.weight.measure_date_time
               || lm.weight.created_at,
@@ -1257,15 +1423,9 @@ export default function Home({ navigation }) {
       if (userStr) {
         const user = JSON.parse(userStr);
         const roleId = Number(user.role_id);
-        // Set practice name from user object (returned by auth API)
-        if (roleId === 6) {
-          setPracticeName('');
-        } else if (user.practice_name) {
-          setPracticeName(user.practice_name);
-        } else if (user.practice?.name) {
-          setPracticeName(user.practice.name);
-        } else {
-          setPracticeName('Northside Cardiology');
+        const storedPracticeName = user.practice_name || user.practice?.practice_name || user.practice?.name || '';
+        if (storedPracticeName) {
+          setPracticeName(storedPracticeName);
         }
         if (roleId === 4) {
           setUserRole('provider');
@@ -1297,7 +1457,6 @@ export default function Home({ navigation }) {
       } else {
         setUserRole('patient');
         setPatientName('Cyrus Nguyen');
-        setPracticeName('Northside Cardiology');
         fetchPatientVitals();
       }
     } catch (e) {
@@ -1454,6 +1613,16 @@ export default function Home({ navigation }) {
     const pulseColor = pulseVal != null ? getVitalColor(pulseVal, t.pulseMin, t.pulseMax) : null;
     const bgColor = getVitalColor(bgVal, t.glucoseMin, t.glucoseMax);
     const wtColor = getVitalColor(wtVal, t.weightMin, t.weightMax);
+    const wtFat = readOptionalVitalNumber(measurements.weight?.fat);
+    const wtBmi = readOptionalVitalNumber(measurements.weight?.bmi);
+    const wtFatColor = wtFat != null ? getVitalStatusColor(checkFatValue(wtFat, t)) : null;
+    const wtBmiColor = wtBmi != null
+      ? getVitalStatusColor(getBmiCategoryStatus(wtBmi, {
+        bmiNormal: t.bmiNormal ?? 18.5,
+        bmiOverweight: t.bmiOverweight ?? 25,
+        bmiObese: t.bmiObese ?? 30,
+      }))
+      : null;
     const formatReadingTime = (dt) => {
       if (!dt) return 'NO READING YET';
       try {
@@ -1500,7 +1669,7 @@ export default function Home({ navigation }) {
               <RoleIntro
 
                 title={patientName || 'Dashboard'}
-                practiceName={practiceName || 'Northside Cardiology'}
+                practiceName={practiceName}
                 color={EV.navy}
               />
 
@@ -1565,6 +1734,12 @@ export default function Home({ navigation }) {
                   <View style={st.lrValWrap}>
                     <Text style={[st.lrValText, wtVal !== '--' && { color: wtColor }]}>{wtVal}</Text>
                     <Text style={st.lrUnitText}>lb</Text>
+                    {wtFat != null ? (
+                      <Text style={[st.lrSubMetric, { color: wtFatColor }]}>Fat {wtFat.toFixed(1)}</Text>
+                    ) : null}
+                    {wtBmi != null ? (
+                      <Text style={[st.lrSubMetric, { color: wtBmiColor }]}>BMI {wtBmi.toFixed(1)}</Text>
+                    ) : null}
                   </View>
                 </TouchableOpacity>
               </View>
@@ -1715,33 +1890,20 @@ export default function Home({ navigation }) {
                 <View style={st.emptyAlertCard}><Text style={st.emptyAlertText}>No recent uploads.</Text></View>
               ) : (
                 <View style={st.uploadList}>
-                  {recentUploads.map(({ patient, readings, uploadedAt }) => {
-                    const uploadedAgo = formatUploadAge(uploadedAt);
+                  {recentUploads.map(({ patient, readings }) => {
+                    const patientKey = String(patient.patient_table_id || patient.id);
+                    const page = Math.min(recentUploadIndex[patientKey] || 0, Math.max(readings.length - 1, 0));
                     return (
-                      <TouchableOpacity key={String(patient.patient_table_id || patient.id)} style={st.uploadRow} onPress={() => openPatientHub(patient, 'caregiver')}>
-                        <PatientAvatar
-                          profilePic={patient.profile_pic || patient.profilePic || patient.profile_image}
-                          firstName={patient.first_name}
-                          lastName={patient.last_name}
-                          size={scaleWidth(42)}
-                          borderRadius={scaleWidth(15)}
-                          backgroundColor={EV.bluePale}
-                          textColor={EV.blueDeep}
-                          textStyle={st.uploadAvatarText}
-                        />
-                        <View style={st.uploadText}>
-                          <Text style={st.uploadName}>{formatLastFirstName(patient)}</Text>
-                          {readings.map((reading) => (
-                            <Text key={reading.type} style={st.uploadDetail}>
-                              {reading.label}: {reading.value}
-                            </Text>
-                          ))}
-                          {!!uploadedAgo && <Text style={st.uploadDetail}>{uploadedAgo}</Text>}
-                        </View>
-                        <View style={st.uploadPill}>
-                          <Text style={st.uploadPillText}>{readings.map((reading) => reading.type).join(' · ')}</Text>
-                        </View>
-                      </TouchableOpacity>
+                      <RecentUploadCard
+                        key={patientKey}
+                        patient={patient}
+                        readings={readings}
+                        page={page}
+                        onChangePage={(nextPage) => {
+                          setRecentUploadIndex((prev) => ({ ...prev, [patientKey]: nextPage }));
+                        }}
+                        onOpen={() => openPatientHub(patient, 'caregiver')}
+                      />
                     );
                   })}
                 </View>
@@ -2253,13 +2415,36 @@ const st = StyleSheet.create({
     shadowRadius: 16,
     elevation: 5,
   },
-  uploadRow: {
-    minHeight: scaleHeight(60),
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: scaleWidth(11),
+  uploadPager: {
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(7,27,52,0.07)',
+  },
+  uploadRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  uploadSideArrow: {
+    width: scaleWidth(28),
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'stretch',
+  },
+  uploadCardPress: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    paddingVertical: scaleHeight(12),
+    gap: scaleWidth(10),
+    minWidth: 0,
+  },
+  uploadMain: {
+    flex: 1,
+    minWidth: 0,
+  },
+  uploadTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scaleWidth(10),
   },
   uploadAvatar: {
     width: scaleWidth(42),
@@ -2278,10 +2463,129 @@ const st = StyleSheet.create({
     flex: 1,
     minWidth: 0,
   },
+  uploadNameRow: {
+    minWidth: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: scaleWidth(8),
+  },
+  uploadNameGroup: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scaleWidth(6),
+  },
   uploadName: {
+    flexShrink: 1,
     color: EV.navy,
-    fontSize: scaleFont(13),
+    fontSize: scaleFont(15),
+    lineHeight: scaleFont(18),
     fontWeight: '800',
+    includeFontPadding: false,
+  },
+  uploadExtraRow: {
+    minWidth: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: scaleWidth(8),
+    marginTop: scaleHeight(6),
+  },
+  uploadAge: {
+    color: EV.muted,
+    fontSize: scaleFont(11),
+    lineHeight: scaleFont(14),
+    fontWeight: '600',
+    includeFontPadding: false,
+  },
+  uploadAgeBelow: {
+    marginTop: scaleHeight(1),
+  },
+  uploadMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scaleWidth(6),
+    marginTop: scaleHeight(4),
+    flexShrink: 1,
+  },
+  uploadVitalPill: {
+    paddingHorizontal: scaleWidth(6),
+    paddingVertical: scaleWidth(2),
+    borderRadius: scaleWidth(6),
+    backgroundColor: 'rgba(7,27,52,0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(7,27,52,0.12)',
+  },
+  uploadVitalPillText: {
+    fontSize: scaleFont(10),
+    fontWeight: '800',
+    color: '#0b1f3f',
+  },
+  uploadVitals: {
+    flexDirection: 'row',
+    gap: scaleWidth(8),
+  },
+  uploadVital: {
+    flex: 1,
+    backgroundColor: 'rgba(7,27,52,0.05)',
+    borderRadius: scaleWidth(14),
+    paddingVertical: scaleWidth(8),
+    paddingHorizontal: scaleWidth(4),
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: scaleWidth(50),
+  },
+  uploadVitalLabel: {
+    fontSize: scaleFont(10),
+    color: '#687382',
+    marginBottom: scaleWidth(3),
+    fontWeight: '800',
+  },
+  uploadValueActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexShrink: 0,
+    marginLeft: scaleWidth(6),
+  },
+  uploadArrow: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  uploadVitalValueRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'flex-end',
+    maxWidth: '100%',
+  },
+  uploadVitalValue: {
+    fontSize: scaleFont(12),
+    fontWeight: '800',
+    lineHeight: scaleFont(14),
+    flexShrink: 1,
+  },
+  uploadVitalSlash: {
+    fontSize: scaleFont(12),
+    fontWeight: '700',
+    color: '#64748b',
+    marginHorizontal: 1,
+  },
+  uploadVitalUnit: {
+    marginLeft: scaleWidth(3),
+    color: EV.muted,
+    fontSize: scaleFont(10),
+    fontWeight: '700',
+  },
+  uploadPulseWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginLeft: scaleWidth(4),
+  },
+  uploadPulse: {
+    fontSize: scaleFont(10),
+    fontWeight: '700',
+    lineHeight: scaleFont(12),
   },
   uploadDetail: {
     marginTop: scaleHeight(3),
@@ -2531,6 +2835,12 @@ const st = StyleSheet.create({
     fontWeight: '600',
     color: EV.mutedLight,
     marginTop: scaleHeight(2),
+  },
+  lrSubMetric: {
+    fontSize: scaleFont(12),
+    fontWeight: '700',
+    marginTop: scaleHeight(2),
+    textAlign: 'right',
   },
   lrUnitTextInRow: {
     marginTop: 0,

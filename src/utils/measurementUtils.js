@@ -6,8 +6,17 @@ export const MEASUREMENT_COLORS = {
   normal: '#15803d',
   high: '#d32f2f',
   low: '#f57c00',
+  overweight: '#ea580c',
+  underweight: '#d97706',
   missing: '#0b1f3f',
   pulseMissing: '#687382',
+};
+
+export const BMI_CATEGORY = {
+  UNDERWEIGHT: 'underweight',
+  NORMAL: 'normal',
+  OVERWEIGHT: 'overweight',
+  OBESE: 'obese',
 };
 
 export const MEASUREMENT_BADGE = {
@@ -57,10 +66,54 @@ export const getMeasurementAlertStatus = (value, min, max) => {
 };
 
 export const getVitalStatusColor = (status) => {
-  if (status === 'high') return MEASUREMENT_COLORS.high;
+  if (status === 'high' || status === BMI_CATEGORY.OBESE) return MEASUREMENT_COLORS.high;
+  if (status === BMI_CATEGORY.OVERWEIGHT) return MEASUREMENT_COLORS.overweight;
+  if (status === BMI_CATEGORY.UNDERWEIGHT) return MEASUREMENT_COLORS.underweight;
   if (status === 'low') return MEASUREMENT_COLORS.low;
   if (status === 'normal') return MEASUREMENT_COLORS.normal;
   return MEASUREMENT_COLORS.missing;
+};
+
+/** Underweight < 18.5 | Normal 18.5–24.9 | Overweight 25.0–29.9 | Obese ≥ 30.0 */
+export const getBmiCategoryStatus = (bmiValue, thresholds = {}) => {
+  const value = Number(bmiValue);
+  if (!Number.isFinite(value)) return BMI_CATEGORY.NORMAL;
+
+  const normalMin = Number(thresholds.bmiNormal ?? 18.5);
+  const overweightMin = Number(thresholds.bmiOverweight ?? 25);
+  const obeseMin = Number(thresholds.bmiObese ?? 30);
+
+  if (value < normalMin) return BMI_CATEGORY.UNDERWEIGHT;
+  if (value < overweightMin) return BMI_CATEGORY.NORMAL;
+  if (value < obeseMin) return BMI_CATEGORY.OVERWEIGHT;
+  return BMI_CATEGORY.OBESE;
+};
+
+export const checkFatValue = (fatValue, target) => {
+  let val = fatValue;
+  if (fatValue && typeof fatValue === 'object') {
+    val = fatValue.fat ?? fatValue.body_fat;
+  }
+  const numeric = Number(val);
+  if (
+    val == null
+    || val === ''
+    || val === 'N/A'
+    || Number.isNaN(numeric)
+    || numeric <= 0
+  ) {
+    return 'normal';
+  }
+
+  const min = target?.bodyFatMin ?? target?.body_fat_min ?? 14;
+  const max = target?.bodyFatMax ?? target?.body_fat_max ?? 27;
+  return getMeasurementAlertStatus(numeric, min, max);
+};
+
+export const readOptionalVitalNumber = (value) => {
+  if (value == null || value === '' || value === 'N/A' || value === '--') return null;
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
 };
 
 export const getVitalColor = (value, min, max) => (

@@ -4,7 +4,9 @@ import {
   checkBGValue,
   checkBPValues,
   checkPulseValue,
+  checkFatValue,
   checkWeightValue,
+  getBmiCategoryStatus,
   getCombinedBpAlertLevel,
   getMeasurementAlertStatus,
   getVitalStatusColor,
@@ -259,7 +261,17 @@ export const getDataListRowColors = (item, dataType, scheduleTargets = null) => 
       weightMax: DEFAULT_VITAL_TARGETS.weightMax,
     };
   const weightStatus = checkWeightValue(item.weight, weightTarget);
+  const fatStatus = item.fat != null ? checkFatValue(item.fat, weightTarget) : null;
+  const bmiStatus = item.bmi != null
+    ? getBmiCategoryStatus(item.bmi, {
+      bmiNormal: weightTarget.bmiNormal ?? 18.5,
+      bmiOverweight: weightTarget.bmiOverweight ?? 25,
+      bmiObese: weightTarget.bmiObese ?? 30,
+    })
+    : null;
   return {
     weightColor: getVitalStatusColor(weightStatus || 'normal'),
+    fatColor: fatStatus ? getVitalStatusColor(fatStatus) : MEASUREMENT_COLORS.missing,
+    bmiColor: bmiStatus ? getVitalStatusColor(bmiStatus) : MEASUREMENT_COLORS.missing,
   };
 };

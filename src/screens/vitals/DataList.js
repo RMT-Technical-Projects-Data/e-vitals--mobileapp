@@ -30,6 +30,7 @@ import {
   checkWeightValue,
   DEFAULT_VITAL_TARGETS,
   getMeasurementAlertStatus,
+  readOptionalVitalNumber,
 } from '../../utils/measurementUtils';
 import {
   getBloodGlucoseTargetForMeasurement,
@@ -745,6 +746,8 @@ const DataList = ({ navigation, route }) => {
             period_name: w.period_name || w.period || w.measure_note || w.note || '',
             period: w.period || w.period_name || '',
             weight: weightInLbs,
+            fat: readOptionalVitalNumber(w.fat ?? w.body_fat),
+            bmi: readOptionalVitalNumber(w.bmi),
             unit: 'lb',
           });
         });
@@ -1320,6 +1323,8 @@ const DataList = ({ navigation, route }) => {
                       const isPulseAbnormal = rowColors.isPulseAbnormal;
                       const bgValColor = rowColors.glucoseColor;
                       const wtValColor = rowColors.weightColor;
+                      const fatColor = rowColors.fatColor;
+                      const bmiColor = rowColors.bmiColor;
 
                       return (
                         <View key={item.id || index} style={[styles.vTableRow, isEven ? styles.vTableRowEven : styles.vTableRowOdd]}>
@@ -1360,9 +1365,21 @@ const DataList = ({ navigation, route }) => {
                                 {item.glucose} <Text style={styles.vUnitText}>mg/dL</Text>
                               </Text>
                             ) : (
-                              <Text style={[styles.vValTextSingle, { color: wtValColor }]}>
-                                {item.weight} <Text style={styles.vUnitText}>lb</Text>
-                              </Text>
+                              <View style={styles.vWeightStack}>
+                                <Text style={[styles.vValTextSingle, { color: wtValColor }]}>
+                                  {item.weight} <Text style={styles.vUnitText}>lb</Text>
+                                </Text>
+                                {item.fat != null ? (
+                                  <Text style={[styles.vMetricSubText, { color: fatColor }]}>
+                                    Fat {Number(item.fat).toFixed(1)}
+                                  </Text>
+                                ) : null}
+                                {item.bmi != null ? (
+                                  <Text style={[styles.vMetricSubText, { color: bmiColor }]}>
+                                    BMI {Number(item.bmi).toFixed(1)}
+                                  </Text>
+                                ) : null}
+                              </View>
                             )}
                           </View>
                         </View>
@@ -1812,6 +1829,15 @@ const createStyles = (themePrimary, themeSoft) => StyleSheet.create({
   vValTextSingle: {
     fontSize: scaleFont(12),
     fontWeight: '800',
+  },
+  vWeightStack: {
+    alignItems: 'center',
+  },
+  vMetricSubText: {
+    fontSize: scaleFont(10),
+    fontWeight: '700',
+    marginTop: 1,
+    textAlign: 'center',
   },
   vUnitText: {
     fontSize: scaleFont(10),

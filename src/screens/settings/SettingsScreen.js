@@ -750,20 +750,27 @@ const SettingsScreen = ({ navigation }) => {
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Logout</Text>
             <Text style={styles.logoutConfirmText}>Are you sure you want to log out?</Text>
-            <View style={styles.modalActions}>
+            <View style={styles.logoutActions}>
               <TouchableOpacity
-                style={styles.cancelBtn}
+                style={styles.logoutActionBtn}
                 onPress={() => setIsLogoutVisible(false)}
                 disabled={isLoggingOut}
               >
-                <Text style={styles.cancelBtnText}>Cancel</Text>
+                <Text style={styles.logoutActionText}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={styles.logoutBtn}
+                style={[styles.logoutActionBtn, styles.logoutActionDanger]}
                 onPress={confirmLogout}
                 disabled={isLoggingOut}
               >
-                <Text style={styles.sendBtnText}>{isLoggingOut ? 'Logging out…' : 'Logout'}</Text>
+                <Text
+                  style={styles.logoutActionText}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.85}
+                >
+                  {isLoggingOut ? 'Logging out…' : 'Logout'}
+                </Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -1126,11 +1133,33 @@ const styles = StyleSheet.create({
     backgroundColor: NAVY_BLUE,
     borderRadius: scaleWidth(8),
   },
-  logoutBtn: {
+  logoutActions: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    width: '100%',
+    marginTop: scaleHeight(10),
+    gap: scaleWidth(10),
+  },
+  logoutActionBtn: {
+    flex: 1,
+    minHeight: scaleHeight(44),
     paddingVertical: scaleHeight(10),
-    paddingHorizontal: scaleWidth(20),
-    backgroundColor: '#D32F2F',
+    paddingHorizontal: scaleWidth(8),
+    backgroundColor: '#ced4da',
     borderRadius: scaleWidth(8),
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  logoutActionDanger: {
+    backgroundColor: '#D32F2F',
+  },
+  logoutActionText: {
+    color: WHITE,
+    fontWeight: '600',
+    fontSize: scaleFont(14),
+    textAlign: 'center',
+    textAlignVertical: 'center',
+    includeFontPadding: false,
   },
   sendBtnText: {
     color: WHITE,

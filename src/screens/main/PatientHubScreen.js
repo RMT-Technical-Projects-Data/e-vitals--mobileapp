@@ -27,11 +27,14 @@ import { getDashboardTheme } from '../../constants/dashboardThemes';
 import {
   DEFAULT_VITAL_TARGETS,
   checkBPValues,
+  checkFatValue,
   checkPulseValue,
   checkWeightValue,
+  getBmiCategoryStatus,
   getVitalColor,
   getVitalStatusColor,
   MEASUREMENT_COLORS,
+  readOptionalVitalNumber,
 } from '../../utils/measurementUtils';
 import { resolveEffectiveScheduleTargets } from '../../utils/scheduleTargetUtils';
 import PulseIcon from '../../components/common/PulseIcon';
@@ -228,6 +231,7 @@ const VitalUploadCard = ({
   secondary,
   pulse,
   unit,
+  metrics = [],
   onPress,
   accentColor,
   weightTarget,
@@ -330,6 +334,14 @@ const VitalUploadCard = ({
           ) : secondary ? (
             <Text style={[styles.vitalCardSecondary, { color: secondaryColor }]}>{secondary}</Text>
           ) : null}
+          {metrics.map((metric) => (
+            <Text
+              key={metric.label}
+              style={[styles.vitalCardSecondary, { color: metric.color, marginTop: scaleWidth(2) }]}
+            >
+              {metric.label} {metric.value}
+            </Text>
+          ))}
         </View>
       </View>
     </View>
@@ -753,6 +765,25 @@ export default function PatientHubScreen({ navigation, route }) {
   const bp = latest.blood_pressure;
   const bg = latest.blood_glucose;
   const wt = latest.weight;
+  const weightTargetRange = weightTarget || DEFAULT_VITAL_TARGETS;
+  const weightFat = readOptionalVitalNumber(wt?.fat ?? wt?.body_fat);
+  const weightBmi = readOptionalVitalNumber(wt?.bmi);
+  const weightMetrics = [
+    weightFat != null ? {
+      label: 'Fat',
+      value: weightFat.toFixed(1),
+      color: getVitalStatusColor(checkFatValue(weightFat, weightTargetRange)),
+    } : null,
+    weightBmi != null ? {
+      label: 'BMI',
+      value: weightBmi.toFixed(1),
+      color: getVitalStatusColor(getBmiCategoryStatus(weightBmi, {
+        bmiNormal: weightTargetRange.bmiNormal ?? 18.5,
+        bmiOverweight: weightTargetRange.bmiOverweight ?? 25,
+        bmiObese: weightTargetRange.bmiObese ?? 30,
+      })),
+    } : null,
+  ].filter(Boolean);
 
   const displayName = routePatientName
     || formatLastFirstName(patient)
@@ -899,6 +930,7 @@ export default function PatientHubScreen({ navigation, route }) {
                   dateValue={wt?.measure_new_date_time || wt?.measure_date_time || wt?.created_at}
                   primary={wt?.weight != null ? parseFloat(wt.weight).toFixed(1) : '-'}
                   unit="lb"
+                  metrics={weightMetrics}
                   weightTarget={weightTarget}
                 />
               </View>
