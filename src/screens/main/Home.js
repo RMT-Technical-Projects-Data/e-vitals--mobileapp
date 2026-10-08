@@ -15,6 +15,7 @@ import {
   Animated,
   Easing,
   AppState,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
@@ -177,13 +178,25 @@ const RoleIntro = ({ eyebrow, title, practiceName, subtitle, color, practiceName
 );
 
 const SectionTitle = ({ title, subtitle, actionLabel, actionColor, onPress, subtitleOnRight = false }) => (
-  <View style={[st.evSectionHeader, subtitleOnRight && st.evSectionHeaderRow]}>
+  <View style={[
+    st.evSectionHeader,
+    subtitleOnRight && st.evSectionHeaderRow,
+    !subtitleOnRight && !!subtitle && !!actionLabel && st.evSectionHeaderCenter,
+  ]}>
     <View style={[subtitleOnRight ? st.evSectionTitleRow : { flex: 1 }]}>
-      <Text style={st.evSectionTitle}>{title}</Text>
+      <Text style={[st.evSectionTitle, subtitleOnRight && st.evSectionTitleInline]}>{title}</Text>
       {!!subtitle && (
-        <Text style={[st.evSectionSubtitle, subtitleOnRight && st.evSectionSubtitleRight]} numberOfLines={1}>
-          {subtitle}
-        </Text>
+        subtitleOnRight ? (
+          <View style={st.evSectionSubtitleRightWrap}>
+            <Text style={[st.evSectionSubtitle, st.evSectionSubtitleRight]} numberOfLines={2}>
+              {subtitle}
+            </Text>
+          </View>
+        ) : (
+          <Text style={st.evSectionSubtitle} numberOfLines={1}>
+            {subtitle}
+          </Text>
+        )
       )}
     </View>
     {!!actionLabel && (
@@ -671,16 +684,23 @@ const PatientTrendSlidesCarousel = () => {
       return { x, y, str: `${x},${y}` };
     };
 
+    const stackLegend = lines.length > 2;
+
     return (
       <View key={title} style={[st.trendSlidePage, { width: pageWidth }]}>
         <View style={st.trendSlideCard}>
-        <View style={st.trendSlideHeader}>
-          <Text style={st.trendSlideTitle}>{title}</Text>
-          <View style={st.trendSlideLegendRow}>
+        <View style={[st.trendSlideHeader, stackLegend && st.trendSlideHeaderStacked]}>
+          <Text
+            style={[st.trendSlideTitle, stackLegend && st.trendSlideTitleFull]}
+            numberOfLines={stackLegend ? 2 : 1}
+          >
+            {title}
+          </Text>
+          <View style={[st.trendSlideLegendRow, stackLegend && st.trendSlideLegendStacked]}>
             {lines.map((l) => (
-              <View key={l.label} style={st.legendItem}>
-                <View style={[st.legendDot, { backgroundColor: l.color }]} />
-                <Text style={st.legendLabel}>{l.label}</Text>
+              <View key={l.label} style={st.trendLegendItem}>
+                <View style={[st.trendLegendDot, { backgroundColor: l.color }]} />
+                <Text style={st.trendLegendLabel}>{l.label}</Text>
               </View>
             ))}
           </View>
@@ -1012,7 +1032,11 @@ const RecentUploadCard = ({ patient, readings, page, onChangePage, onOpen }) => 
         {item.pulse != null ? (
           <View style={st.uploadPulseWrap}>
             <Text style={[st.uploadPulse, { color: item.pulseColor }]}>{item.pulse}</Text>
-            <PulseIcon isAbnormal={item.isPulseAbnormal} size={scaleFont(11)} />
+            <PulseIcon
+              isAbnormal={item.isPulseAbnormal}
+              size={scaleFont(11)}
+              style={st.uploadPulseIcon}
+            />
           </View>
         ) : null}
       </View>
@@ -1050,23 +1074,17 @@ const RecentUploadCard = ({ patient, readings, page, onChangePage, onOpen }) => 
           {readings.map((reading, index) => {
             const hasPrevious = index > 0;
             const hasNext = index < readings.length - 1;
-            const showArrows = readings.length > 1;
             return (
               <View key={`${reading.type}-${reading.at}`} style={[st.uploadRow, { width: cardWidth }]}>
-                {showArrows ? (
+                {hasPrevious ? (
                   <TouchableOpacity
                     style={st.uploadSideArrow}
-                    onPress={() => hasPrevious && onChangePage(index - 1)}
-                    disabled={!hasPrevious}
+                    onPress={() => onChangePage(index - 1)}
                     hitSlop={{ top: 10, bottom: 10, left: 6, right: 6 }}
                     accessibilityRole="button"
                     accessibilityLabel="Previous reading"
                   >
-                    <MaterialIcons
-                      name="chevron-left"
-                      size={24}
-                      color={hasPrevious ? EV.navy : 'transparent'}
-                    />
+                    <MaterialIcons name="chevron-left" size={22} color={EV.navy} style={st.uploadChevron} />
                   </TouchableOpacity>
                 ) : null}
                 <Pressable style={st.uploadCardPress} onPress={onOpen}>
@@ -1083,36 +1101,33 @@ const RecentUploadCard = ({ patient, readings, page, onChangePage, onOpen }) => 
                   <View style={st.uploadMain}>
                     <View style={st.uploadNameRow}>
                       <View style={st.uploadNameGroup}>
-                        <Text style={st.uploadName} numberOfLines={1}>{formatLastFirstName(patient)}</Text>
+                        <Text style={st.uploadName} numberOfLines={1} ellipsizeMode="tail">
+                          {formatLastFirstName(patient)}
+                        </Text>
                         <View style={st.uploadVitalPill}>
                           <Text style={st.uploadVitalPillText}>{recentUploadPillLabel(reading.type)}</Text>
                         </View>
                       </View>
                     </View>
                     {formatUploadAge(reading.at) ? (
-                      <Text style={[st.uploadAge, st.uploadAgeBelow]}>{formatUploadAge(reading.at)}</Text>
+                      <Text style={st.uploadAge}>{formatUploadAge(reading.at)}</Text>
                     ) : null}
                   </View>
                 </Pressable>
                 <View style={st.uploadValueActions}>
                   {renderReadingValue(reading)}
+                  {hasNext ? (
+                    <TouchableOpacity
+                      style={st.uploadInlineArrow}
+                      onPress={() => onChangePage(index + 1)}
+                      hitSlop={{ top: 10, bottom: 10, left: 4, right: 4 }}
+                      accessibilityRole="button"
+                      accessibilityLabel="Next reading"
+                    >
+                      <MaterialIcons name="chevron-right" size={22} color={EV.navy} style={st.uploadChevron} />
+                    </TouchableOpacity>
+                  ) : null}
                 </View>
-                {showArrows ? (
-                  <TouchableOpacity
-                    style={st.uploadSideArrow}
-                    onPress={() => hasNext && onChangePage(index + 1)}
-                    disabled={!hasNext}
-                    hitSlop={{ top: 10, bottom: 10, left: 6, right: 6 }}
-                    accessibilityRole="button"
-                    accessibilityLabel="Next reading"
-                  >
-                    <MaterialIcons
-                      name="chevron-right"
-                      size={24}
-                      color={hasNext ? EV.navy : 'transparent'}
-                    />
-                  </TouchableOpacity>
-                ) : null}
               </View>
             );
           })}
@@ -2260,10 +2275,16 @@ const st = StyleSheet.create({
     marginTop: scaleHeight(20),
     marginBottom: scaleHeight(10),
   },
+  evSectionHeaderCenter: {
+    alignItems: 'center',
+  },
   evSectionTitle: {
     color: EV.navy,
     fontSize: scaleFont(16),
     fontWeight: '800',
+  },
+  evSectionTitleInline: {
+    flexShrink: 0,
   },
   evSectionSubtitle: {
     color: EV.muted,
@@ -2278,15 +2299,26 @@ const st = StyleSheet.create({
   },
   evSectionTitleRow: {
     flex: 1,
+    minWidth: 0,
     flexDirection: 'row',
+    flexWrap: 'wrap',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    rowGap: scaleHeight(2),
+  },
+  evSectionSubtitleRightWrap: {
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: scaleWidth(150),
+    minWidth: scaleWidth(140),
+    marginLeft: scaleWidth(8),
   },
   evSectionSubtitleRight: {
     marginTop: 0,
     fontSize: scaleFont(12),
+    lineHeight: scaleFont(16),
     fontWeight: '800',
     color: EV.muted,
+    textAlign: 'right',
   },
   evSectionAction: {
     fontSize: scaleFont(12),
@@ -2432,15 +2464,27 @@ const st = StyleSheet.create({
     alignItems: 'center',
   },
   uploadSideArrow: {
-    width: scaleWidth(28),
+    width: scaleWidth(22),
+    height: scaleWidth(32),
     alignItems: 'center',
     justifyContent: 'center',
-    alignSelf: 'stretch',
+    marginRight: scaleWidth(2),
+  },
+  uploadInlineArrow: {
+    width: scaleWidth(22),
+    height: scaleWidth(22),
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: scaleWidth(2),
+  },
+  uploadChevron: {
+    marginTop: Platform.OS === 'ios' ? -1 : 0,
+    lineHeight: 22,
   },
   uploadCardPress: {
     flex: 1,
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     paddingVertical: scaleHeight(12),
     gap: scaleWidth(10),
     minWidth: 0,
@@ -2448,6 +2492,8 @@ const st = StyleSheet.create({
   uploadMain: {
     flex: 1,
     minWidth: 0,
+    justifyContent: 'center',
+    alignItems: 'flex-start',
   },
   uploadTop: {
     flexDirection: 'row',
@@ -2472,14 +2518,12 @@ const st = StyleSheet.create({
     minWidth: 0,
   },
   uploadNameRow: {
+    alignSelf: 'stretch',
     minWidth: 0,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: scaleWidth(8),
   },
   uploadNameGroup: {
-    flex: 1,
+    alignSelf: 'flex-start',
+    maxWidth: '100%',
     minWidth: 0,
     flexDirection: 'row',
     alignItems: 'center',
@@ -2487,9 +2531,9 @@ const st = StyleSheet.create({
   },
   uploadName: {
     flexShrink: 1,
+    minWidth: 0,
     color: EV.navy,
     fontSize: scaleFont(15),
-    lineHeight: scaleFont(18),
     fontWeight: '800',
     includeFontPadding: false,
   },
@@ -2502,14 +2546,12 @@ const st = StyleSheet.create({
     marginTop: scaleHeight(6),
   },
   uploadAge: {
+    alignSelf: 'flex-start',
+    marginTop: scaleHeight(2),
     color: EV.muted,
     fontSize: scaleFont(11),
-    lineHeight: scaleFont(14),
     fontWeight: '600',
     includeFontPadding: false,
-  },
-  uploadAgeBelow: {
-    marginTop: scaleHeight(1),
   },
   uploadMetaRow: {
     flexDirection: 'row',
@@ -2519,17 +2561,22 @@ const st = StyleSheet.create({
     flexShrink: 1,
   },
   uploadVitalPill: {
+    flexShrink: 0,
     paddingHorizontal: scaleWidth(6),
     paddingVertical: scaleWidth(2),
     borderRadius: scaleWidth(6),
     backgroundColor: 'rgba(7,27,52,0.06)',
     borderWidth: 1,
     borderColor: 'rgba(7,27,52,0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   uploadVitalPillText: {
     fontSize: scaleFont(10),
     fontWeight: '800',
     color: '#0b1f3f',
+    includeFontPadding: false,
+    textAlignVertical: 'center',
   },
   uploadVitals: {
     flexDirection: 'row',
@@ -2555,7 +2602,7 @@ const st = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     flexShrink: 0,
-    marginLeft: scaleWidth(6),
+    marginLeft: scaleWidth(8),
   },
   uploadArrow: {
     alignItems: 'center',
@@ -2563,21 +2610,23 @@ const st = StyleSheet.create({
   },
   uploadVitalValueRow: {
     flexDirection: 'row',
-    alignItems: 'baseline',
+    alignItems: 'center',
     justifyContent: 'flex-end',
-    maxWidth: '100%',
+    flexShrink: 0,
   },
   uploadVitalValue: {
     fontSize: scaleFont(12),
     fontWeight: '800',
-    lineHeight: scaleFont(14),
-    flexShrink: 1,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
   },
   uploadVitalSlash: {
     fontSize: scaleFont(12),
     fontWeight: '700',
     color: '#64748b',
     marginHorizontal: 1,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
   },
   uploadVitalUnit: {
     marginLeft: scaleWidth(3),
@@ -2588,12 +2637,18 @@ const st = StyleSheet.create({
   uploadPulseWrap: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginLeft: scaleWidth(4),
+    marginLeft: scaleWidth(6),
+    flexShrink: 0,
   },
   uploadPulse: {
-    fontSize: scaleFont(10),
+    fontSize: scaleFont(11),
     fontWeight: '700',
-    lineHeight: scaleFont(12),
+    includeFontPadding: false,
+    textAlignVertical: 'center',
+  },
+  uploadPulseIcon: {
+    marginLeft: 2,
+    marginRight: 0,
   },
   uploadDetail: {
     marginTop: scaleHeight(3),
@@ -2896,16 +2951,49 @@ const st = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: scaleHeight(8),
+    gap: scaleWidth(8),
+  },
+  trendSlideHeaderStacked: {
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+    gap: scaleHeight(6),
   },
   trendSlideTitle: {
+    flexShrink: 1,
     fontSize: scaleFont(14),
     fontWeight: '800',
     color: EV.navy,
   },
+  trendSlideTitleFull: {
+    flexShrink: 0,
+    alignSelf: 'stretch',
+  },
   trendSlideLegendRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: scaleWidth(8),
+    flexShrink: 0,
+  },
+  trendSlideLegendStacked: {
+    alignSelf: 'stretch',
+    flexWrap: 'wrap',
+  },
+  trendLegendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexShrink: 0,
+    marginRight: scaleWidth(12),
+  },
+  trendLegendDot: {
+    width: scaleWidth(8),
+    height: scaleWidth(8),
+    borderRadius: scaleWidth(4),
+    marginRight: scaleWidth(4),
+  },
+  trendLegendLabel: {
+    color: EV.muted,
+    fontSize: scaleFont(11),
+    fontWeight: '800',
+    flexShrink: 0,
   },
   trendDotsRow: {
     flexDirection: 'row',
