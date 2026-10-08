@@ -21,6 +21,7 @@ const PUSH_TOKEN_STORAGE_KEY = 'pushDeviceToken';
 
 const CHAT_CHANNEL_ID = 'chat_messages';
 const ABNORMAL_CHANNEL_ID = 'abnormal_readings';
+const TICKET_CHANNEL_ID = 'support_tickets';
 const DISMISSED_NOTIFICATIONS_KEY = 'dismissedPushNotificationIds';
 const dismissedNotificationIds = new Set();
 let dismissedIdsLoaded = false;
@@ -97,6 +98,13 @@ const ensureNotificationChannels = async () => {
     importance: AndroidImportance.HIGH,
     sound: 'default',
   });
+
+  await notifee.createChannel({
+    id: TICKET_CHANNEL_ID,
+    name: 'Support Tickets',
+    importance: AndroidImportance.HIGH,
+    sound: 'default',
+  });
 };
 
 const normalizePayload = (remoteMessage) => {
@@ -106,10 +114,14 @@ const normalizePayload = (remoteMessage) => {
 
   const defaultTitle = type === 'abnormal_assignment'
     ? 'Abnormal Reading Assigned'
-    : 'New message';
+    : type === 'ticket_status'
+      ? 'Support ticket updated'
+      : 'New message';
   const defaultBody = type === 'abnormal_assignment'
     ? 'You have been assigned an abnormal reading to review.'
-    : 'You have a new chat message';
+    : type === 'ticket_status'
+      ? 'Your support ticket status was updated.'
+      : 'You have a new chat message';
 
   return {
     title: notification.title || data.title || defaultTitle,
@@ -141,6 +153,15 @@ const getNotificationMeta = (data) => {
     };
   }
 
+  if (data.type === 'ticket_status') {
+    const collapseKey = `ticket-${data.ticket_id || 'update'}-${String(data.status || 'status').replace(/\s+/g, '_')}`;
+    return {
+      channelId: CHAT_CHANNEL_ID,
+      notificationId: collapseKey,
+      tag: collapseKey,
+    };
+  }
+
   const notificationId = data.message_id
     ? `chat-${data.message_id}`
     : `chat-user-${data.from_user_id || 'unknown'}`;
@@ -157,13 +178,23 @@ const displayRemoteNotification = async (remoteMessage, { isForeground = false }
     return;
   }
 
-  // A notification+data message is already shown by Android in the background.
-  // Posting it again is what leaves a second "New message" alert after a swipe.
-  if (!isForeground && remoteMessage?.notification) {
+  const { title, body, data } = normalizePayload(remoteMessage);
+
+  // Chat alerts are posted by Android itself when the app is closed.
+  // Ticket updates must also be posted from here, because a killed app
+  // otherwise never shows them in the notification bar.
+  const shownBySystem = !isForeground
+    && remoteMessage?.notification
+    && data.type !== 'ticket_status';
+  if (shownBySystem) {
     return;
   }
 
-  const { title, body, data } = normalizePayload(remoteMessage);
+  // iOS already presents the remote chat alert with the sender's name.
+  // A second local banner is the generic "New message" alert.
+  if (Platform.OS === 'ios' && data.type === 'chat_message') {
+    return;
+  }
 
   if (
     data.type === 'chat_message'
@@ -212,6 +243,9 @@ const displayRemoteNotification = async (remoteMessage, { isForeground = false }
 };
 
 export const showLocalChatNotification = async ({ fromUserId, title, body, messageId }) => {
+  // iOS already shows the Firebase alert with the sender's name.
+  if (Platform.OS === 'ios') return;
+
   await displayRemoteNotification({
     data: {
       type: 'chat_message',

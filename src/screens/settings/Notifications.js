@@ -15,8 +15,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import apiService from '../../services/apiService';
+import { loadVisibleBellNotifications } from '../../utils/bellNotifications';
 import { dismissAbnormalNotification, dismissChatNotifications } from '../../utils/notificationInbox';
-import { areNotificationsEnabled } from '../../utils/notificationPreference';
 
 const { width, height } = Dimensions.get('window');
 const guidelineBaseWidth = 375;
@@ -226,52 +226,7 @@ export default function Notifications({ navigation }) {
   const loadRealNotifications = async () => {
     try {
       setLoading(true);
-      if (!(await areNotificationsEnabled())) {
-        setNotifications([]);
-        await AsyncStorage.setItem('unreadBadgeCount', '0');
-        return;
-      }
-      const userStr = await AsyncStorage.getItem('user');
-      const user = userStr ? JSON.parse(userStr) : null;
-      const items = [];
-
-      if (user?.id) {
-        const chatResult = await apiService.getChatNotifications(user.id).catch(() => null);
-        const messages = Array.isArray(chatResult?.data) ? chatResult.data : [];
-        messages.forEach((message) => {
-          if (Number(message.is_read) === 1) return;
-          const sender = String(message.from_user_name || '').trim() || 'New message';
-          items.push({
-            id: `chat-${message.id}`,
-            kind: 'message',
-            title: sender,
-            message: message.message || 'Sent you a message',
-            date: message.created_at,
-            read: false,
-            fromUserId: message.from_user_id,
-          });
-        });
-      }
-
-      const appResult = await apiService.getInAppNotifications().catch(() => null);
-      const appRows = Array.isArray(appResult?.data) ? appResult.data : [];
-      appRows.forEach((row) => {
-        if (Number(row.is_read) === 1) return;
-        const isReview = row.kind === 'assigned_review';
-        items.push({
-          id: `${row.kind || 'notice'}-${row.id}`,
-          sourceId: row.id,
-          kind: isReview ? 'review' : 'notice',
-          title: row.ticket_title || (isReview ? 'Abnormal Reading Assigned' : 'Notification'),
-          message: row.message || row.patient_name || '',
-          date: row.created_at,
-          read: false,
-          practiceId: row.practice_id,
-          patientId: row.patient_id,
-        });
-      });
-
-      items.sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
+      const items = await loadVisibleBellNotifications();
       setNotifications(items);
       await AsyncStorage.setItem('unreadBadgeCount', String(items.length));
     } catch (error) {

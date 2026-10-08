@@ -1,8 +1,14 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Dimensions, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { AppState, Dimensions, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useFocusEffect } from '@react-navigation/native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { resolveUserRole } from '../../utils/resolveUserRole';
+import {
+  getUnreadMessageCount,
+  refreshUnreadMessageCount,
+  subscribeUnreadMessageCount,
+} from '../../utils/unreadMessageCount';
 
 const { width, height } = Dimensions.get('window');
 const guidelineBaseWidth = 375;
@@ -14,8 +20,9 @@ const scaleFont = (size) => Math.min((width / guidelineBaseWidth) * size, size *
 
 export const PREMIUM_BOTTOM_NAV_CLEARANCE = scaleHeight(88);
 
-export default function PremiumBottomNav({ active, navigation, role, unreadMessages = 0 }) {
+export default function PremiumBottomNav({ active, navigation, role }) {
   const [resolvedRole, setResolvedRole] = useState(role || 'patient');
+  const [unreadMessages, setUnreadMessages] = useState(getUnreadMessageCount);
 
 
   useEffect(() => {
@@ -44,6 +51,39 @@ export default function PremiumBottomNav({ active, navigation, role, unreadMessa
       mounted = false;
     };
   }, [role]);
+
+  useEffect(() => {
+    const sync = () => setUnreadMessages(getUnreadMessageCount());
+    sync();
+    const unsubscribe = subscribeUnreadMessageCount(sync);
+    refreshUnreadMessageCount();
+    const retryTimers = [800, 2500, 6000].map((delay) => (
+      setTimeout(() => refreshUnreadMessageCount(), delay)
+    ));
+    const poll = setInterval(() => {
+      refreshUnreadMessageCount();
+      sync();
+    }, 8000);
+
+    const appStateSub = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') {
+        refreshUnreadMessageCount();
+      }
+    });
+
+    return () => {
+      unsubscribe();
+      retryTimers.forEach(clearTimeout);
+      clearInterval(poll);
+      appStateSub.remove();
+    };
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      refreshUnreadMessageCount();
+    }, [])
+  );
 
   const go = useCallback((routeName) => {
     if (!routeName) {
@@ -140,7 +180,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.16,
     shadowRadius: 34,
     elevation: 6,
-    overflow: 'hidden',
   },
   navItem: {
     flex: 1,
@@ -166,8 +205,8 @@ const styles = StyleSheet.create({
   },
   navBadge: {
     position: 'absolute',
-    top: -4,
-    right: -8,
+    top: -6,
+    right: -10,
     backgroundColor: '#E53935',
     borderRadius: 8,
     minWidth: 16,
@@ -175,6 +214,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 3,
+    zIndex: 2,
   },
   navBadgeText: {
     color: '#fff',

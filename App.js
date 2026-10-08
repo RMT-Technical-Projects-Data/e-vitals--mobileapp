@@ -10,6 +10,7 @@ import {
   initializePushNotifications,
 } from './src/services/pushNotificationService';
 import { startChatAlerts, stopChatAlerts } from './src/services/chatAlertService';
+import { refreshUnreadMessageCount, setUnreadMessageCount } from './src/utils/unreadMessageCount';
 import {
   consumePendingChatOpenUserId,
   setPendingChatOpenUserId,
@@ -74,7 +75,15 @@ function PushNotificationBootstrap() {
     }
 
     startChatAlerts(user.id);
-    return () => stopChatAlerts();
+    refreshUnreadMessageCount();
+    const retryTimers = [1000, 3000, 8000].map((delay) => (
+      setTimeout(() => refreshUnreadMessageCount(), delay)
+    ));
+    return () => {
+      retryTimers.forEach(clearTimeout);
+      stopChatAlerts();
+      setUnreadMessageCount(0);
+    };
   }, [isLoggedIn, user?.id]);
 
   useEffect(() => {

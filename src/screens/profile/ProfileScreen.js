@@ -69,6 +69,52 @@ const formatDob = (value) => {
   return date.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
 };
 
+const US_STATE_NAMES_BY_ID = {
+  1: 'Alabama', 2: 'Alaska', 3: 'Arizona', 4: 'Arkansas', 5: 'California',
+  6: 'Colorado', 7: 'Connecticut', 8: 'Delaware', 9: 'District of Columbia', 10: 'Florida',
+  11: 'Georgia', 12: 'Hawaii', 13: 'Idaho', 14: 'Illinois', 15: 'Indiana',
+  16: 'Iowa', 17: 'Kansas', 18: 'Kentucky', 19: 'Louisiana', 20: 'Maine',
+  21: 'Maryland', 22: 'Massachusetts', 23: 'Michigan', 24: 'Minnesota', 25: 'Mississippi',
+  26: 'Missouri', 27: 'Montana', 28: 'Nebraska', 29: 'Nevada', 30: 'New Hampshire',
+  31: 'New Jersey', 32: 'New Mexico', 33: 'New York', 34: 'North Carolina', 35: 'North Dakota',
+  36: 'Ohio', 37: 'Oklahoma', 38: 'Oregon', 39: 'Pennsylvania', 40: 'Puerto Rico',
+  41: 'Rhode Island', 42: 'South Carolina', 43: 'South Dakota', 44: 'Tennessee', 45: 'Texas',
+  46: 'Utah', 47: 'Vermont', 48: 'Virginia', 49: 'Washington', 50: 'West Virginia',
+  51: 'Wisconsin', 52: 'Wyoming',
+};
+
+const US_STATE_NAMES_BY_CODE = Object.fromEntries(
+  Object.entries(US_STATE_NAMES_BY_ID).map(([, name]) => {
+    const code = {
+      Alabama: 'AL', Alaska: 'AK', Arizona: 'AZ', Arkansas: 'AR', California: 'CA',
+      Colorado: 'CO', Connecticut: 'CT', Delaware: 'DE', 'District of Columbia': 'DC', Florida: 'FL',
+      Georgia: 'GA', Hawaii: 'HI', Idaho: 'ID', Illinois: 'IL', Indiana: 'IN',
+      Iowa: 'IA', Kansas: 'KS', Kentucky: 'KY', Louisiana: 'LA', Maine: 'ME',
+      Maryland: 'MD', Massachusetts: 'MA', Michigan: 'MI', Minnesota: 'MN', Mississippi: 'MS',
+      Missouri: 'MO', Montana: 'MT', Nebraska: 'NE', Nevada: 'NV', 'New Hampshire': 'NH',
+      'New Jersey': 'NJ', 'New Mexico': 'NM', 'New York': 'NY', 'North Carolina': 'NC', 'North Dakota': 'ND',
+      Ohio: 'OH', Oklahoma: 'OK', Oregon: 'OR', Pennsylvania: 'PA', 'Puerto Rico': 'PR',
+      'Rhode Island': 'RI', 'South Carolina': 'SC', 'South Dakota': 'SD', Tennessee: 'TN', Texas: 'TX',
+      Utah: 'UT', Vermont: 'VT', Virginia: 'VA', Washington: 'WA', 'West Virginia': 'WV',
+      Wisconsin: 'WI', Wyoming: 'WY',
+    }[name];
+    return [code, name];
+  })
+);
+
+const resolveStateName = (source) => {
+  if (!source || typeof source !== 'object') return '';
+  const named = String(source.state_name || '').trim();
+  if (named && !/^\d+$/.test(named)) return named;
+  const raw = source.state_id ?? source.state;
+  const text = raw == null ? '' : String(raw).trim();
+  if (!text) return '';
+  if (/^\d+$/.test(text)) return US_STATE_NAMES_BY_ID[Number(text)] || '';
+  if (US_STATE_NAMES_BY_CODE[text.toUpperCase()]) return US_STATE_NAMES_BY_CODE[text.toUpperCase()];
+  const byName = Object.values(US_STATE_NAMES_BY_ID).find((name) => name.toLowerCase() === text.toLowerCase());
+  return byName || text;
+};
+
 const formatAddress = (source) => {
   if (!source) return '';
   if (typeof source === 'string') return source.trim();
@@ -76,7 +122,7 @@ const formatAddress = (source) => {
     source.address_line_1 || source.full_address || source.address || source.street,
     source.address_line_2,
     source.city,
-    source.state_name || source.state,
+    resolveStateName(source),
     source.zip_code || source.zip,
   ]
     .map((part) => (part == null ? '' : String(part).trim()))

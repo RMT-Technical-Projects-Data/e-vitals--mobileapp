@@ -48,10 +48,12 @@ import { setActiveChatPeer, setChatScreenFocused } from '../../services/chatPres
 import PremiumBottomNav, { PREMIUM_BOTTOM_NAV_CLEARANCE } from '../../components/navigation/PremiumBottomNav';
 import { setActiveChatUserId } from '../../utils/activeChatState';
 import { dismissChatNotifications } from '../../utils/notificationInbox';
+import { setUnreadMessageCount as publishUnreadMessageCount } from '../../utils/unreadMessageCount';
 import { areNotificationsEnabled } from '../../utils/notificationPreference';
 import useVoiceMessageRecorder from '../../hooks/useVoiceMessageRecorder';
 import useVoiceMessagePlayer from '../../hooks/useVoiceMessagePlayer';
 import VoiceMessageBubble from '../../components/chat/VoiceMessageBubble';
+import PatientAvatar from '../../components/common/PatientAvatar';
 
 const { width, height } = Dimensions.get('window');
 const guidelineBaseWidth = 375;
@@ -247,7 +249,46 @@ const getFallbackMessages = (contact, currentUser) => {
 
 // â”€â”€â”€ Chat List Builder (Active Conversations) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-const buildChatList = (conversations = [], currentUser = null) => {
+const pickProfilePic = (record) => (
+  record?.profile_pic
+  || record?.profilePic
+  || record?.profile_image
+  || record?.avatar
+  || record?.other_user_avatar
+  || null
+);
+
+const loadPatientPicByUserId = async (practiceId) => {
+  const map = new Map();
+  if (!practiceId) return map;
+
+  try {
+    let page = 1;
+    let totalPages = 1;
+    do {
+      const result = await apiService.getPatients(practiceId, {
+        limit: 200,
+        page,
+        standardList: true,
+      });
+      const patients = result?.data?.patients || [];
+      patients.forEach((patient) => {
+        const userId = patient.user_id || patient.userId;
+        const pic = pickProfilePic(patient);
+        if (userId && pic) map.set(String(userId), pic);
+      });
+      totalPages = Math.max(1, result?.data?.pagination?.total_pages || 1);
+      if (!patients.length) break;
+      page += 1;
+    } while (page <= totalPages && page <= 15);
+  } catch (error) {
+    console.warn('Patient photos for messages:', error?.message);
+  }
+
+  return map;
+};
+
+const buildChatList = (conversations = [], currentUser = null, picByUserId = new Map()) => {
   const map = new Map();
 
   conversations.forEach((conv) => {
@@ -268,6 +309,7 @@ const buildChatList = (conversations = [], currentUser = null) => {
       name: conv.other_user_name || 'Unknown User',
       role_id: roleId,
       role_name: roleName || resolveRoleLabel(roleId),
+      profile_pic: pickProfilePic(conv) || picByUserId.get(String(otherId)) || null,
       lastMessage: getMessagePreview(conv),
       lastMessageDeleted: isDeletedForEveryone(conv),
       lastMessageTime: isMessageRemoved(conv) ? null : conv.created_at,
@@ -521,6 +563,7 @@ const ChatScreen = ({ navigation, route }) => {
   const selectedContactRef = useRef(null);
   const sendAccessRequestRef = useRef(0);
   const currentUserRef = useRef(null);
+  const patientPicByUserIdRef = useRef(new Map());
   const handledPushNonceRef = useRef(null);
   const viewRef = useRef(view);
   const selectedMessageIdsRef = useRef(selectedMessageIds);
@@ -633,7 +676,11 @@ const ChatScreen = ({ navigation, route }) => {
       } else if (fromId !== myId) {
         const senderName = msg.sender_name || msg.from_user_name || 'New message';
         showBanner({ name: senderName, preview: getMessagePreview(msg) });
-        setUnreadCount((n) => n + 1);
+        setUnreadCount((n) => {
+          const next = n + 1;
+          publishUnreadMessageCount(next);
+          return next;
+        });
       }
 
       setChatList((prev) => {
@@ -756,12 +803,16 @@ const ChatScreen = ({ navigation, route }) => {
       ]);
 
       const conversations = conversationsRes.status === 'fulfilled' ? (conversationsRes.value?.data || []) : [];
+      const picByUserId = await loadPatientPicByUserId(practiceId);
+      patientPicByUserIdRef.current = picByUserId;
 
       if (unreadRes.status === 'fulfilled') {
-        setUnreadCount(Number(unreadRes.value?.data?.count || 0));
+        const nextUnread = Number(unreadRes.value?.data?.count || 0);
+        setUnreadCount(nextUnread);
+        publishUnreadMessageCount(nextUnread);
       }
 
-      setChatList(buildChatList(conversations, user));
+      setChatList(buildChatList(conversations, user, picByUserId));
       setUsingFallback(false);
     } catch (error) {
       console.warn('Chat list fallback:', error?.message);
@@ -795,7 +846,11 @@ const ChatScreen = ({ navigation, route }) => {
           prev.find((item) => String(item.id) === String(contact.id))?.unread || 0
         );
         if (openedUnread > 0) {
-          setUnreadCount((count) => Math.max(0, Number(count || 0) - openedUnread));
+          setUnreadCount((count) => {
+            const next = Math.max(0, Number(count || 0) - openedUnread);
+            publishUnreadMessageCount(next);
+            return next;
+          });
         }
         return prev.map((item) => (
           String(item.id) === String(contact.id) ? { ...item, unread: 0 } : item
@@ -855,7 +910,15 @@ const ChatScreen = ({ navigation, route }) => {
             }).catch(() => null);
           }
           apiService.getChatConversations(me.id).then((res) => {
-            if (Array.isArray(res?.data)) setChatList(buildChatList(res.data, me));
+            if (!Array.isArray(res?.data)) return;
+            const pics = patientPicByUserIdRef.current;
+            setChatList((prev) => {
+              const previousPics = new Map(prev.map((item) => [String(item.id), item.profile_pic]));
+              return buildChatList(res.data, me, pics).map((item) => ({
+                ...item,
+                profile_pic: item.profile_pic || previousPics.get(String(item.id)) || null,
+              }));
+            });
           }).catch(() => null);
         }
       }, 3500);
@@ -1017,7 +1080,10 @@ const ChatScreen = ({ navigation, route }) => {
       const activeUser = currentUser || (userStr ? JSON.parse(userStr) : null);
       const practiceId = activeUser?.practice_id || (await AsyncStorage.getItem('practiceId')) || 1;
 
-      const res = await apiService.getChatAvailableUsers(practiceId, activeUser?.id || 0);
+      const [res, picByUserId] = await Promise.all([
+        apiService.getChatAvailableUsers(practiceId, activeUser?.id || 0),
+        loadPatientPicByUserId(practiceId),
+      ]);
 
       // Filter available contacts strictly using the sender-recipient role matrix & exclusion rules
       const list = (res?.data || [])
@@ -1025,8 +1091,11 @@ const ChatScreen = ({ navigation, route }) => {
         .map((u) => ({
           id: u.id,
           name: formatLastFirstName(u) || u.name || u.username || 'Unknown',
+          first_name: u.first_name,
+          last_name: u.last_name,
           role_id: u.role_id || resolveUserRoleId(u),
           role_name: u.role_name || u.role || resolveRoleLabel(u.role_id),
+          profile_pic: pickProfilePic(u) || picByUserId.get(String(u.id)) || null,
         }));
       setAvailableUsers(list);
       setBlockedChatCounts({
@@ -1049,8 +1118,11 @@ const ChatScreen = ({ navigation, route }) => {
     openChat({
       id: user.id,
       name: user.name,
+      first_name: user.first_name,
+      last_name: user.last_name,
       role_id: user.role_id,
       role_name: user.role_name,
+      profile_pic: user.profile_pic || null,
       lastMessage: 'Tap to start a conversation',
       lastMessageTime: null,
       unread: 0,
@@ -1601,9 +1673,17 @@ const ChatScreen = ({ navigation, route }) => {
           style={styles.chatSelectionIcon}
         />
       )}
-      <View style={[styles.avatar, { backgroundColor: `${ACCENT_COLOR}18` }]}>
-        <Text style={[styles.avatarText, { color: ACCENT_COLOR }]}>{getInitials(item.name)}</Text>
-      </View>
+      <PatientAvatar
+        profilePic={item.profile_pic}
+        name={item.name}
+        firstName={item.first_name}
+        lastName={item.last_name}
+        size={scaleWidth(52)}
+        backgroundColor={`${ACCENT_COLOR}18`}
+        textColor={ACCENT_COLOR}
+        textStyle={styles.avatarText}
+        style={styles.avatar}
+      />
       <View style={styles.chatRowBody}>
         <View style={styles.chatRowTop}>
           <Text style={styles.chatRowName} numberOfLines={1}>{item.name}</Text>
@@ -1672,15 +1752,25 @@ const ChatScreen = ({ navigation, route }) => {
               />
             )}
             {!isMine && (
-              <View style={[styles.peerAvatar, { backgroundColor: `${ACCENT_COLOR}20` }]}>
-                <Text style={[styles.peerAvatarText, { color: ACCENT_COLOR }]}>
-                  {getInitials(selectedContact?.name)}
-                </Text>
-              </View>
+              <PatientAvatar
+                profilePic={selectedContact?.profile_pic}
+                name={selectedContact?.name}
+                firstName={selectedContact?.first_name}
+                lastName={selectedContact?.last_name}
+                size={scaleWidth(28)}
+                backgroundColor={`${ACCENT_COLOR}20`}
+                textColor={ACCENT_COLOR}
+                textStyle={styles.peerAvatarText}
+                style={styles.peerAvatar}
+              />
             )}
             <View
               pointerEvents={selectionMode ? 'none' : 'auto'}
-              style={[styles.bubble, isMine ? styles.bubbleMine : styles.bubbleOther]}
+              style={[
+                styles.bubble,
+                isMine ? styles.bubbleMine : styles.bubbleOther,
+                isAudioMessage(item) && isMine && styles.bubbleMineVoice,
+              ]}
             >
               {isBeingEdited ? (
                 <View>
@@ -1732,14 +1822,14 @@ const ChatScreen = ({ navigation, route }) => {
                     textMuted={TEXT_MUTED}
                   />
                   <View style={styles.messageFooter}>
-                    <Text style={[styles.messageTime, isMine ? styles.messageTimeMine : styles.messageTimeOther]}>
+                    <Text style={[styles.messageTime, isMine ? styles.messageTimeMineVoice : styles.messageTimeOther]}>
                       {formatMessageTime(item.created_at)}
                     </Text>
                     {isMine && (
                       <MaterialIcons
                         name={item._pending ? 'access-time' : item.is_read ? 'done-all' : 'done'}
                         size={12}
-                        color={item.is_read ? '#4FC3F7' : '#90A4AE'}
+                        color={item.is_read ? '#B3E5FC' : 'rgba(255,255,255,0.85)'}
                         style={{ marginLeft: 3 }}
                       />
                     )}
@@ -1970,6 +2060,17 @@ const ChatScreen = ({ navigation, route }) => {
                 <TouchableOpacity style={styles.topbarActionButton} onPress={closeChat} accessibilityLabel="Back to chats">
                   <MaterialIcons name="arrow-back" size={21} color={TEXT_DARK} />
                 </TouchableOpacity>
+                <PatientAvatar
+                  profilePic={selectedContact?.profile_pic}
+                  name={selectedContact?.name}
+                  firstName={selectedContact?.first_name}
+                  lastName={selectedContact?.last_name}
+                  size={scaleWidth(36)}
+                  backgroundColor={`${ACCENT_COLOR}18`}
+                  textColor={ACCENT_COLOR}
+                  textStyle={styles.headerAvatarText}
+                  style={styles.headerAvatar}
+                />
                 {/* Centered name & role */}
                 <View style={{ flex: 1 }}>
                   <Text style={styles.topbarTitle} numberOfLines={1}>{selectedContact?.name}</Text>
@@ -2195,9 +2296,17 @@ const ChatScreen = ({ navigation, route }) => {
                       style={styles.userRow}
                       onPress={() => selectUserFromModal(item)}
                       activeOpacity={0.75}>
-                      <View style={[styles.avatar, { backgroundColor: `${ACCENT_COLOR}18` }]}>
-                        <Text style={[styles.avatarText, { color: ACCENT_COLOR }]}>{getInitials(item.name)}</Text>
-                      </View>
+                      <PatientAvatar
+                        profilePic={item.profile_pic}
+                        name={item.name}
+                        firstName={item.first_name}
+                        lastName={item.last_name}
+                        size={scaleWidth(52)}
+                        backgroundColor={`${ACCENT_COLOR}18`}
+                        textColor={ACCENT_COLOR}
+                        textStyle={styles.avatarText}
+                        style={styles.avatar}
+                      />
                       <View style={styles.userRowBody}>
                         <Text style={styles.userRowName}>{item.name}</Text>
                         <Text style={styles.userRowRole}>{resolveRoleLabel(item.role_id || item.role_name)}</Text>
@@ -2444,7 +2553,7 @@ const ChatScreen = ({ navigation, route }) => {
               {renderListView()}
             </SafeAreaView>
           </LinearGradient>
-          <PremiumBottomNav active="messages" navigation={navigation} unreadMessages={unreadCount} />
+          <PremiumBottomNav active="messages" navigation={navigation} />
         </>
       ) : (
         renderConversationView()
@@ -2626,8 +2735,10 @@ const styles = StyleSheet.create({
   },
   chatRowSelected: { backgroundColor: 'rgba(11,31,63,0.06)' },
   chatSelectionIcon: { marginRight: scaleWidth(10) },
-  avatar: { width: scaleWidth(52), height: scaleWidth(52), borderRadius: scaleWidth(26), alignItems: 'center', justifyContent: 'center', marginRight: scaleWidth(12) },
+  avatar: { marginRight: scaleWidth(12) },
   avatarText: { fontSize: scaleFont(16), fontWeight: '800' },
+  headerAvatar: { marginRight: scaleWidth(10) },
+  headerAvatarText: { fontSize: scaleFont(13), fontWeight: '800' },
   chatRowBody: { flex: 1, minWidth: 0 },
   chatRowTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: scaleWidth(8) },
   chatRowName: { flex: 1, color: TEXT_DARK, fontSize: scaleFont(16), fontWeight: '800' },
@@ -2666,10 +2777,12 @@ const styles = StyleSheet.create({
   messageRowSelected: { backgroundColor: 'rgba(11,31,63,0.06)', borderRadius: scaleWidth(12) },
   selectionIcon: { marginRight: scaleWidth(8), marginBottom: scaleHeight(6) },
   selectionActions: { flexDirection: 'row', alignItems: 'center', gap: scaleWidth(8) },
-  peerAvatar: { width: scaleWidth(28), height: scaleWidth(28), borderRadius: scaleWidth(14), alignItems: 'center', justifyContent: 'center', marginRight: scaleWidth(6) },
+  peerAvatar: { marginRight: scaleWidth(6) },
   peerAvatarText: { fontSize: scaleFont(10), fontWeight: '800' },
   bubble: { maxWidth: '75%', borderRadius: scaleWidth(14), paddingHorizontal: scaleWidth(12), paddingVertical: scaleHeight(8) },
   bubbleMine: { backgroundColor: '#dcf8c6', borderTopRightRadius: scaleWidth(4) },
+  bubbleMineVoice: { backgroundColor: '#1177c6' },
+  messageTimeMineVoice: { color: 'rgba(255,255,255,0.9)' },
   bubbleOther: { backgroundColor: '#ffffff', borderTopLeftRadius: scaleWidth(4) },
   messageText: { fontSize: scaleFont(15), lineHeight: scaleFont(21), fontWeight: '500' },
   messageTextMine: { color: '#111b21' },

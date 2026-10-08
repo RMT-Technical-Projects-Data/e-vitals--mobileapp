@@ -88,9 +88,15 @@ const formatFollowUpTimerDisplay = (totalSeconds) => {
 const FollowUpServiceTimer = React.memo(({ initialSeconds, accentColor, active }) => {
   const [seconds, setSeconds] = useState(initialSeconds);
   const [running, setRunning] = useState(true);
+  const wasActiveRef = useRef(false);
 
   useEffect(() => {
-    if (!active) return;
+    if (!active) {
+      wasActiveRef.current = false;
+      return;
+    }
+    if (wasActiveRef.current) return;
+    wasActiveRef.current = true;
     setSeconds(initialSeconds);
     setRunning(true);
   }, [active, initialSeconds]);
@@ -111,12 +117,25 @@ const FollowUpServiceTimer = React.memo(({ initialSeconds, accentColor, active }
       <TouchableOpacity
         style={[styles.timerPlayBtnSmall, { backgroundColor: accentColor }]}
         onPress={() => setRunning((prev) => !prev)}
+        accessibilityRole="button"
+        accessibilityLabel={running ? 'Pause timer' : 'Resume timer'}
       >
         <MaterialIcons
           name={running ? 'pause' : 'play-arrow'}
           size={20}
           color="#fff"
         />
+      </TouchableOpacity>
+      <TouchableOpacity
+        style={styles.timerResetBtnSmall}
+        onPress={() => {
+          setRunning(false);
+          setSeconds(0);
+        }}
+        accessibilityRole="button"
+        accessibilityLabel="Reset follow-up timer"
+      >
+        <MaterialIcons name="close" size={18} color="#dc2626" />
       </TouchableOpacity>
     </View>
   );
@@ -1866,6 +1885,14 @@ const styles = StyleSheet.create({
     borderRadius: scaleWidth(12),
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  timerResetBtnSmall: {
+    width: scaleWidth(40),
+    height: scaleWidth(40),
+    borderRadius: scaleWidth(12),
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#fee2e2',
   },
   manualTimeRow: {
     flexDirection: 'row',

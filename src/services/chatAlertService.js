@@ -1,8 +1,9 @@
-import { AppState } from 'react-native';
+import { AppState, Platform } from 'react-native';
 import { io } from 'socket.io-client';
 import { SOCKET_BASE_URL } from '../config/api';
 import { isChatScreenFocused } from './chatPresence';
 import { showLocalChatNotification } from './pushNotificationService';
+import { getUnreadMessageCount, refreshUnreadMessageCount, setUnreadMessageCount } from '../utils/unreadMessageCount';
 
 let socket = null;
 let currentUserId = null;
@@ -39,6 +40,9 @@ const handleIncomingMessage = (message) => {
   const toId = String(message.to_user_id ?? '');
   if (!fromId || toId !== currentUserId || fromId === currentUserId) return;
   if (rememberMessage(message.id)) return;
+  setUnreadMessageCount(getUnreadMessageCount() + 1);
+  refreshUnreadMessageCount().catch(() => {});
+  if (Platform.OS === 'ios') return;
   if (!shouldPostSystemAlert(fromId)) return;
 
   const senderName = message.sender_name || message.from_user_name || 'New message';

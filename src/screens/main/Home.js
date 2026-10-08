@@ -44,7 +44,7 @@ import {
   refreshNotificationInbox,
   subscribeNotificationInbox,
 } from '../../utils/notificationInbox';
-import { areNotificationsEnabled } from '../../utils/notificationPreference';
+import { loadVisibleBellNotifications } from '../../utils/bellNotifications';
 import PatientAvatar from '../../components/common/PatientAvatar';
 
 const { width, height } = Dimensions.get('window');
@@ -1347,7 +1347,7 @@ export default function Home({ navigation }) {
         setPracticeId(pId);
         // Use the same program-analytics API the web frontend uses. It returns
         // summary.{ total, active, pending, locked, recent, missed, abnormal }
-        const [listResult, analyticsResult] = await Promise.all([
+        const [listResult, analyticsResult, recentResult] = await Promise.all([
           apiService.getPatients(pId, {
             limit: 1000,
             page: 1,
@@ -1355,6 +1355,13 @@ export default function Home({ navigation }) {
             providerId: userObj.id,
           }).catch(() => null),
           apiService.getProgramAnalytics(pId, 'rpm').catch(() => null),
+          apiService.getPatients(pId, {
+            limit: 100,
+            page: 1,
+            program: 'rpm',
+            dashboardFilter: 'recentUploads',
+            providerId: userObj.id,
+          }).catch(() => null),
         ]);
 
         // analytics.summary is { total, active, pending, locked, recent, missed, abnormal }
@@ -1387,6 +1394,7 @@ export default function Home({ navigation }) {
             : null
         );
 
+        setRecentUploadPatients(recentResult?.data?.patients || []);
         const patientList = listResult?.data?.patients || [];
         if (patientList.length > 0) {
           setProviderPatients(patientList);
@@ -1394,11 +1402,13 @@ export default function Home({ navigation }) {
           setProviderPatients(fallbackProviderPatients);
         }
       } else {
+        setRecentUploadPatients([]);
         setProviderPatients(fallbackProviderPatients);
         setProviderDashboardStats(null);
       }
     } catch (error) {
       console.warn('Error fetching provider patients:', error);
+      setRecentUploadPatients([]);
       setProviderPatients(fallbackProviderPatients);
       setProviderDashboardStats(null);
     } finally {
@@ -1472,26 +1482,15 @@ export default function Home({ navigation }) {
     useCallback(() => {
       loadUserData();
       const syncNotificationBadge = async () => {
-        if (!(await areNotificationsEnabled())) {
-          setHasUnreadNotifications(false);
-          return;
-        }
         await refreshNotificationInbox();
-        let apiCount = 0;
+        let visibleCount = 0;
         try {
-          const userStr = await AsyncStorage.getItem('user');
-          const user = userStr ? JSON.parse(userStr) : null;
-          if (user?.id) {
-            const [chatResult, reviewResult] = await Promise.all([
-              apiService.getChatUnreadCount(user.id).catch(() => null),
-              apiService.getInAppNotificationCount().catch(() => null),
-            ]);
-            apiCount = Number(chatResult?.data?.count || 0) + Number(reviewResult?.data?.count || 0);
-          }
+          const items = await loadVisibleBellNotifications();
+          visibleCount = items.length;
         } catch {
-          apiCount = 0;
+          visibleCount = 0;
         }
-        setHasUnreadNotifications(getUnreadNotificationCount() > 0 || apiCount > 0);
+        setHasUnreadNotifications(getUnreadNotificationCount() > 0 || visibleCount > 0);
       };
       syncNotificationBadge();
     }, [loadUserData])
@@ -1499,13 +1498,13 @@ export default function Home({ navigation }) {
 
   useEffect(() => {
     const unsubscribe = subscribeNotificationInbox(() => {
-      areNotificationsEnabled().then((enabled) => {
-        if (!enabled) {
-          setHasUnreadNotifications(false);
-          return;
-        }
-        setHasUnreadNotifications((current) => getUnreadNotificationCount() > 0 || current);
-      });
+      loadVisibleBellNotifications()
+        .then((items) => {
+          setHasUnreadNotifications(getUnreadNotificationCount() > 0 || items.length > 0);
+        })
+        .catch(() => {
+          setHasUnreadNotifications(getUnreadNotificationCount() > 0);
+        });
     });
     refreshNotificationInbox();
     return unsubscribe;
@@ -1984,7 +1983,8 @@ export default function Home({ navigation }) {
     );
     const missedUploadsCount = toSafeNumber(stats.missed_uploads, Math.max(14, totalPanel - activeCount));
     const abnormalCount = toSafeNumber(stats.abnormal_measurements, criticalPatients.length || 9);
-    const recentUploadsCount = toSafeNumber(stats.recent_uploads, 0);
+    const recentUploads = buildRecentUploadCards(recentUploadPatients);
+    const recentUploadsCount = toSafeNumber(stats.recent_uploads, recentUploads.length);
     // Build CPT rows matching the web's 6 RPM codes with eligible + ineligible counts.
     const buildCptRow = (code, rawCount, variant) => {
       const eligible = toSafeNumber(rawCount, 0);
@@ -2052,22 +2052,30 @@ export default function Home({ navigation }) {
                 navigation={navigation}
               />
 
-              <SectionTitle title="Critical Alerts" actionLabel="See all" actionColor={EV.muted} onPress={() => navigation.navigate('Patients')} />
+              <SectionTitle title="Recent Uploads" subtitle="Latest patient syncs" actionLabel="Patients" actionColor={EV.navy} onPress={() => navigation.navigate('Patients')} />
 
-              {criticalPatients.length === 0 ? (
-                <View style={st.emptyAlertCard}><Text style={st.emptyAlertText}>No critical alerts for now.</Text></View>
+              {isProviderLoading && recentUploadPatients.length === 0 ? (
+                <ActivityIndicator size="small" color={EV.navy} style={{ marginVertical: 20 }} />
+              ) : recentUploads.length === 0 ? (
+                <View style={st.emptyAlertCard}><Text style={st.emptyAlertText}>No recent uploads.</Text></View>
               ) : (
-                <View style={st.criticalCard}>
-                  {criticalPatients.slice(0, 4).map((p) => (
-                    <CriticalAlertRow
-                      key={String(p.id)}
-                      name={formatLastFirstName(p)}
-                      detail={p.data_summary ? `Blood pressure ${p.data_summary} requires provider review` : 'Reading outside configured clinical threshold'}
-                      severity={p.status === 'Critical' || p.status === 'Locked' ? 'Critical' : 'High'}
-                      critical={p.status === 'Critical' || p.status === 'Locked'}
-                      onPress={() => openPatientHub(p, 'provider')}
-                    />
-                  ))}
+                <View style={st.uploadList}>
+                  {recentUploads.map(({ patient, readings }) => {
+                    const patientKey = String(patient.patient_table_id || patient.id);
+                    const page = Math.min(recentUploadIndex[patientKey] || 0, Math.max(readings.length - 1, 0));
+                    return (
+                      <RecentUploadCard
+                        key={patientKey}
+                        patient={patient}
+                        readings={readings}
+                        page={page}
+                        onChangePage={(nextPage) => {
+                          setRecentUploadIndex((prev) => ({ ...prev, [patientKey]: nextPage }));
+                        }}
+                        onOpen={() => openPatientHub(patient, 'provider')}
+                      />
+                    );
+                  })}
                 </View>
               )}
 

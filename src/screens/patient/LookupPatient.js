@@ -38,6 +38,8 @@ import {
   lookupExportFilename,
   emailListError,
 } from './lookupPatientReport';
+import { buildLookupPdf } from './lookupPatientPdf';
+import { saveExportFile } from './saveExportFile';
 
 const { width } = Dimensions.get('window');
 const guidelineBaseWidth = 375;
@@ -252,31 +254,58 @@ const getPatientStatusMeta = (status) => {
   return { letter: 'A', bg: '#DDF8DD', color: '#0b1f3f' };
 };
 
+const firstPositive = (...values) => {
+  for (const value of values) {
+    const num = toCleanNum(value);
+    if (num != null && num > 0) return num;
+  }
+  return null;
+};
+
 const getPatientVitalsDisplay = (item) => {
   const latest = item.latest_measurements || {};
   const bpObj = latest.blood_pressure || item.blood_pressure || null;
   const bgObj = latest.blood_glucose || item.blood_glucose || null;
   const wtObj = latest.weight || item.weight_measurement || null;
-  const summary = String(item.data_summary || item.vitals || '').trim();
+  const summary = String(item.data_summary || '').trim();
   const hasBp = /\d+\s*\/\s*\d+/.test(summary);
 
-  const systolic = toCleanNum(bpObj?.systolic_pressure ?? bpObj?.systolic ?? item.last_systolic ?? item.systolic);
-  const diastolic = toCleanNum(bpObj?.diastolic_pressure ?? bpObj?.diastolic ?? item.last_diastolic ?? item.diastolic);
-  let pulse = toCleanNum(bpObj?.pulse ?? item.last_pulse ?? item.pulse);
+  const systolic = firstPositive(
+    bpObj?.systolic_pressure,
+    bpObj?.systolic,
+    item.last_systolic,
+    item.systolic,
+  );
+  const diastolic = firstPositive(
+    bpObj?.diastolic_pressure,
+    bpObj?.diastolic,
+    item.last_diastolic,
+    item.diastolic,
+  );
+  let pulse = firstPositive(bpObj?.pulse, item.last_pulse, item.pulse);
   let bp = (systolic != null && diastolic != null)
     ? `${Math.round(systolic)}/${Math.round(diastolic)}`
     : '--';
-  let glucose = bgObj
-    ? String(Math.round(bgObj.blood_glucose_value_1 || bgObj.value || 0))
-    : (item.last_glucose ?? item.glucose ? String(Math.round(item.last_glucose ?? item.glucose)) : '--');
-  
-  let rawWt = wtObj
-    ? (wtObj.weight || wtObj.weight_value || wtObj.value)
-    : (item.last_weight ?? item.weight);
-  let weightNum = toCleanNum(rawWt);
-  let weight = weightNum != null && weightNum > 0 ? weightNum.toFixed(1) : '--';
+  const glucoseNum = firstPositive(
+    bgObj?.blood_glucose_value_1,
+    bgObj?.blood_glucose_value_2,
+    bgObj?.blood_glucose_value_3,
+    bgObj?.value,
+    item.last_glucose,
+    item.glucose,
+  );
+  let glucose = glucoseNum != null ? String(Math.round(glucoseNum)) : '--';
 
-  if (hasBp) {
+  const weightNum = firstPositive(
+    wtObj?.weight,
+    wtObj?.weight_value,
+    wtObj?.value,
+    item.last_weight,
+    item.weight,
+  );
+  let weight = weightNum != null ? weightNum.toFixed(1) : '--';
+
+  if (bp === '--' && hasBp) {
     const bpMatch = summary.match(/(\d{2,3})\s*\/\s*(\d{2,3})/);
     const pulseMatch = summary.match(/\((\d{2,3})\)/);
     if (bpMatch) {
@@ -292,7 +321,7 @@ const getPatientVitalsDisplay = (item) => {
 
   return {
     bp,
-    pulse: pulse != null ? Math.round(pulse) : null,
+    pulse: bp !== '--' && pulse != null ? Math.round(pulse) : null,
     glucose,
     weight,
     readingsCount,
@@ -300,33 +329,177 @@ const getPatientVitalsDisplay = (item) => {
   };
 };
 
-const getPatientVitalPills = (item) => {
-  const rawVitals = item.vitals || item.measurement_types || '';
-  let list = [];
-  if (Array.isArray(rawVitals)) {
-    list = rawVitals.map((v) => String(v).trim()).filter(Boolean);
-  } else if (typeof rawVitals === 'string' && rawVitals.trim().length > 0 && !rawVitals.includes('/')) {
-    list = rawVitals.split(',').map((v) => v.trim()).filter(Boolean);
-  }
-
-  if (list.length === 0) {
-    const latest = item.latest_measurements || {};
-    if (latest.blood_pressure || item.blood_pressure || (item.data_summary && String(item.data_summary).includes('/'))) list.push('BP');
-    if (latest.blood_glucose || item.blood_glucose || item.glucose) list.push('BG');
-    if (latest.weight || item.weight_measurement || item.weight) list.push('W');
-  }
-
-  const normalized = list.map((v) => {
-    const lower = v.toLowerCase();
-    if (lower.includes('pressure') || lower === 'bp') return 'BP';
-    if (lower.includes('glucose') || lower === 'bg') return 'BG';
-    if (lower.includes('weight') || lower === 'wt' || lower === 'w') return 'W';
-    if (lower.includes('pulse') || lower === 'hr') return 'Pulse';
-    return v;
+const registeredVitalCodes = (item) => {
+  const codes = new Set();
+  const addToken = (token) => {
+    const text = String(token || '').trim().toUpperCase();
+    if (!text || text === '-') return;
+    if (text === 'BP' || text.includes('BLOOD PRESSURE')) codes.add('BP');
+    else if (text === 'BG' || text.includes('GLUCOSE')) codes.add('BG');
+    else if (text === 'WT' || text === 'W' || text === 'WEIGHT' || text.includes('WEIGHT')) codes.add('WT');
+  };
+  const sources = [
+    item?.registered_vitals,
+    item?.assigned_vital_types,
+    item?.vitals,
+  ];
+  sources.forEach((source) => {
+    const parts = Array.isArray(source) ? source : String(source || '').split(',');
+    parts.forEach(addToken);
   });
+  return codes;
+};
 
-  const unique = Array.from(new Set(normalized));
-  return unique.length > 0 ? unique : ['BP'];
+const getPatientVitalPills = (item) => {
+  const display = getPatientVitalsDisplay(item);
+  const registered = registeredVitalCodes(item);
+  const pills = [];
+  if (registered.has('BP') || display.bp !== '--') pills.push('BP');
+  if (registered.has('BG') || display.glucose !== '--') pills.push('BG');
+  if (registered.has('WT') || display.weight !== '--') pills.push('W');
+  return pills;
+};
+
+const patientHasLatestReading = (patient) => {
+  const display = getPatientVitalsDisplay(patient);
+  return display.bp !== '--' || display.glucose !== '--' || display.weight !== '--';
+};
+
+const withLatestReadingFields = (patient, source = {}) => {
+  const latest = source.latest_measurements || patient.latest_measurements || {};
+  const bp = latest.blood_pressure || null;
+  const bg = latest.blood_glucose || null;
+  const wt = latest.weight || null;
+  const lastSystolic = firstPositive(patient.last_systolic, patient.systolic, source.last_systolic, source.systolic, bp?.systolic_pressure, bp?.systolic);
+  const lastDiastolic = firstPositive(patient.last_diastolic, patient.diastolic, source.last_diastolic, source.diastolic, bp?.diastolic_pressure, bp?.diastolic);
+  const lastPulse = firstPositive(patient.last_pulse, patient.pulse, source.last_pulse, source.pulse, bp?.pulse);
+  const lastGlucose = firstPositive(patient.last_glucose, patient.glucose, source.last_glucose, source.glucose, bg?.blood_glucose_value_1, bg?.value);
+  const lastWeight = firstPositive(patient.last_weight, source.last_weight, wt?.weight, wt?.weight_value, wt?.value);
+  const readingsCount = Number(patient.readings_count ?? patient.number_of_readings) || Number(source.readings_count ?? source.number_of_readings) || 0;
+  const serviceTime = Number(patient.service_time ?? patient.total_service_time) || Number(source.service_time ?? source.total_service_time) || 0;
+  const registered = [...new Set([
+    ...registeredVitalCodes(patient),
+    ...registeredVitalCodes(source),
+  ])];
+  return {
+    ...patient,
+    registered_vitals: registered,
+    vitals: registered.length ? registered.join(', ') : (patient.vitals || '-'),
+    latest_measurements: {
+      blood_pressure: (lastSystolic != null || lastDiastolic != null)
+        ? { systolic_pressure: lastSystolic, diastolic_pressure: lastDiastolic, pulse: lastPulse }
+        : null,
+      blood_glucose: lastGlucose != null ? { blood_glucose_value_1: lastGlucose } : null,
+      weight: lastWeight != null ? { weight: lastWeight } : null,
+    },
+    last_systolic: lastSystolic,
+    last_diastolic: lastDiastolic,
+    last_pulse: lastPulse,
+    last_glucose: lastGlucose,
+    last_weight: lastWeight,
+    systolic: lastSystolic,
+    diastolic: lastDiastolic,
+    pulse: lastPulse,
+    glucose: lastGlucose,
+    weight: lastWeight,
+    readings_count: readingsCount,
+    number_of_readings: readingsCount,
+    service_time: serviceTime,
+  };
+};
+
+const mapWithConcurrency = async (items, limit, worker) => {
+  const results = new Array(items.length);
+  let cursor = 0;
+  const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (cursor < items.length) {
+      const index = cursor;
+      cursor += 1;
+      results[index] = await worker(items[index], index);
+    }
+  });
+  await Promise.all(runners);
+  return results;
+};
+
+const practiceVitalIndexCache = new Map();
+
+const loadPracticeVitalIndex = (practiceId) => {
+  const key = String(practiceId);
+  if (practiceVitalIndexCache.has(key)) return practiceVitalIndexCache.get(key);
+  const promise = (async () => {
+    const index = new Map();
+    let page = 1;
+    let pages = 1;
+    while (page <= pages && page <= 40) {
+      const res = await apiService.getPatients(practiceId, {
+        program: 'rpm',
+        limit: 100,
+        page,
+      });
+      const payload = res?.data?.patients ? res.data : (res?.data?.data || {});
+      const batch = Array.isArray(payload.patients) ? payload.patients : [];
+      batch.forEach((row) => {
+        const id = String(row.patient_table_id || row.id || '');
+        if (id) index.set(id, row);
+      });
+      pages = Number(payload.pagination?.total_pages) || 1;
+      if (batch.length === 0) break;
+      page += 1;
+    }
+    return index;
+  })().catch((error) => {
+    practiceVitalIndexCache.delete(key);
+    throw error;
+  });
+  practiceVitalIndexCache.set(key, promise);
+  return promise;
+};
+
+const hydrateLookupReadings = async (practiceId, list) => {
+  const rows = Array.isArray(list) ? list : [];
+  if (!practiceId || rows.length === 0) return rows;
+  if (rows.every(patientHasLatestReading)) return rows;
+
+  if (rows.filter((row) => !patientHasLatestReading(row)).length <= 12) {
+    const extras = new Map();
+    await mapWithConcurrency(rows, 4, async (patient) => {
+      if (patientHasLatestReading(patient)) return;
+      const id = patient.patient_table_id || patient.id;
+      const pid = patient.practice_id || practiceId;
+      if (!id || !pid) return;
+      try {
+        const body = await apiService.getPatientDetailsFast(pid, id);
+        const payload = body?.data || {};
+        if (!payload.latest_measurements) return;
+        extras.set(String(id), {
+          latest_measurements: payload.latest_measurements,
+          vitals: payload.patient?.vitals,
+          registered_vitals: payload.patient?.registered_vitals,
+          assigned_vital_types: payload.patient?.assigned_vital_types,
+          readings_count: payload.billing_compliance?.measurement_days,
+          service_time: payload.billing_compliance?.service_time_minutes,
+        });
+      } catch (error) {
+        console.warn('Lookup latest vitals failed:', error?.message || error);
+      }
+    });
+    return rows.map((patient) => {
+      const extra = extras.get(String(patient.patient_table_id || patient.id));
+      return extra ? withLatestReadingFields(patient, extra) : patient;
+    });
+  }
+
+  try {
+    const index = await loadPracticeVitalIndex(practiceId);
+    return rows.map((patient) => {
+      const source = index.get(String(patient.patient_table_id || patient.id));
+      return source ? withLatestReadingFields(patient, source) : patient;
+    });
+  } catch (error) {
+    console.warn('Lookup latest vitals failed:', error?.message || error);
+    return rows;
+  }
 };
 
 /* Modal Dropdown Component for Clean Selection */
@@ -570,7 +743,10 @@ export default function LookupPatient({ navigation }) {
     setHasQueried(true);
     try {
       const res = await apiService.lookupPatient(practiceId, buildLookupRequest(filters, requestedPage, PAGE_SIZE));
+      const parsed = extractLookupList(res);
+      const withVitals = await hydrateLookupReadings(practiceId, parsed.list);
       applyLookupPage(res, requestedPage);
+      setPatients(withVitals);
       scrollRef.current?.scrollTo({ y: 0, animated: true });
     } catch (err) {
       console.warn('Error querying patients:', err);
@@ -652,7 +828,30 @@ export default function LookupPatient({ navigation }) {
     }
   };
 
+  const defaultProgramEnrolled = hasRpm && hasCcm ? '' : hasRpm ? PROGRAM_RPM : hasCcm ? PROGRAM_CCM : '';
+  const hasSelectedCriteria = useMemo(() => {
+    const text = (value) => String(value || '').trim().length > 0;
+    return (
+      text(filters.lastName)
+      || text(filters.firstName)
+      || text(filters.phone)
+      || text(filters.caregiver)
+      || text(filters.provider)
+      || text(filters.status)
+      || (Array.isArray(filters.vitals) && filters.vitals.length > 0)
+      || text(filters.serialNumber)
+      || text(filters.rpmStartDate)
+      || text(filters.rpmEndDate)
+      || text(filters.dobOperator)
+      || text(filters.dobFrom)
+      || text(filters.dobTo)
+      || String(filters.programEnrolled || '') !== defaultProgramEnrolled
+      || text(searchQuery)
+    );
+  }, [filters, defaultProgramEnrolled, searchQuery]);
+
   const handleReset = () => {
+    if (!hasSelectedCriteria) return;
     setFilters({
       ...emptyFilters(),
       programEnrolled: hasRpm && hasCcm ? '' : hasRpm ? PROGRAM_RPM : hasCcm ? PROGRAM_CCM : '',
@@ -720,7 +919,7 @@ export default function LookupPatient({ navigation }) {
     const labels = filters.vitals
       .map((id) => {
         const found = VITALS_OPTIONS.find((v) => v.value === id);
-        return found ? found.label.split(' ')[0] : '';
+        return found ? found.label.replace(/\s*\([^)]*\)\s*$/, '') : '';
       })
       .filter(Boolean);
     return labels.join(', ');
@@ -766,8 +965,8 @@ export default function LookupPatient({ navigation }) {
       page += 1;
     }
     const query = searchQuery.trim();
-    if (!query) return all;
-    return all.filter((patient) => patientMatchesSearch(patient, query));
+    const matched = !query ? all : all.filter((patient) => patientMatchesSearch(patient, query));
+    return hydrateLookupReadings(practiceId, matched);
   };
 
   useEffect(() => {
@@ -863,15 +1062,25 @@ export default function LookupPatient({ navigation }) {
       }
       const table = buildLookupTable(rows);
       if (kind === 'csv') {
-        await Share.share({
-          title: lookupExportFilename('csv'),
-          message: buildLookupCsv(table),
-        });
+        const filename = lookupExportFilename('csv');
+        await saveExportFile(filename, 'text/csv', buildLookupCsv(table));
+        showReportNotice('Export', `Saved to Downloads as ${filename}`);
       } else {
-        await Share.share({
-          title: lookupExportFilename('pdf'),
-          message: buildLookupReportText(table, reportMeta()),
+        const meta = reportMeta();
+        const filename = lookupExportFilename('pdf');
+        const pdf = buildLookupPdf({
+          title: 'Look up Patient',
+          metaLines: [
+            `Generated: ${meta.generatedAt}`,
+            `User: ${meta.user}`,
+            ...meta.criteria,
+            `Total records: ${table.rows.length}`,
+          ],
+          headers: table.headers,
+          rows: table.rows,
         });
+        await saveExportFile(filename, 'application/pdf', pdf);
+        showReportNotice('Export', `Saved to Downloads as ${filename}`);
       }
     } catch (error) {
       showReportNotice('Export', error?.message || 'Failed to export', 'warning');
@@ -939,9 +1148,10 @@ export default function LookupPatient({ navigation }) {
         inlineAttachmentName: lookupExportFilename('csv'),
         inlineAttachmentContent: buildLookupCsv(table),
         inlineAttachmentType: 'text/csv',
+        sendImmediately: true,
       });
       setShowEmailModal(false);
-      showReportNotice('Email', 'Email queued successfully');
+      showReportNotice('Email', 'Email Sent Successfully');
     } catch (error) {
       showReportNotice('Email', error?.message || 'Failed to send email', 'warning');
     } finally {
@@ -1213,8 +1423,14 @@ export default function LookupPatient({ navigation }) {
 
               {/* Action Buttons: Reset & Query */}
               <View style={st.btnRow}>
-                <TouchableOpacity style={st.resetBtn} onPress={handleReset}>
-                  <Text style={st.resetBtnText}>Reset</Text>
+                <TouchableOpacity
+                  style={[st.resetBtn, !hasSelectedCriteria && st.resetBtnDisabled]}
+                  onPress={handleReset}
+                  disabled={!hasSelectedCriteria}
+                  activeOpacity={hasSelectedCriteria ? 0.7 : 1}
+                  accessibilityState={{ disabled: !hasSelectedCriteria }}
+                >
+                  <Text style={[st.resetBtnText, !hasSelectedCriteria && st.resetBtnTextDisabled]}>Reset</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={st.queryBtn} onPress={handleQuery}>
                   <Text style={st.queryBtnText}>Query</Text>
@@ -1283,6 +1499,11 @@ export default function LookupPatient({ navigation }) {
 
                 const weightNum = normalizeWeightToLbs(vitals.weight);
                 const weightColor = weightNum != null ? getVitalColor(weightNum, VITAL_TARGETS.weightMin, VITAL_TARGETS.weightMax) : MEASUREMENT_COLORS.missing;
+                const showBp = registeredVitalCodes(item).has('BP') || vitals.bp !== '--';
+                const showGlucose = registeredVitalCodes(item).has('BG') || vitals.glucose !== '--';
+                const showWeight = registeredVitalCodes(item).has('WT') || vitals.weight !== '--';
+                const glucoseText = vitals.glucose !== '--' ? vitals.glucose : 'null';
+                const weightText = vitals.weight !== '--' ? vitals.weight : 'null';
 
                 return (
                   <TouchableOpacity
@@ -1326,48 +1547,56 @@ export default function LookupPatient({ navigation }) {
                     </View>
 
                     {/* Vitals Values Box */}
-                    <View style={st.pcVitals}>
-                      <View style={st.pcVital}>
-                        <Text style={st.pvLbl}>BP (mmHg)</Text>
-                        <View style={st.pvValueRow}>
-                          {hasSplitBp ? (
-                            <>
-                              <Text style={[st.pvVal, { color: sysColor }]} numberOfLines={1}>
-                                {bpParts[0].trim()}
-                              </Text>
-                              <Text style={st.bpSlash}>/</Text>
-                              <Text style={[st.pvVal, { color: diaColor }]} numberOfLines={1}>
-                                {bpParts[1].trim()}
-                              </Text>
-                            </>
-                          ) : (
-                            <Text style={[st.pvVal, { color: MEASUREMENT_COLORS.missing }]} numberOfLines={1}>
-                              {vitals.bp}
-                            </Text>
-                          )}
-                          {vitals.pulse != null ? (
-                            <View style={st.pvPulseWrap}>
-                              <Text style={[st.pvPulse, { color: pulseColor }]} numberOfLines={1}>
-                                {vitals.pulse}
-                              </Text>
-                              <PulseIcon isAbnormal={isPulseAbnormal} size={scaleFont(11)} />
+                    {(showBp || showGlucose || showWeight) ? (
+                      <View style={st.pcVitals}>
+                        {showBp ? (
+                          <View style={st.pcVital}>
+                            <Text style={st.pvLbl}>BP (mmHg)</Text>
+                            <View style={st.pvValueRow}>
+                              {hasSplitBp ? (
+                                <>
+                                  <Text style={[st.pvVal, { color: sysColor }]} numberOfLines={1}>
+                                    {bpParts[0].trim()}
+                                  </Text>
+                                  <Text style={st.bpSlash}>/</Text>
+                                  <Text style={[st.pvVal, { color: diaColor }]} numberOfLines={1}>
+                                    {bpParts[1].trim()}
+                                  </Text>
+                                </>
+                              ) : (
+                                <Text style={[st.pvVal, { color: MEASUREMENT_COLORS.missing }]} numberOfLines={1}>
+                                  null
+                                </Text>
+                              )}
+                              {vitals.pulse != null ? (
+                                <View style={st.pvPulseWrap}>
+                                  <Text style={[st.pvPulse, { color: pulseColor }]} numberOfLines={1}>
+                                    {vitals.pulse}
+                                  </Text>
+                                  <PulseIcon isAbnormal={isPulseAbnormal} size={scaleFont(11)} />
+                                </View>
+                              ) : null}
                             </View>
-                          ) : null}
-                        </View>
+                          </View>
+                        ) : null}
+                        {showGlucose ? (
+                          <View style={st.pcVital}>
+                            <Text style={st.pvLbl}>BG (mg/dL)</Text>
+                            <Text style={[st.pvVal, { color: vitals.glucose === '--' ? MEASUREMENT_COLORS.missing : glucoseColor }]} numberOfLines={1}>
+                              {glucoseText}
+                            </Text>
+                          </View>
+                        ) : null}
+                        {showWeight ? (
+                          <View style={st.pcVital}>
+                            <Text style={st.pvLbl}>WT (lbs)</Text>
+                            <Text style={[st.pvVal, { color: vitals.weight === '--' ? MEASUREMENT_COLORS.missing : weightColor }]} numberOfLines={1}>
+                              {weightText}
+                            </Text>
+                          </View>
+                        ) : null}
                       </View>
-                      <View style={st.pcVital}>
-                        <Text style={st.pvLbl}>BG (mg/dL)</Text>
-                        <Text style={[st.pvVal, { color: glucoseColor }]} numberOfLines={1}>
-                          {vitals.glucose}
-                        </Text>
-                      </View>
-                      <View style={st.pcVital}>
-                        <Text style={st.pvLbl}>WT (lbs)</Text>
-                        <Text style={[st.pvVal, { color: weightColor }]} numberOfLines={1}>
-                          {vitals.weight}
-                        </Text>
-                      </View>
-                    </View>
+                    ) : null}
 
                     {/* Additional Stats Row */}
                     <View style={st.pcExtraStatsRow}>
@@ -1859,15 +2088,22 @@ const st = StyleSheet.create({
     flex: 1,
     height: 44,
     borderRadius: 12,
-    backgroundColor: '#F1F5F9',
+    backgroundColor: '#03045E',
     borderWidth: 1,
-    borderColor: BORDER,
+    borderColor: '#03045E',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  resetBtnDisabled: {
+    backgroundColor: '#F1F5F9',
+    borderColor: BORDER,
   },
   resetBtnText: {
     fontSize: scaleFont(14),
     fontWeight: '700',
+    color: WHITE,
+  },
+  resetBtnTextDisabled: {
     color: MUTED,
   },
   queryBtn: {

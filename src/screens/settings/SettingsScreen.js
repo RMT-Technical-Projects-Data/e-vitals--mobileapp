@@ -35,6 +35,7 @@ import {
 import { refreshNotificationInbox } from '../../utils/notificationInbox';
 import {
   areNotificationsEnabled,
+  markNotificationBellVisibleFromNow,
   setNotificationsEnabled,
 } from '../../utils/notificationPreference';
 import notifee from '@notifee/react-native';
@@ -195,10 +196,12 @@ const SettingsScreen = ({ navigation }) => {
     const next = !isNotificationsEnabled;
     setIsNotificationsEnabled(next);
     try {
-      await setNotificationsEnabled(next);
       if (next) {
+        await markNotificationBellVisibleFromNow();
+        await setNotificationsEnabled(true);
         await registerPushTokenWithBackend();
       } else {
+        await setNotificationsEnabled(false);
         await unregisterPushTokenFromBackend();
         await notifee.cancelAllNotifications();
         await refreshNotificationInbox();
@@ -458,7 +461,7 @@ const SettingsScreen = ({ navigation }) => {
               <View style={styles.settingTextContainer}>
                 <Text style={styles.settingTitle}>Notifications</Text>
                 <Text style={styles.settingSubtitle}>
-                  {isNotificationsEnabled ? 'You will receive notifications' : 'Notifications are turned off'}
+                  {isNotificationsEnabled ? 'You will receive notifications' : 'Alerts are off. New notices stay in the bell'}
                 </Text>
               </View>
               <TouchableOpacity

@@ -30,23 +30,23 @@ export default function VoiceMessageBubble({
   return (
     <View style={styles.row}>
       <TouchableOpacity
-        style={[styles.playButton, { backgroundColor: isMine ? 'rgba(255,255,255,0.18)' : `${accentColor}15` }]}
+        style={[styles.playButton, { backgroundColor: isMine ? '#0b1f3f' : accentColor }]}
         onPress={onPlayPress}
         disabled={isLoading}
       >
         {isLoading ? (
-          <ActivityIndicator size="small" color={isMine ? '#fff' : accentColor} />
+          <ActivityIndicator size="small" color="#fff" />
         ) : (
           <MaterialIcons
             name={isActive && isPlaying ? 'pause' : 'play-arrow'}
             size={22}
-            color={isMine ? '#fff' : accentColor}
+            color="#fff"
           />
         )}
       </TouchableOpacity>
 
       <View style={styles.content}>
-        <View style={[styles.track, { backgroundColor: isMine ? 'rgba(255,255,255,0.22)' : 'rgba(11,31,63,0.08)' }]}>
+        <View style={[styles.track, { backgroundColor: isMine ? 'rgba(255,255,255,0.38)' : 'rgba(11,31,63,0.12)' }]}>
           <View
             style={[
               styles.fill,
