@@ -4,6 +4,7 @@ import { SOCKET_BASE_URL } from '../config/api';
 import { isChatScreenFocused } from './chatPresence';
 import { showLocalChatNotification } from './pushNotificationService';
 import { getUnreadMessageCount, refreshUnreadMessageCount, setUnreadMessageCount } from '../utils/unreadMessageCount';
+import { publishBellUnreadCount } from '../utils/bellNotifications';
 
 let socket = null;
 let currentUserId = null;
@@ -42,6 +43,7 @@ const handleIncomingMessage = (message) => {
   if (rememberMessage(message.id)) return;
   setUnreadMessageCount(getUnreadMessageCount() + 1);
   refreshUnreadMessageCount().catch(() => {});
+  publishBellUnreadCount().catch(() => {});
   if (Platform.OS === 'ios') return;
   if (!shouldPostSystemAlert(fromId)) return;
 

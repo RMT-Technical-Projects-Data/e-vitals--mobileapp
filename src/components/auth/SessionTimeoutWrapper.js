@@ -1,31 +1,19 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { View, Modal, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { AppState } from 'react-native';
 import { useAuth } from '../../context/AuthContext';
 import apiService from '../../services/apiService';
 import { scale } from '../../config/theme';
+import {
+  getSessionLastActivity,
+  resolveSessionMinutes,
+  touchSessionActivity,
+} from '../../utils/sessionActivity';
 
-const normalizeSessionMinutes = (rawValue, fallback = 30) => {
-  const clamp = (minutes) => Math.min(Math.max(minutes, 1), 1440);
-  if (rawValue == null) return clamp(fallback);
-
-  if (typeof rawValue === 'number' && Number.isFinite(rawValue)) {
-    return clamp(Math.floor(rawValue));
-  }
-
-  const text = String(rawValue).trim();
-  if (!text) return clamp(fallback);
-
-  if (text.includes(':')) {
-    const parts = text.split(':').map((part) => Number.parseInt(part, 10));
-    if (parts.every((part) => Number.isFinite(part) && part >= 0)) {
-      const [hours = 0, minutes = 0, seconds = 0] = parts;
-      const totalMinutes = Math.floor((hours * 3600 + minutes * 60 + seconds) / 60);
-      return clamp(totalMinutes || fallback);
-    }
-  }
-
-  const parsed = Number.parseInt(text, 10);
-  return Number.isFinite(parsed) ? clamp(parsed) : clamp(fallback);
+/** Warn during the last minute. Shorter sessions warn at the halfway point. */
+const warningLeadMs = (timeoutMs) => {
+  if (timeoutMs <= 2 * 60 * 1000) return Math.floor(timeoutMs / 2);
+  return 60 * 1000;
 };
 
 export default function SessionTimeoutWrapper({ children }) {
@@ -37,6 +25,7 @@ export default function SessionTimeoutWrapper({ children }) {
   const secondsRemainingRef = useRef(0);
   const lastActivityRef = useRef(Date.now());
   const userSettingMinutesRef = useRef(30);
+  const sessionMinutesReadyRef = useRef(false);
   const timerRef = useRef(null);
   const suppressAutoLogoutRef = useRef(false);
   const stayLoggedInInProgressRef = useRef(false);
@@ -58,8 +47,13 @@ export default function SessionTimeoutWrapper({ children }) {
     }
   }, []);
 
+  const lastPersistRef = useRef(0);
   const resetInactivityTimer = useCallback(() => {
-    lastActivityRef.current = Date.now();
+    const now = Date.now();
+    lastActivityRef.current = now;
+    if (now - lastPersistRef.current < 15000) return;
+    lastPersistRef.current = now;
+    touchSessionActivity(now);
   }, []);
 
   const handleAutoLogout = useCallback(async () => {
@@ -75,7 +69,7 @@ export default function SessionTimeoutWrapper({ children }) {
   }, [clearInactivityTimer, logout, setShowWarning]);
 
   const checkInactivity = useCallback(() => {
-    if (!isLoggedIn || suppressAutoLogoutRef.current || stayLoggedInInProgressRef.current) {
+    if (!isLoggedIn || !sessionMinutesReadyRef.current || suppressAutoLogoutRef.current || stayLoggedInInProgressRef.current) {
       return;
     }
 
@@ -89,11 +83,16 @@ export default function SessionTimeoutWrapper({ children }) {
     }
 
     const timeoutMs = userSettingMinutesRef.current * 60 * 1000;
-    const warningMs = Math.floor(timeoutMs / 2);
     const elapsed = Date.now() - lastActivityRef.current;
+    const remainingMs = timeoutMs - elapsed;
 
-    if (elapsed >= timeoutMs - warningMs) {
-      setSecondsRemaining(Math.ceil(warningMs / 1000));
+    if (remainingMs <= 0) {
+      handleAutoLogout();
+      return;
+    }
+
+    if (remainingMs <= warningLeadMs(timeoutMs)) {
+      setSecondsRemaining(Math.ceil(remainingMs / 1000));
       setShowWarning(true);
     }
   }, [handleAutoLogout, isLoggedIn, setSecondsRemaining, setShowWarning]);
@@ -132,22 +131,59 @@ export default function SessionTimeoutWrapper({ children }) {
       return undefined;
     }
 
-    userSettingMinutesRef.current = normalizeSessionMinutes(user?.session_time, 30);
-    resetInactivityTimer();
+    let cancelled = false;
+    sessionMinutesReadyRef.current = false;
+    resolveSessionMinutes(user?.session_time).then(async (minutes) => {
+      if (cancelled) return;
+      userSettingMinutesRef.current = minutes;
+      sessionMinutesReadyRef.current = true;
+      const lastActivity = await getSessionLastActivity();
+      if (cancelled) return;
+      const timeoutMs = minutes * 60 * 1000;
+      if (!lastActivity || Date.now() - lastActivity > timeoutMs) {
+        handleAutoLogout();
+        return;
+      }
+      lastActivityRef.current = lastActivity;
+    }).catch(() => {
+      if (!cancelled) handleAutoLogout();
+    });
     clearInactivityTimer();
     timerRef.current = setInterval(checkInactivity, 1000);
 
     const heartbeatInterval = setInterval(() => {
+      if (AppState.currentState !== 'active') return;
       if (!showWarningRef.current && !stayLoggedInInProgressRef.current) {
         apiService.checkSession().catch((err) => console.log('Session heartbeat failed:', err));
       }
     }, 5 * 60 * 1000);
 
+    const appStateSubscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState !== 'active') return;
+      resolveSessionMinutes(user?.session_time).then(async (minutes) => {
+        userSettingMinutesRef.current = minutes;
+        const lastActivity = await getSessionLastActivity();
+        const timeoutMs = minutes * 60 * 1000;
+        if (!lastActivity || Date.now() - lastActivity > timeoutMs) {
+          handleAutoLogout();
+          return;
+        }
+        lastActivityRef.current = lastActivity;
+        if (showWarningRef.current) {
+          const remainingMs = timeoutMs - (Date.now() - lastActivity);
+          setSecondsRemaining(Math.max(0, Math.ceil(remainingMs / 1000)));
+        }
+      }).catch(() => handleAutoLogout());
+    });
+
     return () => {
+      cancelled = true;
+      sessionMinutesReadyRef.current = false;
+      appStateSubscription.remove();
       clearInactivityTimer();
       clearInterval(heartbeatInterval);
     };
-  }, [checkInactivity, clearInactivityTimer, isLoggedIn, resetInactivityTimer, setSecondsRemaining, setShowWarning, user?.session_time]);
+  }, [checkInactivity, clearInactivityTimer, handleAutoLogout, isLoggedIn, setSecondsRemaining, setShowWarning, user?.session_time]);
 
   const handleTouch = () => {
     if (!showWarningRef.current) {

@@ -35,9 +35,9 @@ import {
 import { refreshNotificationInbox } from '../../utils/notificationInbox';
 import {
   areNotificationsEnabled,
-  markNotificationBellVisibleFromNow,
   setNotificationsEnabled,
 } from '../../utils/notificationPreference';
+import { publishBellUnreadCount } from '../../utils/bellNotifications';
 import notifee from '@notifee/react-native';
 import { pick, types, errorCodes, isErrorWithCode } from '@react-native-documents/picker';
 
@@ -197,7 +197,6 @@ const SettingsScreen = ({ navigation }) => {
     setIsNotificationsEnabled(next);
     try {
       if (next) {
-        await markNotificationBellVisibleFromNow();
         await setNotificationsEnabled(true);
         await registerPushTokenWithBackend();
       } else {
@@ -206,6 +205,7 @@ const SettingsScreen = ({ navigation }) => {
         await notifee.cancelAllNotifications();
         await refreshNotificationInbox();
       }
+      await publishBellUnreadCount();
     } catch (error) {
       const reverted = !next;
       setIsNotificationsEnabled(reverted);
@@ -376,7 +376,7 @@ const SettingsScreen = ({ navigation }) => {
         setIsSessionModalVisible(false);
         setSessionNotice({
           title: 'Session timeout',
-          message: 'Session timeout updated successfully.',
+          message: `Session timeout updated to ${parsed} ${parsed === 1 ? 'minute' : 'minutes'}.`,
         });
       } else {
         setSessionNotice({

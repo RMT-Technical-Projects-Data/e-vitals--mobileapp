@@ -1,4 +1,4 @@
-import { NativeModules } from 'react-native';
+import { NativeModules, Platform } from 'react-native';
 
 const bytesToBase64 = (bytes) => {
   const chunkSize = 0x2000;
@@ -18,7 +18,8 @@ const textToBase64 = (value) => {
 export async function saveExportFile(filename, mimeType, contents) {
   const exporter = NativeModules.FileExport;
   if (!exporter?.saveToDownloads) {
-    throw new Error('File export is not available in this app build. Rebuild the Android app and try again.');
+    const platformName = Platform.OS === 'ios' ? 'iOS' : 'Android';
+    throw new Error(`File export is not available in this app build. Rebuild the ${platformName} app and try again.`);
   }
   const base64 = typeof contents === 'string'
     ? textToBase64(contents)

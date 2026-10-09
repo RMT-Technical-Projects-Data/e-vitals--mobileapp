@@ -15,7 +15,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import apiService from '../../services/apiService';
-import { loadVisibleBellNotifications } from '../../utils/bellNotifications';
+import { loadVisibleBellNotifications, setBellUnreadCount } from '../../utils/bellNotifications';
 import { dismissAbnormalNotification, dismissChatNotifications } from '../../utils/notificationInbox';
 
 const { width, height } = Dimensions.get('window');
@@ -228,6 +228,7 @@ export default function Notifications({ navigation }) {
       setLoading(true);
       const items = await loadVisibleBellNotifications();
       setNotifications(items);
+      setBellUnreadCount(items.length);
       await AsyncStorage.setItem('unreadBadgeCount', String(items.length));
     } catch (error) {
       console.warn('Error loading notifications:', error?.message || error);
@@ -244,7 +245,11 @@ export default function Notifications({ navigation }) {
   );
 
   const handleNotificationPress = async (notification) => {
-    setNotifications((prev) => prev.filter((item) => item.id !== notification.id));
+    setNotifications((prev) => {
+      const next = prev.filter((item) => item.id !== notification.id);
+      setBellUnreadCount(next.length);
+      return next;
+    });
 
     if (notification.kind === 'message' && notification.fromUserId) {
       dismissChatNotifications(notification.fromUserId);

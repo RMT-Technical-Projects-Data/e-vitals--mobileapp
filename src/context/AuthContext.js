@@ -4,6 +4,14 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import apiService from '../services/apiService';
 import { getSessionCookie, clearSessionCookie } from '../utils/cookieHelper';
 import { registerPushTokenWithBackend, unregisterPushTokenFromBackend } from '../services/pushNotificationService';
+import {
+  clearSessionActivity,
+  getStoredSessionMinutes,
+  isSessionActivityExpired,
+  resolveSessionMinutes,
+  setStoredSessionMinutes,
+  touchSessionActivity,
+} from '../utils/sessionActivity';
 
 const AuthContext = createContext(null);
 
@@ -31,10 +39,17 @@ export function AuthProvider({ children }) {
 
   const login = useCallback(async () => {
     setShowSplash(false); // after first login, never show Splash again in this session
+    await touchSessionActivity();
     try {
       const userStr = await AsyncStorage.getItem('user');
       if (userStr) {
-        setUser(JSON.parse(userStr));
+        const parsed = JSON.parse(userStr);
+        if (parsed?.session_time != null && String(parsed.session_time).trim() !== '') {
+          const minutes = await setStoredSessionMinutes(parsed.session_time);
+          parsed.session_time = minutes;
+          await AsyncStorage.setItem('user', JSON.stringify(parsed));
+        }
+        setUser(parsed);
       }
     } catch (e) {
       console.warn('Error reading user on login:', e);
@@ -50,6 +65,7 @@ export function AuthProvider({ children }) {
       await Promise.all([
         AsyncStorage.multiRemove(AUTH_KEYS),
         clearSessionCookie(),
+        clearSessionActivity(),
       ]);
     } catch (e) {
       console.warn('Error clearing auth storage:', e);
@@ -67,12 +83,31 @@ export function AuthProvider({ children }) {
     }
 
     try {
+      const storedUserRaw = await AsyncStorage.getItem('user');
+      const storedUser = storedUserRaw ? JSON.parse(storedUserRaw) : null;
+      const sessionMinutes = await resolveSessionMinutes(storedUser?.session_time);
+      if (await isSessionActivityExpired(sessionMinutes)) {
+        await logout();
+        return false;
+      }
+    } catch (error) {
+      await logout();
+      return false;
+    }
+
+    try {
       const result = await apiService.checkSession();
       if (!result?.success || !result.authenticated || !result.user) {
         await logout();
         return false;
       }
 
+      const selectedMinutes = await getStoredSessionMinutes();
+      if (selectedMinutes != null) {
+        result.user.session_time = selectedMinutes;
+      } else if (result.user?.session_time != null && String(result.user.session_time).trim() !== '') {
+        result.user.session_time = await setStoredSessionMinutes(result.user.session_time);
+      }
       await AsyncStorage.setItem('user', JSON.stringify(result.user));
       setUser(result.user);
       if (result.user.practice_id) {
@@ -133,6 +168,9 @@ export function AuthProvider({ children }) {
       if (userStr) {
         const currentUser = JSON.parse(userStr);
         const newUser = { ...currentUser, ...updatedUserFields };
+        if (updatedUserFields?.session_time != null && String(updatedUserFields.session_time).trim() !== '') {
+          newUser.session_time = await setStoredSessionMinutes(updatedUserFields.session_time);
+        }
         await AsyncStorage.setItem('user', JSON.stringify(newUser));
         setUser(newUser);
       }

@@ -20,6 +20,7 @@ import { colors, fonts } from '../../config/globall';
 import { scale, verticalScale } from 'react-native-size-matters';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import apiService from '../../services/apiService';
+import { useAuth } from '../../context/AuthContext';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 
 const { width, height } = Dimensions.get('window');
@@ -35,6 +36,7 @@ const HEADER_COLOR = colors.primaryButton || '#293d55';
 const WHITE = '#FFFFFF';
 
 const AccountSettings = ({ navigation }) => {
+  const { updateUser } = useAuth();
   const [twoWayAuthEnabled, setTwoWayAuthEnabled] = useState(false);
   const [focusedField, setFocusedField] = useState(null);
   const [sessionTimeout, setSessionTimeout] = useState('60');
@@ -67,6 +69,7 @@ const AccountSettings = ({ navigation }) => {
             }
             if (settings.session_time) {
               setSessionTimeout(String(settings.session_time));
+              await updateUser({ session_time: settings.session_time });
             }
           }
         } catch (apiError) {
@@ -81,7 +84,7 @@ const AccountSettings = ({ navigation }) => {
     };
     
     loadSettings();
-  }, []);
+  }, [updateUser]);
 
   const handleUpdateSessionTimeout = async () => {
     const timeoutValue = parseInt(sessionTimeout);
@@ -104,13 +107,7 @@ const AccountSettings = ({ navigation }) => {
           message: `Session timeout updated to ${timeoutValue} minutes.`,
         });
         
-        // Update user data in AsyncStorage if available
-        const userData = await AsyncStorage.getItem('user');
-        if (userData) {
-          const user = JSON.parse(userData);
-          user.session_time = timeoutValue;
-          await AsyncStorage.setItem('user', JSON.stringify(user));
-        }
+        await updateUser({ session_time: timeoutValue });
       } else {
         setSessionNotice({
           title: 'Session timeout',

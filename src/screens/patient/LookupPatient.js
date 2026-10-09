@@ -13,6 +13,7 @@ import {
   Dimensions,
   Share,
   Pressable,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
@@ -20,13 +21,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import apiService from '../../services/apiService';
 import { formatLastFirstName } from '../../utils/formatPersonName';
 import DatePickerModal from '../../components/common/DatePickerModal';
-import {
-  DEFAULT_VITAL_TARGETS,
-  checkPulseValue,
-  getVitalColor,
-  MEASUREMENT_COLORS,
-  normalizeWeightToLbs,
-} from '../../utils/measurementUtils';
+import { MEASUREMENT_COLORS } from '../../utils/measurementUtils';
+import { getPatientListVitalColors } from '../../utils/patientVitalTargets';
 import PulseIcon from '../../components/common/PulseIcon';
 import SuccessDialog from '../../components/common/SuccessDialog';
 import {
@@ -51,7 +47,6 @@ const MUTED = '#687382';
 const BORDER = '#e8ecf0';
 const WHITE = '#ffffff';
 
-const VITAL_TARGETS = DEFAULT_VITAL_TARGETS;
 const PAGE_SIZE = 10;
 
 const escapeSearchRegExp = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -1063,8 +1058,8 @@ export default function LookupPatient({ navigation }) {
       const table = buildLookupTable(rows);
       if (kind === 'csv') {
         const filename = lookupExportFilename('csv');
-        await saveExportFile(filename, 'text/csv', buildLookupCsv(table));
-        showReportNotice('Export', `Saved to Downloads as ${filename}`);
+        const savedName = await saveExportFile(filename, 'text/csv', buildLookupCsv(table));
+        showReportNotice('Export', `Saved to ${Platform.OS === 'ios' ? 'Files' : 'Downloads'} as ${savedName || filename}`);
       } else {
         const meta = reportMeta();
         const filename = lookupExportFilename('pdf');
@@ -1079,10 +1074,13 @@ export default function LookupPatient({ navigation }) {
           headers: table.headers,
           rows: table.rows,
         });
-        await saveExportFile(filename, 'application/pdf', pdf);
-        showReportNotice('Export', `Saved to Downloads as ${filename}`);
+        const savedName = await saveExportFile(filename, 'application/pdf', pdf);
+        showReportNotice('Export', `Saved to ${Platform.OS === 'ios' ? 'Files' : 'Downloads'} as ${savedName || filename}`);
       }
     } catch (error) {
+      if (error?.code === 'E_CANCELLED' || error?.message === 'Export cancelled') {
+        return;
+      }
       showReportNotice('Export', error?.message || 'Failed to export', 'warning');
     } finally {
       setIsExporting(false);
@@ -1488,22 +1486,21 @@ export default function LookupPatient({ navigation }) {
                 const vitalPills = getPatientVitalPills(item);
                 const statusMeta = getPatientStatusMeta(item.status);
 
-                const pulseStatus = vitals.pulse != null ? checkPulseValue(vitals.pulse, VITAL_TARGETS) : null;
-                const pulseColor = vitals.pulse != null ? getVitalColor(vitals.pulse, VITAL_TARGETS.pulseMin, VITAL_TARGETS.pulseMax) : MEASUREMENT_COLORS.pulseMissing;
-                const isPulseAbnormal = pulseStatus === 'high' || pulseStatus === 'low';
+                const {
+                  sysColor,
+                  diaColor,
+                  pulseColor,
+                  glucoseColor,
+                  weightColor,
+                  isPulseAbnormal,
+                } = getPatientListVitalColors(item, vitals);
                 const bpParts = String(vitals.bp || '').split('/');
                 const hasSplitBp = bpParts.length === 2 && vitals.bp !== '--';
-                const sysColor = hasSplitBp ? getVitalColor(bpParts[0], VITAL_TARGETS.systolicMin, VITAL_TARGETS.systolicMax) : MEASUREMENT_COLORS.missing;
-                const diaColor = hasSplitBp ? getVitalColor(bpParts[1], VITAL_TARGETS.diastolicMin, VITAL_TARGETS.diastolicMax) : MEASUREMENT_COLORS.missing;
-                const glucoseColor = getVitalColor(vitals.glucose, VITAL_TARGETS.glucoseMin, VITAL_TARGETS.glucoseMax);
-
-                const weightNum = normalizeWeightToLbs(vitals.weight);
-                const weightColor = weightNum != null ? getVitalColor(weightNum, VITAL_TARGETS.weightMin, VITAL_TARGETS.weightMax) : MEASUREMENT_COLORS.missing;
                 const showBp = registeredVitalCodes(item).has('BP') || vitals.bp !== '--';
                 const showGlucose = registeredVitalCodes(item).has('BG') || vitals.glucose !== '--';
                 const showWeight = registeredVitalCodes(item).has('WT') || vitals.weight !== '--';
-                const glucoseText = vitals.glucose !== '--' ? vitals.glucose : 'null';
-                const weightText = vitals.weight !== '--' ? vitals.weight : 'null';
+                const glucoseText = vitals.glucose !== '--' ? vitals.glucose : 'N/A';
+                const weightText = vitals.weight !== '--' ? vitals.weight : 'N/A';
 
                 return (
                   <TouchableOpacity
@@ -1565,7 +1562,7 @@ export default function LookupPatient({ navigation }) {
                                 </>
                               ) : (
                                 <Text style={[st.pvVal, { color: MEASUREMENT_COLORS.missing }]} numberOfLines={1}>
-                                  null
+                                  N/A
                                 </Text>
                               )}
                               {vitals.pulse != null ? (
@@ -2390,7 +2387,6 @@ const st = StyleSheet.create({
     fontSize: scaleFont(9),
     fontWeight: '800',
     color: '#64748B',
-    textTransform: 'uppercase',
     letterSpacing: 0.3,
     marginBottom: scaleWidth(2),
   },

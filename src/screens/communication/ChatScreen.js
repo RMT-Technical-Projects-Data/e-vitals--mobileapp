@@ -337,10 +337,6 @@ const CHAT_FILE_MIME_BY_EXTENSION = {
 };
 const MAX_CHAT_FILE_BYTES = 10 * 1024 * 1024;
 
-const isAudioMessage = (item) => (
-  item?.message_type === 'audio' || String(item?.file_type || '').startsWith('audio/')
-);
-
 const fileExtension = (name) => {
   const base = String(name || '').toLowerCase().split('?')[0];
   const parts = base.split('.');
@@ -395,6 +391,17 @@ const isAllowedChatFile = (file) => {
 };
 
 const IMAGE_FILE_EXTENSIONS = ['jpeg', 'jpg', 'png', 'gif', 'webp', 'heic', 'heif'];
+const AUDIO_FILE_EXTENSIONS = ['m4a', 'aac', 'mp3', 'wav', 'webm', 'ogg', 'amr', '3gp'];
+
+const isAudioMessage = (item) => {
+  if (!item) return false;
+  if (item.message_type === 'audio') return true;
+  const mime = String(item.file_type || '').toLowerCase();
+  if (mime === 'audio' || mime.startsWith('audio/')) return true;
+  return AUDIO_FILE_EXTENSIONS.includes(
+    fileExtension(item.original_file_name || item.file_path)
+  );
+};
 
 const isImageAttachment = (item) => {
   if (isAudioMessage(item)) return false;
@@ -456,8 +463,23 @@ const getMessagePreview = (msg) => {
 const mergeServerMessages = (prev, incoming) => {
   const server = (incoming || []).filter((message) => !isDeletedForEveryone(message) && !isMessageRemoved(message));
   const serverIds = new Set(server.map((message) => String(message.id)));
-  const pending = (prev || []).filter((message) => message?._pending && !serverIds.has(String(message.id)));
-  return pending.length ? [...server, ...pending] : server;
+  const maxServerId = server.reduce((max, message) => {
+    const id = Number(message?.id);
+    return Number.isFinite(id) ? Math.max(max, id) : max;
+  }, 0);
+  const keptLocal = (prev || []).filter((message) => {
+    if (!message || serverIds.has(String(message.id))) return false;
+    if (message._pending) return true;
+    const id = Number(message.id);
+    const ageMs = Date.now() - new Date(message.created_at).getTime();
+    // A refresh that started before the upload finished must not drop the message
+    // that was just saved locally. Older rows missing from the server stay gone.
+    return Number.isFinite(id) && id > maxServerId && Number.isFinite(ageMs) && ageMs < 30000;
+  });
+  if (!keptLocal.length) return server;
+  return [...server, ...keptLocal].sort(
+    (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+  );
 };
 
 const isMessageRemoved = (item) => {
@@ -858,7 +880,7 @@ const ChatScreen = ({ navigation, route }) => {
       });
     } catch (error) {
       console.warn('Message history fallback:', error?.message);
-      setMessages(getFallbackMessages(contact, currentUser));
+      setMessages((prev) => (prev.length ? prev : getFallbackMessages(contact, currentUser)));
     } finally {
       setLoadingMessages(false);
     }
@@ -1318,12 +1340,18 @@ const ChatScreen = ({ navigation, route }) => {
         audio_duration: recording.durationSec,
       });
 
-      const saved = result?.data || optimistic;
+      const saved = result?.data;
+      if (!saved?.id) {
+        throw new Error('Voice message was not saved');
+      }
       setMessages((prev) => {
-        if (saved?.id != null && prev.some((m) => String(m.id) === String(saved.id))) {
-          return prev.filter((m) => m.id !== optimistic.id);
+        const withoutOptimistic = prev.filter((m) => m.id !== optimistic.id);
+        if (withoutOptimistic.some((m) => String(m.id) === String(saved.id))) {
+          return withoutOptimistic.map((m) => (
+            String(m.id) === String(saved.id) ? { ...m, ...saved, _pending: false } : m
+          ));
         }
-        return prev.map((m) => (m.id === optimistic.id ? { ...saved, _pending: false } : m));
+        return [...withoutOptimistic, { ...saved, _pending: false }];
       });
 
       setChatList((prev) => prev.map((item) =>

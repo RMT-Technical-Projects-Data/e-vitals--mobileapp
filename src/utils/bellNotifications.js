@@ -1,14 +1,42 @@
+import { DeviceEventEmitter } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import apiService from '../services/apiService';
-import {
-  areNotificationsEnabled,
-  getNotificationBellVisibleAfter,
-  isNotificationVisibleInBell,
-} from './notificationPreference';
+
+export const BELL_UNREAD_EVENT = 'bellUnreadChanged';
+
+export const setBellUnreadCount = (count) => {
+  DeviceEventEmitter.emit(BELL_UNREAD_EVENT, Number(count) || 0);
+};
+
+let bellSync = null;
+let bellSyncAgain = false;
+
+/** Loads unread bell items and tells the home bell whether to show its red dot. */
+export const publishBellUnreadCount = () => {
+  if (bellSync) {
+    bellSyncAgain = true;
+    return bellSync;
+  }
+
+  bellSync = (async () => {
+    try {
+      let count = 0;
+      do {
+        bellSyncAgain = false;
+        const items = await loadVisibleBellNotifications();
+        count = items.length;
+        setBellUnreadCount(count);
+      } while (bellSyncAgain);
+      return count;
+    } finally {
+      bellSync = null;
+    }
+  })();
+
+  return bellSync;
+};
 
 export const loadVisibleBellNotifications = async () => {
-  const alertsEnabled = await areNotificationsEnabled();
-  const cutoff = alertsEnabled ? await getNotificationBellVisibleAfter() : null;
   const userStr = await AsyncStorage.getItem('user');
   const user = userStr ? JSON.parse(userStr) : null;
   const items = [];
@@ -18,7 +46,6 @@ export const loadVisibleBellNotifications = async () => {
     const messages = Array.isArray(chatResult?.data) ? chatResult.data : [];
     messages.forEach((message) => {
       if (Number(message.is_read) === 1) return;
-      if (!isNotificationVisibleInBell(message.created_at, cutoff)) return;
       const sender = String(message.from_user_name || '').trim() || 'New message';
       items.push({
         id: `chat-${message.id}`,
@@ -36,7 +63,6 @@ export const loadVisibleBellNotifications = async () => {
   const appRows = Array.isArray(appResult?.data) ? appResult.data : [];
   appRows.forEach((row) => {
     if (Number(row.is_read) === 1) return;
-    if (!isNotificationVisibleInBell(row.created_at, cutoff)) return;
     const isReview = row.kind === 'assigned_review';
     items.push({
       id: `${row.kind || 'notice'}-${row.id}`,

@@ -16,6 +16,7 @@ import {
   areNotificationsEnabled,
   loadNotificationPreference,
 } from '../utils/notificationPreference';
+import { publishBellUnreadCount } from '../utils/bellNotifications';
 
 const PUSH_TOKEN_STORAGE_KEY = 'pushDeviceToken';
 
@@ -175,6 +176,7 @@ const getNotificationMeta = (data) => {
 
 const displayRemoteNotification = async (remoteMessage, { isForeground = false } = {}) => {
   if (!(await areNotificationsEnabled())) {
+    publishBellUnreadCount().catch(() => {});
     return;
   }
 
@@ -187,12 +189,14 @@ const displayRemoteNotification = async (remoteMessage, { isForeground = false }
     && remoteMessage?.notification
     && data.type !== 'ticket_status';
   if (shownBySystem) {
+    publishBellUnreadCount().catch(() => {});
     return;
   }
 
   // iOS already presents the remote chat alert with the sender's name.
   // A second local banner is the generic "New message" alert.
   if (Platform.OS === 'ios' && data.type === 'chat_message') {
+    publishBellUnreadCount().catch(() => {});
     return;
   }
 
@@ -240,6 +244,7 @@ const displayRemoteNotification = async (remoteMessage, { isForeground = false }
     },
   });
   await refreshNotificationInbox();
+  publishBellUnreadCount().catch(() => {});
 };
 
 export const showLocalChatNotification = async ({ fromUserId, title, body, messageId }) => {
@@ -455,6 +460,7 @@ export const initializePushNotifications = async (handlers = {}) => {
     await unregisterPushTokenFromBackend();
     await notifee.cancelAllNotifications();
     await refreshNotificationInbox();
+    publishBellUnreadCount().catch(() => {});
   }
 
   return () => {

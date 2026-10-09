@@ -16,6 +16,7 @@ import {
   Easing,
   AppState,
   Platform,
+  DeviceEventEmitter,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
@@ -40,12 +41,7 @@ import {
 import PulseIcon from '../../components/common/PulseIcon';
 import { getPatientListVitalColors } from '../../utils/patientVitalTargets';
 import { subscribeAbnormalAssignmentReceived } from '../../utils/abnormalAssignmentEvents';
-import {
-  getUnreadNotificationCount,
-  refreshNotificationInbox,
-  subscribeNotificationInbox,
-} from '../../utils/notificationInbox';
-import { loadVisibleBellNotifications } from '../../utils/bellNotifications';
+import { BELL_UNREAD_EVENT, publishBellUnreadCount } from '../../utils/bellNotifications';
 import PatientAvatar from '../../components/common/PatientAvatar';
 
 const { width, height } = Dimensions.get('window');
@@ -1496,33 +1492,16 @@ export default function Home({ navigation }) {
   useFocusEffect(
     useCallback(() => {
       loadUserData();
-      const syncNotificationBadge = async () => {
-        await refreshNotificationInbox();
-        let visibleCount = 0;
-        try {
-          const items = await loadVisibleBellNotifications();
-          visibleCount = items.length;
-        } catch {
-          visibleCount = 0;
-        }
-        setHasUnreadNotifications(getUnreadNotificationCount() > 0 || visibleCount > 0);
-      };
-      syncNotificationBadge();
+      publishBellUnreadCount().catch(() => {});
     }, [loadUserData])
   );
 
   useEffect(() => {
-    const unsubscribe = subscribeNotificationInbox(() => {
-      loadVisibleBellNotifications()
-        .then((items) => {
-          setHasUnreadNotifications(getUnreadNotificationCount() > 0 || items.length > 0);
-        })
-        .catch(() => {
-          setHasUnreadNotifications(getUnreadNotificationCount() > 0);
-        });
+    const subscription = DeviceEventEmitter.addListener(BELL_UNREAD_EVENT, (count) => {
+      setHasUnreadNotifications(Number(count) > 0);
     });
-    refreshNotificationInbox();
-    return unsubscribe;
+    publishBellUnreadCount().catch(() => {});
+    return () => subscription.remove();
   }, []);
 
   useEffect(() => {
@@ -1533,6 +1512,7 @@ export default function Home({ navigation }) {
     const appStateSub = AppState.addEventListener('change', (nextState) => {
       if (nextState === 'active') {
         fetchAssignedReviewsCount();
+        publishBellUnreadCount().catch(() => {});
       }
     });
 
