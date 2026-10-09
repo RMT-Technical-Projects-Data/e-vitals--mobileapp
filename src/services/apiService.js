@@ -13,6 +13,12 @@ const createTimeout = (ms) => {
   });
 };
 
+const clientLocalTimeHeader = () => {
+  const now = new Date();
+  const pad = (value) => String(value).padStart(2, '0');
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+};
+
 /**
  * Make API request with session cookie handling and timeout
  * @param {string} endpoint - API endpoint (relative to base URL)
@@ -34,6 +40,7 @@ const apiRequest = async (endpoint, options = {}) => {
     'X-Mobile-Client': 'true',
     ...options.headers,
   };
+  headers['X-Client-Local-Time'] = clientLocalTimeHeader();
 
   // React Native stores the raw session ID returned by the API. Express-session
   // expects a signed cookie, so send the raw ID in a dedicated header; the

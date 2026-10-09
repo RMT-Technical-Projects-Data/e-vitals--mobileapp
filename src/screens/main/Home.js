@@ -42,6 +42,7 @@ import PulseIcon from '../../components/common/PulseIcon';
 import { getPatientListVitalColors } from '../../utils/patientVitalTargets';
 import { subscribeAbnormalAssignmentReceived } from '../../utils/abnormalAssignmentEvents';
 import { BELL_UNREAD_EVENT, publishBellUnreadCount } from '../../utils/bellNotifications';
+import { parseAbnormalReadingTime, visibleAbnormalReadings } from '../../utils/abnormalVisibility';
 import PatientAvatar from '../../components/common/PatientAvatar';
 
 const { width, height } = Dimensions.get('window');
@@ -908,11 +909,7 @@ const fallbackCaregiverPatients = [
 
 const RECENT_UPLOAD_WINDOW_MS = 24 * 60 * 60 * 1000;
 
-const parseUploadMs = (value) => {
-  if (!value) return null;
-  const ms = new Date(value).getTime();
-  return Number.isFinite(ms) ? ms : null;
-};
+const parseUploadMs = (value) => parseAbnormalReadingTime(value);
 
 const collectPatientReadings = (patient) => {
   const readings = [];
@@ -980,11 +977,11 @@ const buildRecentUploadCards = (patients) => {
   const now = Date.now();
   return (patients || [])
     .map((patient) => {
-      const readings = collectPatientReadings(patient);
+      const readings = collectPatientReadings(patient).filter(
+        (reading) => now - reading.at <= RECENT_UPLOAD_WINDOW_MS && now - reading.at >= -60 * 1000,
+      );
       if (!readings.length) return null;
-      const recent = readings.filter((reading) => now - reading.at <= RECENT_UPLOAD_WINDOW_MS);
-      const shown = recent.length ? recent : [readings[0]];
-      return { patient, readings: shown, uploadedAt: shown[0].at };
+      return { patient, readings, uploadedAt: readings[0].at };
     })
     .filter(Boolean)
     .sort((a, b) => b.uploadedAt - a.uploadedAt)
@@ -1430,7 +1427,7 @@ export default function Home({ navigation }) {
   const fetchAssignedReviewsCount = useCallback(async (practiceIdValue = null) => {
     try {
       const res = await apiService.getAssignedAbnormalReviews(practiceIdValue);
-      const list = Array.isArray(res?.data) ? res.data : [];
+      const list = visibleAbnormalReadings(Array.isArray(res?.data) ? res.data : []);
       setAssignedReviewsCount(list.length);
     } catch (error) {
       console.warn('Failed to fetch assigned reviews count:', error?.message || error);

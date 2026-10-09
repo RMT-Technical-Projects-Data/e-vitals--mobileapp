@@ -1,6 +1,7 @@
 import { DeviceEventEmitter } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import apiService from '../services/apiService';
+import { isWithinAbnormalVisibility } from './abnormalVisibility';
 
 export const BELL_UNREAD_EVENT = 'bellUnreadChanged';
 
@@ -64,6 +65,7 @@ export const loadVisibleBellNotifications = async () => {
   appRows.forEach((row) => {
     if (Number(row.is_read) === 1) return;
     const isReview = row.kind === 'assigned_review';
+    if (isReview && row.created_at && !isWithinAbnormalVisibility(row.created_at)) return;
     items.push({
       id: `${row.kind || 'notice'}-${row.id}`,
       sourceId: row.id,

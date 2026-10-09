@@ -27,6 +27,7 @@ import { getAssignedReadingVitalColors } from '../../utils/patientVitalTargets';
 import PulseIcon from '../../components/common/PulseIcon';
 import SuccessDialog from '../../components/common/SuccessDialog';
 import { formatLastFirstName } from '../../utils/formatPersonName';
+import { visibleAbnormalReadings } from '../../utils/abnormalVisibility';
 
 const { width } = Dimensions.get('window');
 const guidelineBaseWidth = 375;
@@ -203,7 +204,7 @@ const AssignedAbnormalReviewsScreen = ({ navigation }) => {
       else if (!silent) setLoading(true);
 
       const res = await apiService.getAssignedAbnormalReviews();
-      const list = Array.isArray(res?.data) ? res.data : [];
+      const list = visibleAbnormalReadings(Array.isArray(res?.data) ? res.data : []);
       setAssignedReadings(list);
       loadScheduleTargetsForReadings(list);
     } catch (error) {
