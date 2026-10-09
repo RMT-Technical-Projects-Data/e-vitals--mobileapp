@@ -102,17 +102,52 @@ const US_STATE_NAMES_BY_CODE = Object.fromEntries(
   })
 );
 
-const resolveStateName = (source) => {
-  if (!source || typeof source !== 'object') return '';
-  const named = String(source.state_name || '').trim();
-  if (named && !/^\d+$/.test(named)) return named;
-  const raw = source.state_id ?? source.state;
-  const text = raw == null ? '' : String(raw).trim();
-  if (!text) return '';
-  if (/^\d+$/.test(text)) return US_STATE_NAMES_BY_ID[Number(text)] || '';
+const cleanText = (value) => {
+  if (value == null) return '';
+  const text = String(value).trim();
+  if (!text || text.toLowerCase() === 'null' || text.toLowerCase() === 'undefined') return '';
+  return text;
+};
+
+const stateNameFromId = (value) => {
+  const text = cleanText(value);
+  if (!/^\d+$/.test(text)) return '';
+  return US_STATE_NAMES_BY_ID[Number(text)] || '';
+};
+
+const stateNameFromText = (value) => {
+  const text = cleanText(value);
+  if (!text || /^\d+$/.test(text)) return '';
   if (US_STATE_NAMES_BY_CODE[text.toUpperCase()]) return US_STATE_NAMES_BY_CODE[text.toUpperCase()];
   const byName = Object.values(US_STATE_NAMES_BY_ID).find((name) => name.toLowerCase() === text.toLowerCase());
-  return byName || text;
+  return byName || '';
+};
+
+const resolveStateName = (source) => {
+  if (!source || typeof source !== 'object') return '';
+  const named = stateNameFromText(source.state) || stateNameFromText(source.state_name);
+  if (named) return named;
+  return stateNameFromId(source.state_id) || stateNameFromId(source.state);
+};
+
+const buildProfileAddress = (patientRecord, userAddress) => {
+  const userAddr = userAddress && typeof userAddress === 'object' ? userAddress : {};
+  const patient = patientRecord && typeof patientRecord === 'object' ? patientRecord : null;
+  if (!patient) return userAddr;
+
+  const namedState = stateNameFromText(patient.state) || stateNameFromText(patient.state_name);
+  const numericStateId = namedState
+    ? ''
+    : (stateNameFromId(patient.state) ? patient.state : (stateNameFromId(patient.state_id) ? patient.state_id : userAddr.state_id));
+
+  return {
+    address_line_1: cleanText(patient.address) || cleanText(patient.address_line_1) || cleanText(userAddr.address_line_1),
+    address_line_2: cleanText(patient.address_line_2) || cleanText(userAddr.address_line_2),
+    city: cleanText(patient.city) || cleanText(userAddr.city),
+    state: namedState,
+    state_id: numericStateId,
+    zip_code: cleanText(patient.zip_code) || cleanText(userAddr.zip_code),
+  };
 };
 
 const formatAddress = (source) => {
@@ -177,7 +212,7 @@ const PatientProfileScreen = ({ navigation }) => {
       const lastName = user.last_name || patientRecord?.last_name || '';
       const fullName = formatLastFirstName({ first_name: firstName, last_name: lastName }) || user.username || 'Not provided';
       const phoneSource = user.phone || user.cell_phone || patientRecord?.phone_number || patientRecord?.cell_phone_number || '';
-      const address = formatAddress(user.address) || formatAddress(patientRecord);
+      const address = formatAddress(buildProfileAddress(patientRecord, user.address));
       const dob = patientRole ? formatDob(patientRecord?.date_of_birth || patientRecord?.dob) : '';
 
       setIsPatient(patientRole);
