@@ -827,14 +827,10 @@ export default function PatientHubScreen({ navigation, route }) {
     const p = (patientData?.patient && typeof patientData.patient === 'object')
       ? patientData.patient
       : (patientData && typeof patientData === 'object' ? patientData : {});
-    const rawState =
-      p.state_id ??
-      patientData?.state_id ??
-      p.state ??
-      patientData?.state ??
-      p.state_name ??
-      patientData?.state_name;
-    const resolvedState = resolveStateName(rawState);
+    const resolvedState = resolveStateName({
+      state: p.state ?? patientData?.state,
+      state_id: p.state_id ?? patientData?.state_id,
+    });
     return {
       ...p,
       status: p.status ?? patientData?.status,

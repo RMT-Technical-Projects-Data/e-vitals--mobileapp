@@ -1,5 +1,6 @@
 /**
- * Canonical US States matching backend us_states table (IDs 1-50) and E-Vital-Frontend.
+ * Canonical US state IDs matching web patient edit and backend usState.js.
+ * IDs 1-50: NY = 32. DC/PR are 51/52 so they never shift saved ids.
  */
 
 export const US_STATES = [
@@ -52,24 +53,22 @@ export const US_STATES = [
   { id: 47, code: 'WA', name: 'Washington' },
   { id: 48, code: 'WV', name: 'West Virginia' },
   { id: 49, code: 'WI', name: 'Wisconsin' },
-  { id: 50, code: 'WY', name: 'Wyoming' }
+  { id: 50, code: 'WY', name: 'Wyoming' },
+  { id: 51, code: 'DC', name: 'District of Columbia' },
+  { id: 52, code: 'PR', name: 'Puerto Rico' },
 ];
 
 export const US_STATE_NAMES_BY_ID = Object.fromEntries(
   US_STATES.map((s) => [s.id, s.name])
 );
 
-export const US_STATE_CODES_MAP = {
-  ...Object.fromEntries(US_STATES.map((s) => [s.name, s.code])),
-  'District of Columbia': 'DC',
-  'Puerto Rico': 'PR',
-};
+export const US_STATE_CODES_MAP = Object.fromEntries(
+  US_STATES.map((s) => [s.name, s.code])
+);
 
-export const US_STATE_NAMES_BY_CODE = {
-  ...Object.fromEntries(US_STATES.map((s) => [s.code.toUpperCase(), s.name])),
-  DC: 'District of Columbia',
-  PR: 'Puerto Rico',
-};
+export const US_STATE_NAMES_BY_CODE = Object.fromEntries(
+  US_STATES.map((s) => [s.code.toUpperCase(), s.name])
+);
 
 const cleanText = (value) => {
   if (value == null) return '';
@@ -83,16 +82,16 @@ export const extractRawState = (source) => {
   if (source == null) return '';
   if (typeof source === 'object') {
     return (
-      source.state_id ??
-      source.stateId ??
-      source.address_state_id ??
-      source.state_name ??
       source.state ??
       source.state_code ??
       source.name ??
       source.code ??
       source.label ??
       source.value ??
+      source.state_id ??
+      source.stateId ??
+      source.address_state_id ??
+      source.state_name ??
       source.id ??
       ''
     );
@@ -100,31 +99,56 @@ export const extractRawState = (source) => {
   return source;
 };
 
+const canonicalStateName = (value) => {
+  const text = cleanText(value);
+  if (!text || /^\d+$/.test(text)) return '';
+  const upper = text.toUpperCase();
+  if (US_STATE_NAMES_BY_CODE[upper]) return US_STATE_NAMES_BY_CODE[upper];
+  const byName = Object.values(US_STATE_NAMES_BY_ID).find(
+    (name) => name.toLowerCase() === text.toLowerCase()
+  );
+  return byName || '';
+};
+
+const stateNameFromId = (value) => {
+  const text = cleanText(value);
+  if (!/^\d+$/.test(text)) return '';
+  return US_STATE_NAMES_BY_ID[Number(text)] || '';
+};
+
+/**
+ * Same rule as the web view API: a stored name/abbreviation wins over a numeric
+ * id, because older rows used a different id scheme for the same state.
+ */
+export const resolveDisplayState = ({ state, stateId } = {}) => {
+  const fromText = canonicalStateName(state);
+  if (fromText) return fromText;
+  return stateNameFromId(stateId) || stateNameFromId(state) || '';
+};
+
 /**
  * Resolves any US state input (id, code, or name) to the canonical full state name.
  * e.g. 43 -> 'Texas', 'TX' -> 'Texas', 'Texas' -> 'Texas'
  */
 export const resolveStateName = (value) => {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    const fromRecord = resolveDisplayState({
+      state: value.state ?? value.state_code ?? value.name,
+      stateId: value.state_id ?? value.stateId ?? value.address_state_id,
+    });
+    if (fromRecord) return fromRecord;
+  }
+
   const raw = extractRawState(value);
   if (raw == null) return '';
   const text = cleanText(raw);
   if (!text) return '';
 
-  if (/^\d+$/.test(text)) {
-    const fromId = US_STATE_NAMES_BY_ID[Number(text)];
-    if (fromId) return fromId;
-    return text;
-  }
+  const fromText = canonicalStateName(text);
+  if (fromText) return fromText;
 
-  const upper = text.toUpperCase();
-  if (US_STATE_NAMES_BY_CODE[upper]) {
-    return US_STATE_NAMES_BY_CODE[upper];
-  }
-
-  const byName = Object.values(US_STATE_NAMES_BY_ID).find(
-    (name) => name.toLowerCase() === text.toLowerCase()
-  );
-  if (byName) return byName;
+  const fromId = stateNameFromId(text);
+  if (fromId) return fromId;
 
   return text;
 };
@@ -135,5 +159,6 @@ export default {
   US_STATE_CODES_MAP,
   US_STATE_NAMES_BY_CODE,
   extractRawState,
+  resolveDisplayState,
   resolveStateName,
 };

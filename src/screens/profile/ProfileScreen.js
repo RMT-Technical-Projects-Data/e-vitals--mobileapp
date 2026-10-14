@@ -72,10 +72,7 @@ const formatDob = (value) => {
   return date.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
 };
 import {
-  US_STATES,
-  US_STATE_NAMES_BY_ID,
-  US_STATE_CODES_MAP,
-  US_STATE_NAMES_BY_CODE,
+  resolveDisplayState,
   resolveStateName,
 } from '../../utils/usStates';
 
@@ -109,26 +106,22 @@ const buildProfileAddress = (patientRecord, userAddress, user = {}) => {
   const uAddr = parseAddressData(userAddress);
   const uObj = user && typeof user === 'object' ? user : {};
 
-  const rawState =
-    uAddr.state_id ??
-    pAddr.state_id ??
-    pRecord.state_id ??
-    uObj.state_id ??
-    uAddr.state ??
-    pAddr.state ??
-    pRecord.state ??
-    uObj.state ??
-    uAddr.state_name ??
-    pAddr.state_name ??
-    pRecord.state_name ??
-    uObj.state_name ??
-    uAddr.state_code ??
-    pAddr.state_code ??
-    pRecord.state_code ??
-    uObj.state_code ??
-    '';
-
-  const resolvedState = resolveStateName(rawState);
+  // Same map as web edit: NY = 32. Do not use us_states.STATE_NAME joined on ID.
+  const resolvedState = resolveDisplayState({
+    state: [pRecord.state, pAddr.state, uAddr.state, uObj.state].find((value) => {
+      const text = cleanText(value);
+      return text && !/^\d+$/.test(text);
+    }),
+    stateId: [
+      pRecord.state_id,
+      pAddr.state_id,
+      uAddr.state_id,
+      uObj.state_id,
+      pRecord.state,
+      pAddr.state,
+      uAddr.state,
+    ].find((value) => /^\d+$/.test(cleanText(value))),
+  }) || resolveStateName(pRecord.state || uAddr.state || pRecord.state_id || uAddr.state_id || '');
 
   const city =
     cleanText(pAddr.city) ||
