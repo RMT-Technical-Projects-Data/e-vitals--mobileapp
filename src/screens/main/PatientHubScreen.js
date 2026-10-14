@@ -17,6 +17,7 @@ import {
   Keyboard,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 import LinearGradient from 'react-native-linear-gradient';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -40,6 +41,7 @@ import { resolveEffectiveScheduleTargets } from '../../utils/scheduleTargetUtils
 import PulseIcon from '../../components/common/PulseIcon';
 import PatientAvatar from '../../components/common/PatientAvatar';
 import { formatLastFirstName } from '../../utils/formatPersonName';
+import { resolveStateName } from '../../utils/usStates';
 import SuccessDialog from '../../components/common/SuccessDialog';
 
 const { width, height: screenHeight } = Dimensions.get('window');
@@ -215,6 +217,23 @@ const getGenderText = (gender) => {
   return 'N/A';
 };
 
+const getAgeFromDob = (dobValue) => {
+  if (!dobValue) return '-';
+  const raw = String(dobValue).trim();
+  const isoMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  const dob = isoMatch
+    ? new Date(parseInt(isoMatch[1], 10), parseInt(isoMatch[2], 10) - 1, parseInt(isoMatch[3], 10))
+    : new Date(dobValue);
+  if (Number.isNaN(dob.getTime())) return '-';
+  const now = new Date();
+  let age = now.getFullYear() - dob.getFullYear();
+  const monthDiff = now.getMonth() - dob.getMonth();
+  if (monthDiff < 0 || (monthDiff === 0 && now.getDate() < dob.getDate())) {
+    age -= 1;
+  }
+  return age >= 0 ? String(age) : '-';
+};
+
 const getStatusLabel = (status) => {
   const normalized = String(status ?? '').trim().toLowerCase();
   const numeric = /^\d+$/.test(normalized) ? parseInt(normalized, 10) : null;
@@ -223,6 +242,27 @@ const getStatusLabel = (status) => {
   if (numeric === 4 || normalized === 'locked') return 'Locked';
   if (normalized === 'paused') return 'Paused';
   return status || 'N/A';
+};
+
+const getStatusAppearance = (status) => {
+  const raw = String(status ?? '').trim().toLowerCase();
+  const numeric = /^\d+$/.test(raw) ? parseInt(raw, 10) : null;
+  let bg = '#E8EAED';
+  let color = '#6C757D';
+  if (numeric === 2 || raw === 'active' || raw === 'stable') {
+    bg = '#DDF8DD';
+    color = '#0b1f3f';
+  } else if (numeric === 3 || raw === 'pending' || raw === 'review') {
+    bg = '#caf0f8';
+    color = '#1177c6';
+  } else if (numeric === 4 || raw === 'locked') {
+    bg = '#E6DDF8';
+    color = '#490565';
+  } else if (raw === 'critical') {
+    bg = '#FDE8E8';
+    color = '#d32f2f';
+  }
+  return { bg, color, label: getStatusLabel(status) };
 };
 
 const DetailRow = ({ label, value }) => (
@@ -311,9 +351,6 @@ const VitalUploadCard = ({
     <View style={styles.vitalCard}>
       <View style={styles.vitalCardTopRow}>
         <View style={styles.vitalTitleWrap}>
-          <View style={[styles.vitalReadingIcon, { backgroundColor: `${accentColor}14` }]}>
-            <MaterialIcons name={icon} size={19} color={accentColor} />
-          </View>
           <Text style={styles.vitalCardTitle}>{title}</Text>
         </View>
         {onPress ? (
@@ -443,6 +480,8 @@ export default function PatientHubScreen({ navigation, route }) {
   const [weightTarget, setWeightTarget] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showFollowUpModal, setShowFollowUpModal] = useState(false);
+  const [showProfileModal, setShowProfileModal] = useState(false);
+  const [hubTab, setHubTab] = useState('overview');
   const [followUpSuccess, setFollowUpSuccess] = useState(null);
   const [zeroMinutesNotice, setZeroMinutesNotice] = useState(false);
   const followUpSuccessTimerRef = useRef(null);
@@ -611,6 +650,12 @@ export default function PatientHubScreen({ navigation, route }) {
     fetchHubData();
   }, [fetchHubData]);
 
+  useFocusEffect(
+    useCallback(() => {
+      fetchHubData();
+    }, [fetchHubData])
+  );
+
   useEffect(() => {
     if (practiceId) {
       loadFollowUpTemplates();
@@ -778,7 +823,25 @@ export default function PatientHubScreen({ navigation, route }) {
     }
   };
 
-  const patient = patientData?.patient || {};
+  const patient = useMemo(() => {
+    const p = (patientData?.patient && typeof patientData.patient === 'object')
+      ? patientData.patient
+      : (patientData && typeof patientData === 'object' ? patientData : {});
+    const rawState =
+      p.state_id ??
+      patientData?.state_id ??
+      p.state ??
+      patientData?.state ??
+      p.state_name ??
+      patientData?.state_name;
+    const resolvedState = resolveStateName(rawState);
+    return {
+      ...p,
+      status: p.status ?? patientData?.status,
+      state: resolvedState || p.state || patientData?.state || '',
+      state_name: resolvedState || p.state_name || patientData?.state_name || '',
+    };
+  }, [patientData]);
   const latest = patientData?.latest_measurements || {};
   const caregivers = patientData?.caregivers || [];
   const bp = latest.blood_pressure;
@@ -807,6 +870,7 @@ export default function PatientHubScreen({ navigation, route }) {
   const displayName = routePatientName
     || formatLastFirstName(patient)
     || 'Patient';
+  const statusLook = getStatusAppearance(patient.status);
 
   return (
     <LinearGradient colors={SCREEN_BG_COLORS} style={styles.container}>
@@ -831,65 +895,42 @@ export default function PatientHubScreen({ navigation, route }) {
             ]}
             showsVerticalScrollIndicator={false}
           >
-            <View style={styles.card}>
+            <Pressable
+              style={styles.profileCard}
+              onPress={() => setShowProfileModal(true)}
+              accessibilityRole="button"
+              accessibilityLabel="View patient profile details"
+            >
               <View style={styles.profileHeader}>
                 <PatientAvatar
                   profilePic={patient.profile_pic || patient.profilePic || patient.profile_image}
                   firstName={patient.first_name || displayName.split(' ')[0]}
                   lastName={patient.last_name || displayName.split(' ').slice(1).join(' ')}
-                  size={scaleWidth(72)}
-                  borderRadius={scaleWidth(36)}
+                  size={scaleWidth(48)}
+                  borderRadius={scaleWidth(24)}
                   backgroundColor={accentColor}
                   textStyle={styles.profileInitials}
                 />
                 <View style={styles.profileHeaderText}>
-                  <Text style={styles.profileName} numberOfLines={2}>{displayName}</Text>
-                  <Text style={styles.cardTitle}>Patient Details</Text>
+                  <Text style={styles.profileName} numberOfLines={1}>{displayName}</Text>
+                  <Text style={styles.profileMeta} numberOfLines={1}>
+                    {getGenderText(patient.gender)}  ·  {getAgeFromDob(patient.date_of_birth)}  ·  {patientData?.device_serial || '-'}
+                  </Text>
                 </View>
+                <View style={[styles.statusPill, { backgroundColor: statusLook.bg }]}>
+                  <Text style={[styles.statusPillText, { color: statusLook.color }]}>{statusLook.label}</Text>
+                </View>
+                <MaterialIcons name="chevron-right" size={20} color={TEXT_MUTED} />
               </View>
-              <View style={styles.cardTitleRow}>
-                <Text style={styles.cardTitle}>Status</Text>
-                {(() => {
-                  const raw = String(patient.status ?? '').trim().toLowerCase();
-                  const numeric = /^\d+$/.test(raw) ? parseInt(raw, 10) : null;
-                  let bg = '#E8EAED';
-                  let color = '#6C757D';
-                  let label = getStatusLabel(patient.status);
-                  if (numeric === 2 || raw === 'active' || raw === 'stable') {
-                    bg = '#DDF8DD'; color = '#0b1f3f';
-                  } else if (numeric === 3 || raw === 'pending' || raw === 'review') {
-                    bg = '#caf0f8'; color = '#1177c6';
-                  } else if (numeric === 4 || raw === 'locked') {
-                    bg = '#E6DDF8'; color = '#490565';
-                  } else if (raw === 'critical') {
-                    bg = '#FDE8E8'; color = '#d32f2f';
-                  }
-                  return (
-                    <View style={[styles.statusPill, { backgroundColor: bg }]}>
-                      <Text style={[styles.statusPillText, { color }]}>{label}</Text>
-                    </View>
-                  );
-                })()}
-              </View>
-              <DetailRow label="DOB" value={formatDisplayDate(patient.date_of_birth)} />
-              <DetailRow label="Gender" value={getGenderText(patient.gender)} />
-              <DetailRow label="Patient ID" value={patient.patient_id} />
-              <DetailRow label="Provider" value={patient.provider_name} />
-              <DetailRow label="Caregiver" value={patient.caregiver_name} />
-              <DetailRow label="Device Serial" value={patientData?.device_serial || '-'} />
-            </View>
+            </Pressable>
 
             {!practiceIsLocked && (
               <View style={styles.timerCard}>
-                <View style={styles.timerCardHeader}>
-                  <Text style={styles.timerCardTitle}>Session Timer</Text>
-                  <View style={[styles.timerLivePill, isRunning && styles.timerLivePillActive]}>
-                    <View style={[styles.timerLiveDot, isRunning && { backgroundColor: '#22c55e' }]} />
-                    <Text style={styles.timerLiveText}>{isRunning ? 'Recording' : 'Paused'}</Text>
-                  </View>
-                </View>
                 <View style={styles.timerMainRow}>
-                  <Text style={[styles.timerDisplay, { color: accentColor }]}>{formatTimer(timer)}</Text>
+                  <View style={styles.timerCopy}>
+                    <Text style={styles.timerCardTitle}>Session Timer</Text>
+                    <Text style={[styles.timerDisplay, { color: accentColor }]}>{formatTimer(timer)}</Text>
+                  </View>
                   <View style={styles.timerActions}>
                     <TouchableOpacity
                       style={[styles.timerPlayBtn, { backgroundColor: accentColor }]}
@@ -899,8 +940,8 @@ export default function PatientHubScreen({ navigation, route }) {
                     >
                       <MaterialIcons
                         name={isRunning ? 'pause' : 'play-arrow'}
-                        size={28}
-                        color="#fff"
+                        size={22}
+                        color="#ffffff"
                       />
                     </TouchableOpacity>
                     <TouchableOpacity
@@ -912,80 +953,148 @@ export default function PatientHubScreen({ navigation, route }) {
                       accessibilityRole="button"
                       accessibilityLabel="Reset timer"
                     >
-                      <MaterialIcons name="close" size={22} color="#dc2626" />
+                      <MaterialIcons name="close" size={18} color="#dc2626" />
                     </TouchableOpacity>
                   </View>
                 </View>
               </View>
             )}
 
-            <View style={styles.sectionBlock}>
-              <Text style={styles.sectionTitle}>Last Upload Data</Text>
-              <View style={styles.vitalsGrid}>
-                <VitalUploadCard
-                  title="Blood Pressure"
-                  icon="favorite-border"
-                  accentColor={accentColor}
-                  onPress={() => openVitalList('bloodPressure')}
-                  dateValue={bp?.measure_new_date_time || bp?.measure_date_time || bp?.created_at}
-                  primary={bp ? `${Math.round(bp.systolic_pressure)}/${Math.round(bp.diastolic_pressure)}` : '-'}
-                  pulse={bp?.pulse}
-                  unit="mmHg"
-                />
-                <VitalUploadCard
-                  title="Blood Glucose"
-                  icon="opacity"
-                  accentColor={accentColor}
-                  onPress={() => openVitalList('bloodGlucose')}
-                  dateValue={bg?.measure_new_date_time || bg?.measure_date_time || bg?.created_at}
-                  primary={bg?.blood_glucose_value_1 != null ? String(Math.round(bg.blood_glucose_value_1)) : '-'}
-                  unit="mg/dl"
-                />
-                <VitalUploadCard
-                  title="Weight"
-                  icon="monitor-weight"
-                  accentColor={accentColor}
-                  onPress={() => openVitalList('weight')}
-                  dateValue={wt?.measure_new_date_time || wt?.measure_date_time || wt?.created_at}
-                  primary={wt?.weight != null ? parseFloat(wt.weight).toFixed(1) : '-'}
-                  unit="lb"
-                  metrics={weightMetrics}
-                  weightTarget={weightTarget}
-                />
-              </View>
+            <View style={styles.hubTabs}>
+              <TouchableOpacity
+                style={[styles.hubTab, hubTab === 'overview' && styles.hubTabActive]}
+                onPress={() => setHubTab('overview')}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: hubTab === 'overview' }}
+              >
+                <Text style={[styles.hubTabText, hubTab === 'overview' && styles.hubTabTextActive]}>Overview</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.hubTab, hubTab === 'followup' && styles.hubTabActive]}
+                onPress={() => setHubTab('followup')}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: hubTab === 'followup' }}
+              >
+                <Text style={[styles.hubTabText, hubTab === 'followup' && styles.hubTabTextActive]}>Follow up</Text>
+              </TouchableOpacity>
             </View>
 
-            <View style={styles.card}>
-              <View style={styles.notesHeader}>
-                <Text style={styles.cardTitle}>Follow Up Notes</Text>
-                {!practiceIsLocked && (
-                  <TouchableOpacity style={[styles.addFollowUpBtn, { backgroundColor: accentColor }]} onPress={openFollowUpModal}>
-                    <MaterialIcons name="add" size={18} color="#fff" />
-                    <Text style={styles.addFollowUpText}>Add Follow Up</Text>
-                  </TouchableOpacity>
+            {hubTab === 'overview' ? (
+              <View style={styles.sectionBlock}>
+                <Text style={styles.sectionTitle}>Last Upload Data</Text>
+                <View style={styles.vitalsGrid}>
+                  <VitalUploadCard
+                    title="Blood Pressure"
+                    icon="favorite-border"
+                    accentColor={accentColor}
+                    onPress={() => openVitalList('bloodPressure')}
+                    dateValue={bp?.measure_new_date_time || bp?.measure_date_time || bp?.created_at}
+                    primary={bp ? `${Math.round(bp.systolic_pressure)}/${Math.round(bp.diastolic_pressure)}` : '-'}
+                    pulse={bp?.pulse}
+                    unit="mmHg"
+                  />
+                  <VitalUploadCard
+                    title="Blood Glucose"
+                    icon="opacity"
+                    accentColor={accentColor}
+                    onPress={() => openVitalList('bloodGlucose')}
+                    dateValue={bg?.measure_new_date_time || bg?.measure_date_time || bg?.created_at}
+                    primary={bg?.blood_glucose_value_1 != null ? String(Math.round(bg.blood_glucose_value_1)) : '-'}
+                    unit="mg/dl"
+                  />
+                  <VitalUploadCard
+                    title="Weight"
+                    icon="monitor-weight"
+                    accentColor={accentColor}
+                    onPress={() => openVitalList('weight')}
+                    dateValue={wt?.measure_new_date_time || wt?.measure_date_time || wt?.created_at}
+                    primary={wt?.weight != null ? parseFloat(wt.weight).toFixed(1) : '-'}
+                    unit="lb"
+                    metrics={weightMetrics}
+                    weightTarget={weightTarget}
+                  />
+                </View>
+              </View>
+            ) : (
+              <View style={styles.card}>
+                <View style={styles.notesHeader}>
+                  <Text style={[styles.cardTitle, { marginBottom: 0 }]}>Follow Up Notes</Text>
+                  {!practiceIsLocked && (
+                    <TouchableOpacity style={[styles.addFollowUpBtn, { backgroundColor: accentColor }]} onPress={openFollowUpModal}>
+                      <MaterialIcons name="add" size={18} color="#fff" />
+                      <Text style={styles.addFollowUpText}>Add Follow Up</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+                {notes.length === 0 ? (
+                  <View style={styles.emptyFollowUp}>
+                    <Text style={styles.emptyNotes}>No notes available</Text>
+                  </View>
+                ) : (
+                  notes.slice(0, 10).map((note, index) => (
+                    <View key={note.id || index} style={styles.noteItem}>
+                      <Text style={styles.noteAuthor}>
+                        {note.caregiver_name
+                          || `${note.last_name || ''}, ${note.first_name || ''}`.replace(/^,\s*/, '').trim()
+                          || 'System Caregiver'}
+                      </Text>
+                      <Text style={styles.noteDate}>
+                        {formatDisplayDate(note.date || note.created_at)}
+                      </Text>
+                      <Text style={styles.noteText}>{note.content || note.note || ''}</Text>
+                    </View>
+                  ))
                 )}
               </View>
-              {notes.length === 0 ? (
-                <Text style={styles.emptyNotes}>No notes available</Text>
-              ) : (
-                notes.slice(0, 10).map((note, index) => (
-                  <View key={note.id || index} style={styles.noteItem}>
-                    <Text style={styles.noteAuthor}>
-                      {note.caregiver_name
-                        || `${note.last_name || ''}, ${note.first_name || ''}`.replace(/^,\s*/, '').trim()
-                        || 'System Caregiver'}
-                    </Text>
-                    <Text style={styles.noteDate}>
-                      {formatDisplayDate(note.date || note.created_at)}
-                    </Text>
-                    <Text style={styles.noteText}>{note.content || note.note || ''}</Text>
-                  </View>
-                ))
-              )}
-            </View>
+            )}
           </ScrollView>
         )}
       </SafeAreaView>
+
+      <Modal
+        visible={showProfileModal}
+        animationType="fade"
+        transparent
+        onRequestClose={() => setShowProfileModal(false)}
+        statusBarTranslucent
+        presentationStyle="overFullScreen"
+      >
+        <View style={styles.modalRoot}>
+          <Pressable style={styles.modalDimLayer} onPress={() => setShowProfileModal(false)} />
+          <View style={styles.modalCenterWrap} pointerEvents="box-none">
+            <View style={styles.profileModalCard}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Patient Details</Text>
+                <TouchableOpacity onPress={() => setShowProfileModal(false)} accessibilityRole="button" accessibilityLabel="Close patient details">
+                  <MaterialIcons name="close" size={22} color={TEXT_DARK} />
+                </TouchableOpacity>
+              </View>
+              <View style={[styles.cardTitleRow, { paddingHorizontal: scaleWidth(20) }]}>
+                <Text style={[styles.cardTitle, { marginBottom: 0 }]}>Status</Text>
+                <View style={[styles.statusPill, { backgroundColor: statusLook.bg }]}>
+                  <Text style={[styles.statusPillText, { color: statusLook.color }]}>{statusLook.label}</Text>
+                </View>
+              </View>
+              <ScrollView
+                style={styles.profileModalBody}
+                contentContainerStyle={styles.profileModalBodyContent}
+                showsVerticalScrollIndicator={false}
+              >
+                <DetailRow label="DOB" value={formatDisplayDate(patient.date_of_birth)} />
+                <DetailRow label="Age" value={getAgeFromDob(patient.date_of_birth)} />
+                <DetailRow label="Gender" value={getGenderText(patient.gender)} />
+                <DetailRow label="Patient ID" value={patient.patient_id} />
+                <DetailRow label="Provider" value={patient.provider_name} />
+                <DetailRow label="Caregiver" value={patient.caregiver_name} />
+                <DetailRow label="Device Serial" value={patientData?.device_serial || '-'} />
+                {(patient.state || patient.state_name) ? (
+                  <DetailRow label="State" value={patient.state_name || patient.state} />
+                ) : null}
+              </ScrollView>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       <Modal
         visible={showFollowUpModal}
@@ -1452,22 +1561,87 @@ const styles = StyleSheet.create({
     shadowRadius: 16,
     elevation: 4,
   },
+  profileCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: scaleWidth(16),
+    paddingVertical: scaleWidth(10),
+    paddingHorizontal: scaleWidth(12),
+    borderWidth: 1,
+    borderColor: '#e8ecf0',
+  },
   profileHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: scaleWidth(14),
-    marginBottom: scaleWidth(14),
+    gap: scaleWidth(10),
   },
   profileHeaderText: {
     flex: 1,
+    minWidth: 0,
   },
   profileName: {
-    fontSize: scaleFont(18),
+    fontSize: scaleFont(15),
     fontWeight: '800',
     color: TEXT_DARK,
   },
+  profileMeta: {
+    marginTop: scaleWidth(3),
+    fontSize: scaleFont(11),
+    fontWeight: '600',
+    color: TEXT_MUTED,
+  },
+  profileModalCard: {
+    width: '100%',
+    maxWidth: scaleWidth(380),
+    backgroundColor: '#ffffff',
+    borderRadius: scaleWidth(20),
+    borderWidth: 1,
+    borderColor: 'rgba(7, 27, 52, 0.1)',
+    paddingBottom: scaleWidth(12),
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 18 },
+    shadowOpacity: 0.38,
+    shadowRadius: 32,
+    elevation: 28,
+  },
+  profileModalBody: {
+    maxHeight: screenHeight * 0.55,
+    paddingHorizontal: scaleWidth(20),
+  },
+  profileModalBodyContent: {
+    paddingBottom: scaleWidth(8),
+  },
+  hubTabs: {
+    flexDirection: 'row',
+    backgroundColor: '#eef2f6',
+    borderRadius: scaleWidth(14),
+    padding: scaleWidth(4),
+  },
+  hubTab: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: scaleWidth(10),
+    borderRadius: scaleWidth(11),
+  },
+  hubTabActive: {
+    backgroundColor: '#ffffff',
+    shadowColor: PANEL_ACCENT,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  hubTabText: {
+    fontSize: scaleFont(13),
+    fontWeight: '700',
+    color: TEXT_MUTED,
+  },
+  hubTabTextActive: {
+    color: TEXT_DARK,
+    fontWeight: '800',
+  },
   profileInitials: {
-    fontSize: scaleFont(22),
+    fontSize: scaleFont(16),
     fontWeight: '800',
     color: '#ffffff',
   },
@@ -1485,9 +1659,10 @@ const styles = StyleSheet.create({
   },
   statusPill: {
     backgroundColor: '#d0f0e0',
-    paddingHorizontal: scaleWidth(10),
-    paddingVertical: scaleWidth(4),
+    paddingHorizontal: scaleWidth(8),
+    paddingVertical: scaleWidth(3),
     borderRadius: 999,
+    flexShrink: 0,
   },
   statusPillText: {
     fontSize: scaleFont(10),
@@ -1517,77 +1692,50 @@ const styles = StyleSheet.create({
   },
   timerCard: {
     backgroundColor: '#ffffff',
-    borderRadius: scaleWidth(18),
+    borderRadius: scaleWidth(16),
+    paddingVertical: scaleWidth(10),
+    paddingHorizontal: scaleWidth(12),
     borderWidth: 1,
     borderColor: '#e8ecf0',
-    padding: scaleWidth(16),
-    shadowColor: PANEL_ACCENT,
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.12,
-    shadowRadius: 16,
-    elevation: 4,
   },
-  timerCardHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: scaleWidth(10),
+  timerCopy: {
+    flex: 1,
+    minWidth: 0,
   },
   timerCardTitle: {
-    fontSize: scaleFont(15),
-    fontWeight: '800',
-    color: TEXT_DARK,
-  },
-  timerLivePill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: scaleWidth(6),
-    paddingHorizontal: scaleWidth(10),
-    paddingVertical: scaleWidth(5),
-    borderRadius: 999,
-    backgroundColor: 'rgba(7,27,52,0.06)',
-  },
-  timerLivePillActive: {
-    backgroundColor: 'rgba(34,197,94,0.12)',
-  },
-  timerLiveDot: {
-    width: scaleWidth(8),
-    height: scaleWidth(8),
-    borderRadius: scaleWidth(4),
-    backgroundColor: TEXT_MUTED,
-  },
-  timerLiveText: {
-    fontSize: scaleFont(10),
-    fontWeight: '800',
-    color: TEXT_DARK,
+    fontSize: scaleFont(12),
+    fontWeight: '700',
+    color: TEXT_MUTED,
+    marginBottom: scaleWidth(2),
   },
   timerMainRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    gap: scaleWidth(10),
   },
   timerDisplay: {
-    fontSize: scaleFont(36),
+    fontSize: scaleFont(24),
     fontWeight: '800',
-    letterSpacing: 1.5,
+    letterSpacing: 0.8,
     fontVariant: ['tabular-nums'],
   },
   timerActions: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: scaleWidth(8),
+    flexShrink: 0,
   },
   timerPlayBtn: {
-    width: scaleWidth(56),
-    height: scaleWidth(56),
-    borderRadius: scaleWidth(18),
+    width: scaleWidth(40),
+    height: scaleWidth(40),
+    borderRadius: scaleWidth(20),
     alignItems: 'center',
     justifyContent: 'center',
   },
   timerResetBtn: {
-    width: scaleWidth(56),
-    height: scaleWidth(56),
-    borderRadius: scaleWidth(18),
+    width: scaleWidth(40),
+    height: scaleWidth(40),
+    borderRadius: scaleWidth(20),
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#fee2e2',
@@ -1730,6 +1878,10 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: scaleFont(11),
     fontWeight: '800',
+  },
+  emptyFollowUp: {
+    paddingVertical: scaleWidth(18),
+    alignItems: 'center',
   },
   emptyNotes: {
     fontSize: scaleFont(13),

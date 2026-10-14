@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   View,
@@ -9,7 +9,9 @@ import {
   ScrollView,
   Dimensions,
   StatusBar,
+  RefreshControl,
 } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
 import { colors, fonts } from '../../config/globall';
@@ -47,6 +49,7 @@ const ROLE_LABELS = {
 
 const displayText = (value, fallback = 'Not provided') => {
   if (value === null || value === undefined) return fallback;
+  if (typeof value === 'object') return fallback;
   const text = String(value).trim();
   return text || fallback;
 };
@@ -68,100 +71,128 @@ const formatDob = (value) => {
   if (Number.isNaN(date.getTime())) return text;
   return date.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
 };
+import {
+  US_STATES,
+  US_STATE_NAMES_BY_ID,
+  US_STATE_CODES_MAP,
+  US_STATE_NAMES_BY_CODE,
+  resolveStateName,
+} from '../../utils/usStates';
 
-const US_STATE_NAMES_BY_ID = {
-  1: 'Alabama', 2: 'Alaska', 3: 'Arizona', 4: 'Arkansas', 5: 'California',
-  6: 'Colorado', 7: 'Connecticut', 8: 'Delaware', 9: 'District of Columbia', 10: 'Florida',
-  11: 'Georgia', 12: 'Hawaii', 13: 'Idaho', 14: 'Illinois', 15: 'Indiana',
-  16: 'Iowa', 17: 'Kansas', 18: 'Kentucky', 19: 'Louisiana', 20: 'Maine',
-  21: 'Maryland', 22: 'Massachusetts', 23: 'Michigan', 24: 'Minnesota', 25: 'Mississippi',
-  26: 'Missouri', 27: 'Montana', 28: 'Nebraska', 29: 'Nevada', 30: 'New Hampshire',
-  31: 'New Jersey', 32: 'New Mexico', 33: 'New York', 34: 'North Carolina', 35: 'North Dakota',
-  36: 'Ohio', 37: 'Oklahoma', 38: 'Oregon', 39: 'Pennsylvania', 40: 'Puerto Rico',
-  41: 'Rhode Island', 42: 'South Carolina', 43: 'South Dakota', 44: 'Tennessee', 45: 'Texas',
-  46: 'Utah', 47: 'Vermont', 48: 'Virginia', 49: 'Washington', 50: 'West Virginia',
-  51: 'Wisconsin', 52: 'Wyoming',
-};
-
-const US_STATE_NAMES_BY_CODE = Object.fromEntries(
-  Object.entries(US_STATE_NAMES_BY_ID).map(([, name]) => {
-    const code = {
-      Alabama: 'AL', Alaska: 'AK', Arizona: 'AZ', Arkansas: 'AR', California: 'CA',
-      Colorado: 'CO', Connecticut: 'CT', Delaware: 'DE', 'District of Columbia': 'DC', Florida: 'FL',
-      Georgia: 'GA', Hawaii: 'HI', Idaho: 'ID', Illinois: 'IL', Indiana: 'IN',
-      Iowa: 'IA', Kansas: 'KS', Kentucky: 'KY', Louisiana: 'LA', Maine: 'ME',
-      Maryland: 'MD', Massachusetts: 'MA', Michigan: 'MI', Minnesota: 'MN', Mississippi: 'MS',
-      Missouri: 'MO', Montana: 'MT', Nebraska: 'NE', Nevada: 'NV', 'New Hampshire': 'NH',
-      'New Jersey': 'NJ', 'New Mexico': 'NM', 'New York': 'NY', 'North Carolina': 'NC', 'North Dakota': 'ND',
-      Ohio: 'OH', Oklahoma: 'OK', Oregon: 'OR', Pennsylvania: 'PA', 'Puerto Rico': 'PR',
-      'Rhode Island': 'RI', 'South Carolina': 'SC', 'South Dakota': 'SD', Tennessee: 'TN', Texas: 'TX',
-      Utah: 'UT', Vermont: 'VT', Virginia: 'VA', Washington: 'WA', 'West Virginia': 'WV',
-      Wisconsin: 'WI', Wyoming: 'WY',
-    }[name];
-    return [code, name];
-  })
-);
 
 const cleanText = (value) => {
   if (value == null) return '';
+  if (typeof value === 'object') return '';
   const text = String(value).trim();
   if (!text || text.toLowerCase() === 'null' || text.toLowerCase() === 'undefined') return '';
   return text;
 };
 
-const stateNameFromId = (value) => {
-  const text = cleanText(value);
-  if (!/^\d+$/.test(text)) return '';
-  return US_STATE_NAMES_BY_ID[Number(text)] || '';
+const parseAddressData = (addr) => {
+  if (!addr) return {};
+  if (typeof addr === 'object') return addr;
+  if (typeof addr === 'string') {
+    const trimmed = addr.trim();
+    if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (parsed && typeof parsed === 'object') return parsed;
+      } catch {}
+    }
+  }
+  return {};
 };
 
-const stateNameFromText = (value) => {
-  const text = cleanText(value);
-  if (!text || /^\d+$/.test(text)) return '';
-  if (US_STATE_NAMES_BY_CODE[text.toUpperCase()]) return US_STATE_NAMES_BY_CODE[text.toUpperCase()];
-  const byName = Object.values(US_STATE_NAMES_BY_ID).find((name) => name.toLowerCase() === text.toLowerCase());
-  return byName || '';
-};
+const buildProfileAddress = (patientRecord, userAddress, user = {}) => {
+  const pRecord = patientRecord && typeof patientRecord === 'object' ? patientRecord : {};
+  const pAddr = parseAddressData(pRecord.address);
+  const uAddr = parseAddressData(userAddress);
+  const uObj = user && typeof user === 'object' ? user : {};
 
-const resolveStateName = (source) => {
-  if (!source || typeof source !== 'object') return '';
-  const named = stateNameFromText(source.state) || stateNameFromText(source.state_name);
-  if (named) return named;
-  return stateNameFromId(source.state_id) || stateNameFromId(source.state);
-};
+  const rawState =
+    uAddr.state_id ??
+    pAddr.state_id ??
+    pRecord.state_id ??
+    uObj.state_id ??
+    uAddr.state ??
+    pAddr.state ??
+    pRecord.state ??
+    uObj.state ??
+    uAddr.state_name ??
+    pAddr.state_name ??
+    pRecord.state_name ??
+    uObj.state_name ??
+    uAddr.state_code ??
+    pAddr.state_code ??
+    pRecord.state_code ??
+    uObj.state_code ??
+    '';
 
-const buildProfileAddress = (patientRecord, userAddress) => {
-  const userAddr = userAddress && typeof userAddress === 'object' ? userAddress : {};
-  const patient = patientRecord && typeof patientRecord === 'object' ? patientRecord : null;
-  if (!patient) return userAddr;
+  const resolvedState = resolveStateName(rawState);
 
-  const namedState = stateNameFromText(patient.state) || stateNameFromText(patient.state_name);
-  const numericStateId = namedState
-    ? ''
-    : (stateNameFromId(patient.state) ? patient.state : (stateNameFromId(patient.state_id) ? patient.state_id : userAddr.state_id));
+  const city =
+    cleanText(pAddr.city) ||
+    cleanText(pRecord.city) ||
+    cleanText(uAddr.city) ||
+    cleanText(uObj.city);
+
+  const addressLine1 =
+    cleanText(pAddr.address_line_1) ||
+    cleanText(pAddr.address) ||
+    cleanText(pRecord.address_line_1) ||
+    (typeof pRecord.address === 'string' && !pRecord.address.trim().startsWith('{') ? cleanText(pRecord.address) : '') ||
+    cleanText(uAddr.address_line_1) ||
+    cleanText(uAddr.address) ||
+    cleanText(uObj.address_line_1) ||
+    (typeof userAddress === 'string' && !userAddress.trim().startsWith('{') ? cleanText(userAddress) : '');
+
+  const addressLine2 =
+    cleanText(pAddr.address_line_2) ||
+    cleanText(pRecord.address_line_2) ||
+    cleanText(uAddr.address_line_2) ||
+    cleanText(uObj.address_line_2);
+
+  const zipCode =
+    cleanText(pAddr.zip_code) ||
+    cleanText(pAddr.zip) ||
+    cleanText(pRecord.zip_code) ||
+    cleanText(pRecord.zip) ||
+    cleanText(uAddr.zip_code) ||
+    cleanText(uAddr.zip) ||
+    cleanText(uObj.zip_code) ||
+    cleanText(uObj.zip);
 
   return {
-    address_line_1: cleanText(patient.address) || cleanText(patient.address_line_1) || cleanText(userAddr.address_line_1),
-    address_line_2: cleanText(patient.address_line_2) || cleanText(userAddr.address_line_2),
-    city: cleanText(patient.city) || cleanText(userAddr.city),
-    state: namedState,
-    state_id: numericStateId,
-    zip_code: cleanText(patient.zip_code) || cleanText(userAddr.zip_code),
+    address_line_1: addressLine1,
+    address_line_2: addressLine2,
+    city,
+    state: resolvedState,
+    zip_code: zipCode,
   };
 };
 
 const formatAddress = (source) => {
   if (!source) return '';
   if (typeof source === 'string') return source.trim();
+
+  const street = cleanText(source.address_line_1 || source.full_address || source.address || source.street);
+  const line2 = cleanText(source.address_line_2);
+  const city = cleanText(source.city);
+  const state = cleanText(source.state || resolveStateName(source));
+  const zip = cleanText(source.zip_code || source.zip);
+
+  if (street.includes(',') && ((city && street.toLowerCase().includes(city.toLowerCase())) || (state && street.toLowerCase().includes(state.toLowerCase())))) {
+    return [street, line2].filter(Boolean).join(', ');
+  }
+
   const parts = [
-    source.address_line_1 || source.full_address || source.address || source.street,
-    source.address_line_2,
-    source.city,
-    resolveStateName(source),
-    source.zip_code || source.zip,
-  ]
-    .map((part) => (part == null ? '' : String(part).trim()))
-    .filter(Boolean);
+    street,
+    line2,
+    city,
+    state,
+    zip,
+  ].filter(Boolean);
+
   return parts.join(', ');
 };
 
@@ -174,6 +205,7 @@ const PatientProfileScreen = ({ navigation }) => {
     phone: "Loading...",
     dob: "Loading...",
     address: "Loading...",
+    state: "",
     profilePic: null,
   });
 
@@ -186,10 +218,14 @@ const PatientProfileScreen = ({ navigation }) => {
   const [isPatient, setIsPatient] = useState(false);
 
   const [isLoading, setIsLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
-  const loadProfile = async () => {
+  const loadProfile = async (options = {}) => {
+    const { silent = false } = options;
     try {
-      setIsLoading(true);
+      if (!silent) {
+        setIsLoading(true);
+      }
       const userResult = await apiService.getCurrentUser();
       const user = userResult?.user || userResult?.data?.user || userResult?.data || null;
       if (!user) {
@@ -202,7 +238,12 @@ const PatientProfileScreen = ({ navigation }) => {
       if (patientRole) {
         try {
           const patientResult = await apiService.getPatientProfile();
-          patientRecord = patientResult?.data?.patient || patientResult?.data || null;
+          patientRecord =
+            patientResult?.data?.patient ||
+            patientResult?.patient ||
+            (patientResult?.data && !patientResult?.data?.user ? patientResult?.data : null) ||
+            patientResult?.data ||
+            null;
         } catch (patientError) {
           console.log('Could not load patient profile:', patientError.message);
         }
@@ -212,7 +253,9 @@ const PatientProfileScreen = ({ navigation }) => {
       const lastName = user.last_name || patientRecord?.last_name || '';
       const fullName = formatLastFirstName({ first_name: firstName, last_name: lastName }) || user.username || 'Not provided';
       const phoneSource = user.phone || user.cell_phone || patientRecord?.phone_number || patientRecord?.cell_phone_number || '';
-      const address = formatAddress(buildProfileAddress(patientRecord, user.address));
+      const profileAddressObj = buildProfileAddress(patientRecord, user.address, user);
+      const address = formatAddress(profileAddressObj);
+      const resolvedState = profileAddressObj.state || '';
       const dob = patientRole ? formatDob(patientRecord?.date_of_birth || patientRecord?.dob) : '';
 
       setIsPatient(patientRole);
@@ -224,6 +267,7 @@ const PatientProfileScreen = ({ navigation }) => {
         phone: displayText(formatPhone(phoneSource)),
         dob: displayText(dob),
         address: displayText(address),
+        state: displayText(resolvedState, ''),
         profilePic: patientRecord?.profile_pic || user.profile_pic || null,
       });
       setMedicalTeam({
@@ -253,11 +297,19 @@ const PatientProfileScreen = ({ navigation }) => {
       }));
     } finally {
       setIsLoading(false);
+      setRefreshing(false);
     }
   };
 
-  useEffect(() => {
-    loadProfile();
+  useFocusEffect(
+    useCallback(() => {
+      loadProfile({ silent: true });
+    }, [])
+  );
+
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    loadProfile({ silent: true });
   }, []);
 
   // Custom component for the Read-Only Info Fields
@@ -308,6 +360,14 @@ const PatientProfileScreen = ({ navigation }) => {
             style={styles.scroll}
             contentContainerStyle={styles.scrollContent}
             showsVerticalScrollIndicator={false}
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={onRefresh}
+                tintColor="#0b1f3f"
+                colors={['#0b1f3f']}
+              />
+            }
           >
               {/* Patient Details Section - Now in a box */}
               <View style={styles.sectionContainer}>
@@ -337,6 +397,12 @@ const PatientProfileScreen = ({ navigation }) => {
                   ) : null}
                   <View style={styles.dividerLine} />
                   <InfoField label="Address" value={userData.address} />
+                  {Boolean(userData.state && userData.state !== 'Not provided') && (
+                    <>
+                      <View style={styles.dividerLine} />
+                      <InfoField label="State" value={userData.state} />
+                    </>
+                  )}
                   <View style={styles.dividerLine} />
                   <InfoField label="Email" value={userData.email} />
                   <View style={styles.dividerLine} />

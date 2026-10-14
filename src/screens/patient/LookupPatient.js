@@ -1049,6 +1049,8 @@ export default function LookupPatient({ navigation }) {
     if (!canReport || isExporting) return;
     setShowExportMenu(false);
     setIsExporting(true);
+    // Wait for export menu modal fade animation to finish before launching file picker
+    await new Promise((resolve) => setTimeout(resolve, 300));
     try {
       const rows = await fetchAllLookupPatients();
       if (rows.length === 0) {

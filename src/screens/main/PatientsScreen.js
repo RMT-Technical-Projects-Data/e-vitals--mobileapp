@@ -594,7 +594,6 @@ export default function PatientsScreen({ route, navigation }) {
             </View>
           </View>
 
-          {/* Name + Vital Pills (BP, BG, Weight, etc.) */}
           <View style={styles.pcInfo}>
             <Text style={styles.pcName} numberOfLines={1}>{formatLastFirstName(item)}</Text>
             <View style={styles.vitalsPillRow}>
@@ -1105,22 +1104,20 @@ const styles = StyleSheet.create({
   pcInfo: {
     flex: 1,
     minWidth: 0,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: scaleWidth(8),
-    flexWrap: 'wrap',
+    justifyContent: 'center',
   },
   pcName: {
     fontSize: scaleFont(15),
     fontWeight: '800',
     color: '#0b1f3f',
-    flexShrink: 1,
+    lineHeight: scaleFont(18),
   },
   vitalsPillRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: scaleWidth(4),
-    flexWrap: 'wrap',
+    flexWrap: 'nowrap',
+    marginTop: scaleWidth(2),
   },
   inlineVitalPill: {
     paddingHorizontal: scaleWidth(6),

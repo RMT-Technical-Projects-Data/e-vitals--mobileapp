@@ -10,9 +10,9 @@
 		13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB51A68108700A75B9A /* Images.xcassets */; };
 		5888A6DA5F8324354D76CBAA /* Pods_evitals.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = EDC319800505A4A58D5F0118 /* Pods_evitals.framework */; };
 		761780ED2CA45674006654EE /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 761780EC2CA45674006654EE /* AppDelegate.swift */; };
-		A1B2C3D4E5F60718293A4C02 /* FileExportModule.m in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4C01 /* FileExportModule.m */; };
 		81AB9BB82411601600AC10FF /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */; };
 		83F3AEBCE9DB663B536F8FDE /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */; };
+		A1B2C3D4E5F60718293A4C02 /* FileExportModule.m in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4C01 /* FileExportModule.m */; };
 		F1A2B3C4D5E60718293A4B01 /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = F1A2B3C4D5E60718293A4B02 /* GoogleService-Info.plist */; };
 /* End PBXBuildFile section */
 
@@ -24,9 +24,9 @@
 		2FD557FB8667C6377091DA09 /* Pods-evitals.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-evitals.release.xcconfig"; path = "Target Support Files/Pods-evitals/Pods-evitals.release.xcconfig"; sourceTree = "<group>"; };
 		5F60F9B6306D18630010A02E /* evitals.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; name = evitals.entitlements; path = evitals/evitals.entitlements; sourceTree = "<group>"; };
 		761780EC2CA45674006654EE /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = evitals/AppDelegate.swift; sourceTree = "<group>"; };
-		A1B2C3D4E5F60718293A4C01 /* FileExportModule.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = FileExportModule.m; path = evitals/FileExportModule.m; sourceTree = "<group>"; };
 		79C7E5B2633B1B9F618118F9 /* Pods-evitals.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-evitals.debug.xcconfig"; path = "Target Support Files/Pods-evitals/Pods-evitals.debug.xcconfig"; sourceTree = "<group>"; };
 		81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = LaunchScreen.storyboard; path = evitals/LaunchScreen.storyboard; sourceTree = "<group>"; };
+		A1B2C3D4E5F60718293A4C01 /* FileExportModule.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = FileExportModule.m; path = evitals/FileExportModule.m; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
 		EDC319800505A4A58D5F0118 /* Pods_evitals.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_evitals.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		F1A2B3C4D5E60718293A4B02 /* GoogleService-Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = "GoogleService-Info.plist"; path = "evitals/GoogleService-Info.plist"; sourceTree = "<group>"; };
@@ -305,7 +305,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 3.4;
+				MARKETING_VERSION = 3.7;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",
@@ -342,7 +342,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 3.4;
+				MARKETING_VERSION = 3.7;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",

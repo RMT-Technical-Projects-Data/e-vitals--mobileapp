@@ -25,7 +25,11 @@ export const areNotificationsEnabled = async () => {
 export const setNotificationsEnabled = async (enabled) => {
   cachedEnabled = Boolean(enabled);
   loaded = true;
-  await AsyncStorage.multiSet([[STORAGE_KEY, cachedEnabled ? '1' : '0']]);
-  await AsyncStorage.removeItem(BELL_AFTER_KEY);
+  await AsyncStorage.setItem(STORAGE_KEY, cachedEnabled ? '1' : '0');
+  try {
+    await AsyncStorage.removeItem(BELL_AFTER_KEY);
+  } catch {
+    // Preference is already saved; this key is only used to hide stale bell items.
+  }
   return cachedEnabled;
 };

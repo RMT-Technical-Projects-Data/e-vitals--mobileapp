@@ -1,7 +1,7 @@
 #import <React/RCTBridgeModule.h>
 #import <UIKit/UIKit.h>
 
-@interface FileExport : NSObject <RCTBridgeModule, UIDocumentPickerDelegate>
+@interface FileExport : NSObject <RCTBridgeModule, UIDocumentPickerDelegate, UIAdaptivePresentationControllerDelegate>
 @end
 
 @implementation FileExport {
@@ -31,8 +31,15 @@ RCT_EXPORT_METHOD(saveToDownloads:(NSString *)filename
 {
   (void)mimeType;
   if (_resolve != nil) {
-    reject(@"E_SAVE_FILE", @"Another export is already in progress", nil);
-    return;
+    if (_picker != nil && _picker.presentingViewController != nil) {
+      reject(@"E_SAVE_FILE", @"Another export is already in progress", nil);
+      return;
+    }
+    RCTPromiseRejectBlock oldReject = _reject;
+    [self clearPending];
+    if (oldReject != nil) {
+      oldReject(@"E_CANCELLED", @"Previous export timed out or was dismissed", nil);
+    }
   }
 
   NSError *nameError = nil;
@@ -56,23 +63,51 @@ RCT_EXPORT_METHOD(saveToDownloads:(NSString *)filename
     return;
   }
 
-  UIViewController *presenter = [self topViewController];
-  if (presenter == nil) {
-    reject(@"E_SAVE_FILE", @"Could not open the save dialog", nil);
-    return;
-  }
-
   NSURL *fileURL = [NSURL fileURLWithPath:path];
   UIDocumentPickerViewController *picker =
       [[UIDocumentPickerViewController alloc] initForExportingURLs:@[fileURL] asCopy:YES];
   picker.delegate = self;
+  picker.presentationController.delegate = self;
   picker.modalPresentationStyle = UIModalPresentationFormSheet;
 
   _resolve = resolve;
   _reject = reject;
   _picker = picker;
   _savedName = safeName;
-  [presenter presentViewController:picker animated:YES completion:nil];
+
+  [self presentPicker:picker retryCount:0];
+}
+
+- (void)presentPicker:(UIDocumentPickerViewController *)picker retryCount:(NSInteger)retryCount
+{
+  UIViewController *presenter = [self topViewController];
+  if (presenter == nil) {
+    RCTPromiseRejectBlock reject = _reject;
+    [self clearPending];
+    if (reject != nil) {
+      reject(@"E_SAVE_FILE", @"Could not open the save dialog", nil);
+    }
+    return;
+  }
+
+  if (presenter.isBeingDismissed || presenter.isBeingPresented || (presenter.presentedViewController != nil && presenter.presentedViewController.isBeingDismissed)) {
+    if (retryCount < 10) {
+      dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.15 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        [self presentPicker:picker retryCount:retryCount + 1];
+      });
+      return;
+    }
+  }
+
+  @try {
+    [presenter presentViewController:picker animated:YES completion:nil];
+  } @catch (NSException *exception) {
+    RCTPromiseRejectBlock reject = _reject;
+    [self clearPending];
+    if (reject != nil) {
+      reject(@"E_SAVE_FILE", exception.reason ?: @"Failed to present save dialog", nil);
+    }
+  }
 }
 
 - (void)documentPicker:(UIDocumentPickerViewController *)controller didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls
@@ -89,6 +124,15 @@ RCT_EXPORT_METHOD(saveToDownloads:(NSString *)filename
 }
 
 - (void)documentPickerWasCancelled:(UIDocumentPickerViewController *)controller
+{
+  RCTPromiseRejectBlock reject = _reject;
+  [self clearPending];
+  if (reject != nil) {
+    reject(@"E_CANCELLED", @"Export cancelled", nil);
+  }
+}
+
+- (void)presentationControllerDidDismiss:(UIPresentationController *)presentationController
 {
   RCTPromiseRejectBlock reject = _reject;
   [self clearPending];
@@ -145,7 +189,7 @@ RCT_EXPORT_METHOD(saveToDownloads:(NSString *)filename
   }
 
   UIViewController *controller = window.rootViewController;
-  while (controller.presentedViewController != nil) {
+  while (controller.presentedViewController != nil && !controller.presentedViewController.isBeingDismissed) {
     controller = controller.presentedViewController;
   }
   return controller;

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -89,6 +89,9 @@ const SettingsScreen = ({ navigation }) => {
   const [profilePic, setProfilePic] = useState(null);
 
   const [isNotificationsEnabled, setIsNotificationsEnabled] = useState(true);
+  const [isUpdatingNotifications, setIsUpdatingNotifications] = useState(false);
+  const notificationsTouchedRef = useRef(false);
+  const notificationsBusyRef = useRef(false);
   const [isBiometricAvailable, setIsBiometricAvailable] = useState(false);
   const [isBiometricEnabled, setIsBiometricEnabled] = useState(false);
   const [biometricLabel, setBiometricLabel] = useState(Platform.OS === 'ios' ? 'Face ID' : 'Biometric login');
@@ -115,6 +118,11 @@ const SettingsScreen = ({ navigation }) => {
 
   const loadUserData = async () => {
     try {
+      const storedPreference = await areNotificationsEnabled();
+      if (!notificationsTouchedRef.current) {
+        setIsNotificationsEnabled(storedPreference);
+      }
+
       const userStr = await AsyncStorage.getItem('user');
       if (userStr) {
         const user = JSON.parse(userStr);
@@ -154,8 +162,6 @@ const SettingsScreen = ({ navigation }) => {
         setSessionTime(sessionMinutes);
       }
 
-      setIsNotificationsEnabled(await areNotificationsEnabled());
-
       const biometricStatus = await getBiometricStatus();
       setIsBiometricAvailable(biometricStatus.available);
       setIsBiometricEnabled(biometricStatus.enabled);
@@ -192,25 +198,46 @@ const SettingsScreen = ({ navigation }) => {
     }
   };
 
-  const toggleNotifications = async () => {
-    const next = !isNotificationsEnabled;
+  const toggleNotifications = async (nextValue) => {
+    if (notificationsBusyRef.current) return;
+    const next = typeof nextValue === 'boolean' ? nextValue : !isNotificationsEnabled;
+    if (next === isNotificationsEnabled) return;
+
+    notificationsBusyRef.current = true;
+    notificationsTouchedRef.current = true;
+    setIsUpdatingNotifications(true);
     setIsNotificationsEnabled(next);
+
     try {
+      await setNotificationsEnabled(next);
       if (next) {
-        await setNotificationsEnabled(true);
         await registerPushTokenWithBackend();
       } else {
-        await setNotificationsEnabled(false);
         await unregisterPushTokenFromBackend();
-        await notifee.cancelAllNotifications();
-        await refreshNotificationInbox();
+        try {
+          await notifee.cancelAllNotifications();
+        } catch {
+          // Preference is already off even if the tray cannot be cleared.
+        }
+        try {
+          await refreshNotificationInbox();
+        } catch {
+          // Inbox refresh is best-effort after disabling alerts.
+        }
       }
-      await publishBellUnreadCount();
+      publishBellUnreadCount().catch(() => {});
     } catch (error) {
       const reverted = !next;
       setIsNotificationsEnabled(reverted);
-      await setNotificationsEnabled(reverted);
+      try {
+        await setNotificationsEnabled(reverted);
+      } catch {
+        // Keep the UI aligned with the last known preference.
+      }
       Alert.alert('Notifications', 'Could not update notification settings. Please try again.');
+    } finally {
+      notificationsBusyRef.current = false;
+      setIsUpdatingNotifications(false);
     }
   };
 
@@ -460,14 +487,18 @@ const SettingsScreen = ({ navigation }) => {
               </View>
               <View style={styles.settingTextContainer}>
                 <Text style={styles.settingTitle}>Notifications</Text>
-                <Text style={styles.settingSubtitle}>
+                <Text style={styles.settingSubtitle} numberOfLines={2}>
                   {isNotificationsEnabled ? 'You will receive notifications' : 'Alerts are off. New notices stay in the bell'}
                 </Text>
               </View>
               <TouchableOpacity
                 style={[styles.toggleContainer, isNotificationsEnabled ? styles.toggleActive : styles.toggleInactive]}
                 onPress={toggleNotifications}
+                disabled={isUpdatingNotifications}
                 activeOpacity={1}
+                accessibilityRole="switch"
+                accessibilityState={{ checked: isNotificationsEnabled, disabled: isUpdatingNotifications }}
+                accessibilityLabel="Notifications"
               >
                 <View style={[styles.toggleCircle, isNotificationsEnabled ? styles.circleActive : styles.circleInactive]} />
               </TouchableOpacity>
@@ -917,7 +948,9 @@ const styles = StyleSheet.create({
   },
   settingTextContainer: {
     flex: 1,
-    marginLeft: scaleWidth(16),
+    minWidth: 0,
+    marginLeft: 0,
+    marginRight: scaleWidth(8),
     justifyContent: 'center',
   },
   settingTitle: {
